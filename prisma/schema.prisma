@@ -137,12 +137,17 @@ model CardProgress {
   correctCount Int       @default(0)
   missCount    Int       @default(0)
   lastSeenAt   DateTime?
+  // Date à laquelle la carte redevient à réviser. Nulle = jamais répondue,
+  // donc à voir tout de suite. Calculée par nextDueAt() à chaque réponse.
+  dueAt        DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
   @@id([userId, cardId])
   @@index([userId, status])
+  // Requête la plus fréquente de l'app : « qu'ai-je à réviser maintenant ? »
+  @@index([userId, dueAt])
 }
 
 // Une passe de révision terminée, pour afficher un historique et des stats.

@@ -32,11 +32,17 @@ const LONG_ANSWER = 260;
 
 export function StudyClient({
   deckId,
-  deckTitle,
+  title,
+  backHref,
+  replayHref,
   cards,
 }: {
-  deckId: string;
-  deckTitle: string;
+  // Nul pour la révision d'un dossier entier : les cartes viennent alors de
+  // plusieurs paquets, et aucune session ne se rattache à l'un d'eux.
+  deckId: string | null;
+  title: string;
+  backHref: string;
+  replayHref: string;
   cards: StudyCard[];
 }) {
   const [queue, setQueue] = React.useState<StudyCard[]>(cards);
@@ -110,7 +116,9 @@ export function StudyClient({
   React.useEffect(() => {
     if (queue.length > 0 || done === 0 || finishedRef.current) return;
     finishedRef.current = true;
-    void finishSession(deckId, stats.correct, stats.miss);
+    // La progression par carte est enregistrée au fil de l'eau dans tous les
+    // cas ; seul l'historique de session suppose un paquet identifié.
+    if (deckId) void finishSession(deckId, stats.correct, stats.miss);
   }, [queue.length, done, deckId, stats.correct, stats.miss]);
 
   // Raccourcis clavier : réviser au clavier est plus rapide qu'à la souris,
@@ -142,7 +150,15 @@ export function StudyClient({
   }, [answer, undo, current, lightboxOpen]);
 
   if (!current) {
-    return <Summary deckId={deckId} deckTitle={deckTitle} stats={stats} total={cards.length} />;
+    return (
+      <Summary
+        title={title}
+        backHref={backHref}
+        replayHref={replayHref}
+        stats={stats}
+        total={cards.length}
+      />
+    );
   }
 
   const isLong = current.definition.length > LONG_ANSWER;
@@ -363,8 +379,14 @@ function FlipCard({
 
       {/* Verso : la réponse, tournée à 180° et masquée tant qu'on est de face. */}
       <Face onClick={onFlip} label="Réponse" className="[transform:rotateY(180deg)]">
-        <div className="scroll-slim w-full overflow-y-auto overscroll-contain">
+        <div
+          className={cn(
+            "scroll-slim w-full overflow-y-auto overscroll-contain",
+            !card.imagePath && "flex flex-col justify-center",
+          )}
+        >
           <AnswerView
+            showcase
             definition={card.definition}
             imagePath={card.imagePath}
             onLightboxChange={onLightboxChange}
@@ -429,13 +451,15 @@ function Face({
 }
 
 function Summary({
-  deckId,
-  deckTitle,
+  title,
+  backHref,
+  replayHref,
   stats,
   total,
 }: {
-  deckId: string;
-  deckTitle: string;
+  title: string;
+  backHref: string;
+  replayHref: string;
   stats: { correct: number; miss: number };
   total: number;
 }) {
@@ -450,7 +474,7 @@ function Summary({
 
       <h1 className="text-3xl font-semibold tracking-tight">Paquet terminé</h1>
       <p className="mt-1 text-sm text-fg-muted">
-        Tu as passé les {total} carte{total > 1 ? "s" : ""} de « {deckTitle} ».
+        Tu as passé les {total} carte{total > 1 ? "s" : ""} de « {title} ».
       </p>
 
       <dl className="mt-6 grid grid-cols-3 gap-3">
@@ -461,12 +485,12 @@ function Summary({
 
       <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
         <Button asChild variant="secondary">
-          <Link href={`/decks/${deckId}`}>Retour au paquet</Link>
+          <Link href={backHref}>Retour</Link>
         </Button>
         <Button asChild>
           {/* `all=1` force une passe complète : sans ça, toutes les cartes étant
               désormais « sues », la session repartirait vide. */}
-          <Link href={`/decks/${deckId}/study?all=1`}>
+          <Link href={replayHref}>
             <RotateCcw />
             Tout revoir
           </Link>

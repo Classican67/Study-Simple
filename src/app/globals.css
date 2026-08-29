@@ -210,3 +210,20 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+@layer utilities {
+  /* Couleurs de texte du contenu des cartes. Elles s'éclaircissent en thème
+     sombre : la version claire serait illisible sur fond foncé. La liste doit
+     rester alignée sur TEXT_COLORS dans src/components/rich-text.tsx. */
+  .text-c-rose { color: oklch(55% 0.21 15); }
+  .text-c-amber { color: oklch(52% 0.14 70); }
+  .text-c-emerald { color: oklch(48% 0.14 160); }
+  .text-c-blue { color: oklch(50% 0.17 250); }
+  .text-c-violet { color: oklch(50% 0.21 292); }
+
+  .dark .text-c-rose { color: oklch(75% 0.17 15); }
+  .dark .text-c-amber { color: oklch(78% 0.15 75); }
+  .dark .text-c-emerald { color: oklch(76% 0.16 160); }
+  .dark .text-c-blue { color: oklch(75% 0.14 250); }
+  .dark .text-c-violet { color: oklch(76% 0.15 292); }
+}

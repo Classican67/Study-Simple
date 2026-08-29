@@ -340,6 +340,30 @@ git add package-lock.json && git commit -m "Complète le lock pour npm 10"
 lock dans le format court et ramènera le problème. Après une mise à jour de
 dépendances, refaire passer la commande ci-dessus avant de committer.
 
+## `Unknown argument` sur un champ récent (client Prisma périmé)
+
+Symptôme, dans le navigateur ou les logs :
+
+```
+PrismaClientValidationError … Unknown argument `dueAt`
+```
+
+**Cause.** Le client Prisma est du code *généré* à partir du schéma. Après un
+`git pull` qui apporte un nouveau champ, il faut le régénérer — sinon il
+continue de décrire l'ancien schéma.
+
+**Correction.** Le projet a désormais un hook `postinstall` qui s'en charge,
+mais si le client est déjà périmé :
+
+```bash
+npx prisma generate        # régénère le client
+npm run db:deploy          # applique les migrations manquantes à la base
+```
+
+Dans Docker, les deux sont faits automatiquement (au build pour la génération,
+par l'entrypoint pour les migrations) : ce cas ne concerne que le
+développement local.
+
 ## Écriture sur le NAS refusée
 
 Le conteneur écrit en tant que `root`. Selon le type de partage :

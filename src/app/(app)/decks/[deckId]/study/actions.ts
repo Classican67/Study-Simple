@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
+import { nextDueAt } from "@/lib/scheduling";
 
 // Enregistré carte par carte plutôt qu'en bloc à la fin : fermer l'onglet au
 // milieu d'une session ne fait alors perdre aucune réponse déjà donnée.
@@ -25,6 +26,10 @@ export async function recordAnswer(cardId: string, knew: boolean) {
   // apprentissage et casse la série, quelle que soit la progression acquise.
   const streak = knew ? (existing?.streak ?? 0) + 1 : 0;
   const status = knew ? "known" : "learning";
+  // Plus la série est longue, plus la carte revient tard. Une carte ratée
+  // repart à zéro et redevient due immédiatement.
+  const now = new Date();
+  const dueAt = nextDueAt(streak, now);
 
   await prisma.cardProgress.upsert({
     where: { userId_cardId: { userId: user.id, cardId } },
@@ -35,14 +40,16 @@ export async function recordAnswer(cardId: string, knew: boolean) {
       streak,
       correctCount: knew ? 1 : 0,
       missCount: knew ? 0 : 1,
-      lastSeenAt: new Date(),
+      lastSeenAt: now,
+      dueAt,
     },
     update: {
       status,
       streak,
       correctCount: { increment: knew ? 1 : 0 },
       missCount: { increment: knew ? 0 : 1 },
-      lastSeenAt: new Date(),
+      lastSeenAt: now,
+      dueAt,
     },
   });
 }

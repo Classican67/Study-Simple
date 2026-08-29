@@ -109,6 +109,11 @@ reste. Ils s'imbriquent jusqu'à **5 niveaux**, borne d'interface destinée à
 garder le fil d'Ariane lisible.
 
 - **Nouveau dossier** crée un sous-dossier là où tu te trouves.
+- **Glisser-déposer** : à la souris, un paquet se prend et se dépose sur un
+  dossier, ou sur un maillon du fil d'Ariane pour le faire remonter. Le
+  glisser-déposer natif du navigateur ne fonctionne pas au doigt — c'est une
+  limite de l'API, pas un oubli ; sur tactile et au clavier, l'icône de
+  déplacement fait le même travail.
 - L'icône de déplacement range un paquet ou un dossier ailleurs. Un dossier ne
   peut pas être déplacé dans lui-même ni dans l'un de ses descendants : la
   branche entière deviendrait inaccessible, et le serveur le refuse.
@@ -131,6 +136,57 @@ modifiables en place, sans boîte de dialogue.
 - La barre de mise en forme (**gras**, *italique*, listes…) n'apparaît que
   lorsqu'un champ a le focus, pour que la liste reste lisible.
 - L'image se rattache directement depuis la ligne, et s'agrandit au clic.
+
+**Photographier une fiche.** Sur iPad et téléphone, un bouton **Appareil
+photo** ouvre l'appareil du système, puis un recadreur : on déplace le cadre
+ou on tire ses coins, on peut pivoter par quarts de tour, et les flèches du
+clavier déplacent le cadre. Le bouton n'apparaît que sur écran tactile
+(détecté par `pointer: coarse`, sans reniflage d'agent utilisateur).
+
+L'accès passe par `capture="environment"` sur un champ fichier, donc par
+l'application appareil photo du système, et non par `getUserMedia` : il
+faudrait sinon réimplémenter mise au point, exposition et flash, sans accès au
+traitement d'image de l'iPad.
+
+Le recadrage sert aussi à **alléger** : la photo est réencodée en WebP et
+bornée à 1600 px de côté. Un cliché d'iPad passe ainsi de plusieurs mégaoctets
+à quelques dizaines de kilooctets — ce qui compte quand les images vivent sur
+le NAS.
+
+La mise en forme est **visuelle** : un mot en gras s'affiche en gras, jamais
+entouré de `**`. Sous le capot, le contenu reste stocké en texte balisé et
+jamais en HTML — ce qui sort du navigateur repasse toujours par notre propre
+analyseur, donc aucune balise ne peut se retrouver en base. Gras, italique,
+barré, listes et **cinq couleurs** sont disponibles ; les couleurs
+s'éclaircissent d'elles-mêmes en thème sombre.
+
+---
+
+## La révision espacée
+
+Une carte réussie ne disparaît pas : elle revient **de plus en plus tard**,
+selon un système de Leitner — 1 jour, puis 3, 7, 16, 35. Une carte ratée
+repart à zéro et revient dans la session courante. C'est ce qui distingue un
+outil de mémorisation d'un outil de bachotage : sans ça, on marque une carte
+« sue », on l'oublie, et rien ne le signale jamais.
+
+L'accueil affiche donc un bandeau **« N cartes à réviser aujourd'hui »**, qui
+mélange toutes les matières. C'est l'entrée quotidienne de l'app : un seul
+nombre, un seul geste.
+
+Deux détails d'implémentation qui se voient à l'usage :
+
+- L'échéance est calée sur le **début de journée**. Réviser à 23 h ou à 8 h
+  ramène la carte le même jour ; sinon la seconde serait annoncée « pas encore
+  due » pendant quinze heures, ce qui n'a aucun sens quand on révise le soir.
+- Une carte répondue **avant** la mise en place de la planification (donc sans
+  échéance enregistrée) est considérée comme à réviser. Sans cette règle, toute
+  carte déjà marquée « sue » lors de la mise à jour serait restée invisible
+  pour toujours.
+
+Le bouton **Réviser** d'un paquet ou d'un dossier ne propose que ce qui est
+arrivé à échéance ; **Tout revoir** rejoue l'ensemble, quelle que soit la
+planification.
 
 ---
 
@@ -156,6 +212,26 @@ acquises ; le bouton **Tout revoir** rejoue le paquet entier.
 
 La progression est **par compte** : deux personnes révisant le même paquet
 gardent des états distincts.
+
+**Deux modes.** *Cartes* retourne la carte et te laisse juger toi-même.
+*Écrire* te fait taper la réponse et la vérifie : la comparaison ignore les
+accents, la casse, la ponctuation et l'article initial, tolère une faute de
+frappe proportionnelle à la longueur, et accepte n'importe laquelle des
+variantes séparées par « / ». Un mot voisin mais différent reste refusé —
+« méiose » ne passe pas pour « mitose ». Le bouton **« En fait, je savais »**
+rattrape les cas qu'aucune comparaison automatique ne peut trancher : un
+synonyme, une formulation différente. Sans lui le mode deviendrait punitif.
+
+Produire la réponse ancre nettement mieux la mémoire que la reconnaître :
+s'auto-évaluer en voyant la réponse est complaisant.
+
+**Réviser un dossier entier** — le bouton « Réviser le dossier » mélange les
+cartes de tous ses paquets, sous-dossiers compris. Les cartes ne reviennent
+alors plus dans l'ordre d'un paquet, ce qui empêche de reconnaître une réponse
+à sa seule position dans la liste.
+
+Quand une carte n'a pas d'image, sa réponse est agrandie et centrée : le texte
+étant le seul contenu, autant qu'il se lise de loin.
 
 ---
 
@@ -285,6 +361,35 @@ Le code est bind-monté, la base et les images vivent dans le volume `dev_data`,
 séparé de la production. Pour repartir de zéro :
 `docker compose -f docker-compose.dev.yml down -v`.
 
+### Tests
+
+```bash
+npm test           # une passe
+npm run test:watch # relance à chaque modification
+```
+
+107 tests, environ une seconde, **sans navigateur ni base de données**. Ils
+utilisent le lanceur intégré de Node (`node --test`) : aucune dépendance de
+test à part `jsdom`, nécessaire pour éprouver le sérialiseur de l'éditeur.
+
+Ce qui est couvert :
+
+| Fichier | Ce qu'il protège |
+|---|---|
+| `scheduling.test.ts` | paliers de Leitner, calage sur le début de journée, libellés d'échéance |
+| `answer-check.test.ts` | tolérance aux accents et aux fautes de frappe — **et les refus** |
+| `import.test.ts` | formats Quizlet, CSV, détection automatique, refus de deviner |
+| `rich-text.test.ts` | analyse du balisage, rendu React, échappement du HTML |
+| `rich-editor.test.ts` | traduction DOM → balisage, et l'aller-retour complet |
+| `crop.test.ts` | géométrie du recadrage : bornes, inversion, réduction |
+| `folder-tree.test.ts` | fil d'Ariane, cycles, sous-arbres |
+| `upload-path.test.ts` | liste blanche des noms de fichiers, traversée de chemin |
+
+La logique pure vit dans des modules sans `server-only` (`folder-tree.ts`,
+`upload-path.ts`, `scheduling.ts`, `answer-check.ts`, `import.ts`) précisément
+pour être testable sans base ni serveur. Les parcours qui exigent un navigateur
+— glisser-déposer, mise en forme visuelle, révision — ne sont pas couverts ici.
+
 ### Commandes
 
 | Commande | Effet |
@@ -293,6 +398,7 @@ séparé de la production. Pour repartir de zéro :
 | `npm run build` | build de production (vérifie aussi les types) |
 | `npm run typecheck` | TypeScript seul |
 | `npm run lint` | ESLint |
+| `npm test` | tests unitaires |
 | `npm run db:migrate` | crée une migration après modification du schéma |
 | `npm run db:deploy` | applique les migrations existantes |
 | `npm run db:studio` | explorateur de base Prisma |

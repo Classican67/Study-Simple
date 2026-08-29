@@ -1,23 +1,26 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { DeckSummary } from "@/lib/decks";
+import { dueCardWhere, type DeckSummary } from "@/lib/decks";
+import {
+  MAX_FOLDER_DEPTH,
+  buildBreadcrumb,
+  depthOf,
+  descendantIds,
+  isDescendant,
+  type FolderNode,
+} from "@/lib/folder-tree";
 
-export type FolderNode = {
-  id: string;
-  name: string;
-  color: string;
-  parentId: string | null;
-};
+// Réexportés pour que les appelants n'aient qu'un module à connaître.
+export { MAX_FOLDER_DEPTH, buildBreadcrumb, depthOf, descendantIds, isDescendant };
+export type { FolderNode };
 
 export type FolderSummary = FolderNode & {
   deckCount: number;
   childCount: number;
+  /** Cartes à réviser dans tout le sous-arbre du dossier. */
+  dueCount: number;
 };
-
-// Au-delà, le fil d'Ariane devient illisible et le déplacement incompréhensible.
-// C'est une limite d'interface, pas de schéma.
-export const MAX_FOLDER_DEPTH = 5;
 
 // Un utilisateur a quelques dizaines de dossiers au plus : on les charge tous
 // d'un coup et on construit l'arbre en mémoire, plutôt que de remonter les
@@ -30,47 +33,17 @@ async function allFolders(userId: string): Promise<FolderNode[]> {
   });
 }
 
-// Chemin de la racine jusqu'au dossier, inclus.
-export function buildBreadcrumb(folders: FolderNode[], folderId: string | null): FolderNode[] {
-  const byId = new Map(folders.map((f) => [f.id, f]));
-  const path: FolderNode[] = [];
-  let current = folderId ? byId.get(folderId) : undefined;
-
-  // La borne de profondeur protège aussi d'une boucle qui aurait échappé à la
-  // validation : mieux vaut un fil tronqué qu'une page qui ne répond plus.
-  while (current && path.length <= MAX_FOLDER_DEPTH + 1) {
-    path.unshift(current);
-    current = current.parentId ? byId.get(current.parentId) : undefined;
-  }
-  return path;
-}
-
-export function depthOf(folders: FolderNode[], folderId: string | null): number {
-  return buildBreadcrumb(folders, folderId).length;
-}
-
-// Un dossier ne peut pas être déplacé dans lui-même ni dans l'un de ses
-// descendants : cela détacherait toute la branche de la racine.
-export function isDescendant(
-  folders: FolderNode[],
-  candidateId: string,
-  ancestorId: string,
-): boolean {
-  const byId = new Map(folders.map((f) => [f.id, f]));
-  let current = byId.get(candidateId);
-  let guard = 0;
-  while (current && guard++ <= MAX_FOLDER_DEPTH + 2) {
-    if (current.id === ancestorId) return true;
-    current = current.parentId ? byId.get(current.parentId) : undefined;
-  }
-  return false;
-}
-
 export type FolderView = {
   current: FolderNode | null;
   breadcrumb: FolderNode[];
   folders: FolderSummary[];
   decks: DeckSummary[];
+  /** Cartes contenues dans tout le sous-arbre, pour la révision du dossier. */
+  subtreeCards: number;
+  /** Cartes à réviser ici et maintenant, dans tout le sous-arbre. */
+  dueHere: number;
+  /** Cartes à réviser sur l'ensemble du compte, tous dossiers confondus. */
+  dueTotal: number;
 };
 
 /**
@@ -115,7 +88,7 @@ export async function getFolderView(userId: string, folderId: string | null): Pr
     },
   });
 
-  // Cartes acquises par paquet, en une requête (cf. listDecks).
+  // Cartes acquises par paquet, en une requête plutôt qu'une par paquet.
   const knownPerDeck = await prisma.card.groupBy({
     by: ["deckId"],
     where: {
@@ -126,13 +99,58 @@ export async function getFolderView(userId: string, folderId: string | null): Pr
   });
   const knownMap = new Map(knownPerDeck.map((row) => [row.deckId, row._count._all]));
 
+  // Échéances de tout le compte, en une requête, puis remontée dans l'arbre en
+  // mémoire. L'alternative — une requête par dossier — coûterait autant de
+  // requêtes que de dossiers, à chaque affichage de l'accueil.
+  const dueByDeck = await prisma.card.groupBy({
+    by: ["deckId"],
+    where: { deck: { ownerId: userId }, ...dueCardWhere(userId) },
+    _count: { _all: true },
+  });
+  const dueMap = new Map(dueByDeck.map((row) => [row.deckId, row._count._all]));
+
+  const allDecks = await prisma.deck.findMany({
+    where: { ownerId: userId },
+    select: { id: true, folderId: true },
+  });
+
+  const dueTotal = allDecks.reduce((sum, deck) => sum + (dueMap.get(deck.id) ?? 0), 0);
+
+  // Échéances directement posées dans chaque dossier…
+  const dueDirect = new Map<string, number>();
+  for (const deck of allDecks) {
+    if (!deck.folderId) continue;
+    dueDirect.set(deck.folderId, (dueDirect.get(deck.folderId) ?? 0) + (dueMap.get(deck.id) ?? 0));
+  }
+  // …puis cumulées sur tout le sous-arbre de chacun.
+  const dueSubtree = new Map<string, number>();
+  for (const folder of folders) {
+    dueSubtree.set(
+      folder.id,
+      descendantIds(folders, folder.id).reduce((sum, id) => sum + (dueDirect.get(id) ?? 0), 0),
+    );
+  }
+
+  // Nombre de cartes de tout le sous-arbre : conditionne l'offre de réviser
+  // le dossier entier. Une seule requête, quelle que soit la profondeur.
+  const subtreeIds = folderId ? descendantIds(folders, folderId) : null;
+  const subtreeCards = subtreeIds
+    ? await prisma.card.count({
+        where: { deck: { ownerId: userId, folderId: { in: subtreeIds } } },
+      })
+    : 0;
+
   return {
     current,
     breadcrumb: buildBreadcrumb(folders, folderId),
+    subtreeCards,
+    dueHere: folderId ? (dueSubtree.get(folderId) ?? 0) : dueTotal,
+    dueTotal,
     folders: children.map((child) => ({
       ...child,
       deckCount: deckCountMap.get(child.id) ?? 0,
       childCount: childCount.get(child.id) ?? 0,
+      dueCount: dueSubtree.get(child.id) ?? 0,
     })),
     decks: decks.map((deck) => ({
       id: deck.id,
@@ -142,6 +160,7 @@ export async function getFolderView(userId: string, folderId: string | null): Pr
       updatedAt: deck.updatedAt,
       cardCount: deck._count.cards,
       knownCount: knownMap.get(deck.id) ?? 0,
+      dueCount: dueMap.get(deck.id) ?? 0,
     })),
   };
 }
@@ -183,4 +202,34 @@ export async function getFolderForUser(folderId: string, userId: string) {
     where: { id: folderId, ownerId: userId },
     select: { id: true, name: true, color: true, parentId: true },
   });
+}
+
+/**
+ * Toutes les cartes contenues dans un dossier, sous-dossiers compris.
+ * Sert à la révision d'un dossier entier.
+ */
+export async function getFolderCards(userId: string, folderId: string) {
+  const folders = await allFolders(userId);
+  const ids = descendantIds(folders, folderId);
+
+  const cards = await prisma.card.findMany({
+    where: { deck: { ownerId: userId, folderId: { in: ids } } },
+    orderBy: [{ deckId: "asc" }, { position: "asc" }],
+    select: {
+      id: true,
+      term: true,
+      definition: true,
+      imagePath: true,
+      progress: { where: { userId }, select: { status: true, dueAt: true } },
+    },
+  });
+
+  return cards.map((card) => ({
+    id: card.id,
+    term: card.term,
+    definition: card.definition,
+    imagePath: card.imagePath,
+    status: card.progress[0]?.status ?? "new",
+    dueAt: card.progress[0]?.dueAt ?? null,
+  }));
 }

@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronUp,
   GripVertical,
-  ImagePlus,
   Loader2,
   Plus,
   Trash2,
@@ -17,7 +16,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { RichTextarea } from "@/components/rich-textarea";
+import { RichEditor } from "@/components/rich-editor";
+import { PhotoPicker } from "@/components/photo-picker";
 import {
   addEmptyCard,
   deleteCard,
@@ -163,7 +163,8 @@ function CardRow({
   const [imagePath, setImagePath] = React.useState(card.imagePath);
   const [state, setState] = React.useState<SaveState>("idle");
   const [message, setMessage] = React.useState<string | null>(null);
-  const fileRef = React.useRef<HTMLInputElement>(null);
+  const [term, setTerm] = React.useState(card.term.trim());
+  const [definition, setDefinition] = React.useState(card.definition.trim());
   const rowRef = React.useRef<HTMLDivElement>(null);
 
   // Dernières valeurs enregistrées : sortir d'un champ sans l'avoir modifié
@@ -172,7 +173,7 @@ function CardRow({
 
   React.useEffect(() => {
     if (!autoFocus) return;
-    rowRef.current?.querySelector("textarea")?.focus();
+    rowRef.current?.querySelector<HTMLElement>('[contenteditable="true"]')?.focus();
     onFocused();
   }, [autoFocus, onFocused]);
 
@@ -193,19 +194,18 @@ function CardRow({
     }
   }
 
+  // Appelé à la sortie de chacun des deux champs : `persist` ne fait rien si
+  // rien n'a changé depuis le dernier enregistrement.
   function onBlur() {
-    const textareas = rowRef.current?.querySelectorAll("textarea");
-    if (!textareas || textareas.length < 2) return;
-    void persist(textareas[0].value, textareas[1].value);
+    void persist(term, definition);
   }
 
-  async function onPickImage(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  async function upload(file: File) {
+    // Le recadrage réduit déjà l'image, mais un fichier importé sans passer
+    // par lui peut rester trop lourd.
     if (file.size > MAX_BYTES) {
       setState("error");
       setMessage("Image trop lourde (8 Mo maximum).");
-      event.target.value = "";
       return;
     }
 
@@ -213,7 +213,6 @@ function CardRow({
     const data = new FormData();
     data.set("image", file);
     const result = await setCardImage(card.id, data);
-    event.target.value = "";
 
     if (result.ok) {
       setImagePath(result.imagePath ?? null);
@@ -310,23 +309,23 @@ function CardRow({
           className="grid gap-3 p-3 lg:grid-cols-[1fr_1.3fr_auto]"
         >
           <LabelledField label="Terme">
-            <RichTextarea
+            <RichEditor
               compact
-              defaultValue={card.term.trim()}
+              value={card.term.trim()}
+              onChange={setTerm}
               onBlur={onBlur}
-              rows={2}
-              maxLength={2000}
+              ariaLabel={`Terme de la carte ${index + 1}`}
               placeholder="Décibel"
             />
           </LabelledField>
 
           <LabelledField label="Définition">
-            <RichTextarea
+            <RichEditor
               compact
-              defaultValue={card.definition.trim()}
+              value={card.definition.trim()}
+              onChange={setDefinition}
               onBlur={onBlur}
-              rows={2}
-              maxLength={10000}
+              ariaLabel={`Définition de la carte ${index + 1}`}
               placeholder="Rapport logarithmique entre la pression mesurée et la pression de référence"
             />
           </LabelledField>
@@ -335,13 +334,6 @@ function CardRow({
             <span className="mb-1.5 block text-[0.7rem] font-semibold uppercase tracking-wide text-fg-subtle">
               Image
             </span>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
-              onChange={onPickImage}
-              className="sr-only"
-            />
             {imagePath ? (
               <div className="relative w-fit">
                 <ImageLightbox
@@ -349,24 +341,21 @@ function CardRow({
                   alt={`Illustration de la carte ${index + 1}`}
                   thumbnailClassName="max-h-24 w-auto"
                 />
+                {/* La zone de clic fait 44 px, la pastille visible 28 : la
+                    cible tactile est atteinte sans alourdir la vignette. */}
                 <button
                   type="button"
                   onClick={dropImage}
                   aria-label="Retirer l'image"
-                  className="absolute -right-2 -top-2 grid size-7 place-items-center rounded-full bg-surface text-fg-muted shadow-lift transition-colors hover:text-danger"
+                  className="group/remove absolute -right-4 -top-4 grid size-11 place-items-center"
                 >
-                  <X className="size-3.5" />
+                  <span className="grid size-7 place-items-center rounded-full bg-surface text-fg-muted shadow-lift transition-colors group-hover/remove:text-danger">
+                    <X className="size-3.5" />
+                  </span>
                 </button>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="flex h-24 w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong text-fg-subtle transition-colors hover:border-accent hover:text-accent lg:w-40"
-              >
-                <ImagePlus className="size-5" />
-                <span className="text-xs">Image</span>
-              </button>
+              <PhotoPicker onPicked={upload} disabled={state === "saving"} />
             )}
           </div>
         </div>

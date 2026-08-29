@@ -4,6 +4,12 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 
+import {
+  MAX_UPLOAD_BYTES,
+  extensionFor,
+  isValidUploadName,
+} from "@/lib/upload-path";
+
 // Dossier des images. En prod c'est le montage NAS (cf. UPLOAD_DIR dans compose).
 // turbopackIgnore : sans lui, l'analyse statique de Turbopack voit un chemin
 // dynamique et embarque tout le projet dans la sortie standalone.
@@ -11,22 +17,14 @@ export const UPLOAD_DIR = path.resolve(
   /* turbopackIgnore: true */ process.env.UPLOAD_DIR ?? "./data/uploads",
 );
 
-export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8 Mo
-
-// Liste blanche : on ne se fie pas à l'extension du nom envoyé par le client,
-// on impose l'extension à partir du type MIME qu'on accepte.
-const ALLOWED: Record<string, string> = {
-  "image/jpeg": ".jpg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "image/gif": ".gif",
-  "image/avif": ".avif",
-};
+// La validation des noms et des types vit dans upload-path.ts, sans
+// `server-only`, pour rester testable sans accès disque.
+export { MAX_UPLOAD_BYTES, contentTypeFor } from "@/lib/upload-path";
 
 export class UploadError extends Error {}
 
 export async function saveUpload(file: File): Promise<string> {
-  const extension = ALLOWED[file.type];
+  const extension = extensionFor(file.type);
   if (!extension) {
     throw new UploadError("Format non supporté (JPEG, PNG, WebP, GIF ou AVIF uniquement)");
   }
@@ -45,16 +43,9 @@ export async function saveUpload(file: File): Promise<string> {
   return fileName;
 }
 
-// Tous les noms de fichiers sont produits par saveUpload : un UUID v4 suivi
-// d'une extension de la liste blanche. On peut donc valider par liste blanche
-// plutôt que par liste noire, et refuser d'office tout ce qui n'a pas cette
-// forme exacte — séparateurs, ../, encodages exotiques et octets nuls compris.
-const FILE_NAME_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpg|png|webp|gif|avif)$/;
-
 // Résout un nom de fichier stocké en base vers un chemin absolu dans UPLOAD_DIR.
 export function resolveUploadPath(fileName: string): string | null {
-  if (!FILE_NAME_PATTERN.test(fileName)) return null;
+  if (!isValidUploadName(fileName)) return null;
   return path.join(UPLOAD_DIR, fileName);
 }
 
@@ -66,8 +57,4 @@ export async function deleteUpload(fileName: string) {
   await unlink(target).catch(() => {});
 }
 
-export function contentTypeFor(fileName: string): string {
-  const extension = path.extname(fileName).toLowerCase();
-  const match = Object.entries(ALLOWED).find(([, value]) => value === extension);
-  return match?.[0] ?? "application/octet-stream";
-}
+

@@ -10,12 +10,20 @@ export function AnswerView({
   imagePath,
   className,
   compact = false,
+  showcase = false,
   onLightboxChange,
 }: {
   definition: string;
   imagePath?: string | null;
   className?: string;
   compact?: boolean;
+  /**
+   * Mode révision : la réponse occupe la carte. Sans image, elle est agrandie
+   * et centrée — le texte est alors le seul contenu, autant qu'il se lise de
+   * loin ; avec une image, il reste aligné à gauche pour rester lisible en
+   * colonne à côté d'elle.
+   */
+  showcase?: boolean;
   // Remonte l'ouverture de la visionneuse : en révision, la carte doit alors
   // rendre le clavier à la visionneuse.
   onLightboxChange?: (open: boolean) => void;
@@ -28,7 +36,15 @@ export function AnswerView({
         className,
       )}
     >
-      <RichText className={cn("min-w-0 flex-1", compact ? "text-sm" : "text-base")}>
+      <RichText
+        className={cn(
+          "min-w-0 flex-1",
+          compact && "text-sm",
+          !compact && !showcase && "text-base",
+          showcase && imagePath && "text-base sm:text-lg",
+          showcase && !imagePath && "text-balance text-center text-xl leading-snug sm:text-2xl",
+        )}
+      >
         {definition}
       </RichText>
 

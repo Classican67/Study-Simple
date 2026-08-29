@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth";
 import { deckColor, getDeckCards, getDeckForUser } from "@/lib/decks";
 import { listFolderOptions } from "@/lib/folders";
+import { describeDue, isDue } from "@/lib/scheduling";
 import { CardEditor } from "./card-editor";
 import { DeckSettings } from "./deck-toolbar";
 import { ImportDialog } from "./import-dialog";
@@ -34,8 +35,15 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
   const cards = await getDeckCards(deckId, user.id);
   const folderOptions = await listFolderOptions(user.id);
   const known = cards.filter((card) => card.status === "known").length;
-  const toReview = cards.length - known;
+  const due = cards.filter((card) => isDue(card.dueAt)).length;
   const progress = cards.length === 0 ? 0 : (known / cards.length) * 100;
+
+  // Prochaine échéance parmi les cartes qui ne sont pas déjà dues : c'est elle
+  // qui répond à « quand dois-je revenir ? ».
+  const upcoming = cards
+    .map((card) => card.dueAt)
+    .filter((date): date is Date => date !== null && !isDue(date))
+    .sort((a, b) => a.getTime() - b.getTime())[0];
 
   return (
     <div className="space-y-8">
@@ -77,8 +85,15 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
       <div className="rounded-card border border-border bg-surface p-5 shadow-soft sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge tone="success">{known} sue{known > 1 ? "s" : ""}</Badge>
-            <Badge tone={toReview > 0 ? "accent" : "neutral"}>{toReview} à revoir</Badge>
+            <Badge tone={due > 0 ? "accent" : "neutral"}>
+              {due > 0 ? `${due} à réviser` : "Rien à réviser"}
+            </Badge>
+            <Badge tone="success">
+              {known} sue{known > 1 ? "s" : ""} sur {cards.length}
+            </Badge>
+            {due === 0 && upcoming ? (
+              <Badge>Prochaine {describeDue(upcoming)}</Badge>
+            ) : null}
           </div>
 
           {/* Trois actions ne tiennent pas sur une ligne de téléphone : la
@@ -89,7 +104,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
               <Button asChild size="lg" className="flex-1 sm:flex-none">
                 <Link href={`/decks/${deck.id}/study`}>
                   <GraduationCap />
-                  Réviser
+                  {due > 0 ? `Réviser (${due})` : "Réviser"}
                 </Link>
               </Button>
             ) : null}

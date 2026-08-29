@@ -1,12 +1,23 @@
 import Link from "next/link";
-import { ArrowRight, ChevronRight, Folder as FolderIcon, Home, Layers, Sparkles } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarClock,
+  ChevronRight,
+  Folder as FolderIcon,
+  Home,
+  Layers,
+  Shuffle,
+  Sparkles,
+} from "lucide-react";
 
 import { Badge, EmptyState, ProgressBar } from "@/components/ui/panel";
+import { Button } from "@/components/ui/button";
 import { deckColor } from "@/lib/decks";
 import type { FolderOption, FolderView } from "@/lib/folders";
 import { NewDeckButton } from "./new-deck-button";
 import { NewFolderButton } from "./new-folder-button";
 import { FolderSettings } from "./folder-settings";
+import { DraggableDeck, DropTarget } from "./drag-drop";
 
 // Vue commune à la racine et à un dossier : la seule différence est le
 // contenu passé en paramètre, donc les deux pages partagent tout ce fichier.
@@ -17,7 +28,7 @@ export function FolderBrowser({
   view: FolderView;
   folderOptions: FolderOption[];
 }) {
-  const { current, breadcrumb, folders, decks } = view;
+  const { current, breadcrumb, folders, decks, subtreeCards, dueHere, dueTotal } = view;
   const totalCards = decks.reduce((sum, deck) => sum + deck.cardCount, 0);
   const totalKnown = decks.reduce((sum, deck) => sum + deck.knownCount, 0);
   const empty = folders.length === 0 && decks.length === 0;
@@ -25,6 +36,10 @@ export function FolderBrowser({
   return (
     <div className="space-y-8">
       {breadcrumb.length > 0 ? <Breadcrumb trail={breadcrumb} /> : null}
+
+      {/* À la racine seulement : c'est l'écran d'entrée quotidien. Dans un
+          dossier, le bouton « Réviser le dossier » joue déjà ce rôle. */}
+      {!current && dueTotal > 0 ? <TodayBanner count={dueTotal} /> : null}
 
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="flex min-w-0 items-start gap-3">
@@ -52,6 +67,16 @@ export function FolderBrowser({
               folder={current}
               options={folderOptions.filter((o) => o.id !== current.id)}
             />
+          ) : null}
+          {current && subtreeCards > 0 ? (
+            // Révision de tout le dossier, sous-dossiers compris : les cartes
+            // de plusieurs paquets sont mélangées ensemble.
+            <Button asChild size="lg" className="flex-1 sm:flex-none">
+              <Link href={`/folders/${current.id}/study`}>
+                <Shuffle />
+                {dueHere > 0 ? `Réviser (${dueHere})` : "Réviser le dossier"}
+              </Link>
+            </Button>
           ) : null}
           {!empty ? (
             <>
@@ -83,7 +108,7 @@ export function FolderBrowser({
               </h2>
               <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {folders.map((folder) => (
-                  <li key={folder.id}>
+                  <DropTarget key={folder.id} folderId={folder.id}>
                     <Link
                       href={`/folders/${folder.id}`}
                       className="group flex items-center gap-3 rounded-card border border-border bg-surface p-4 shadow-soft transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lift"
@@ -102,9 +127,16 @@ export function FolderBrowser({
                           {summarise(folder.deckCount, folder.childCount)}
                         </span>
                       </span>
+                      {folder.dueCount > 0 ? (
+                        <Badge tone="accent" className="shrink-0">
+                          {folder.dueCount}
+                        </Badge>
+                      ) : null}
+                      <span className="contents">
+                      </span>
                       <ChevronRight className="size-4 shrink-0 text-fg-subtle transition-transform group-hover:translate-x-0.5" />
                     </Link>
-                  </li>
+                  </DropTarget>
                 ))}
               </ul>
             </section>
@@ -122,10 +154,9 @@ export function FolderBrowser({
                   const progress =
                     deck.cardCount === 0 ? 0 : (deck.knownCount / deck.cardCount) * 100;
                   const color = deckColor(deck.color);
-                  const remaining = deck.cardCount - deck.knownCount;
 
                   return (
-                    <li key={deck.id}>
+                    <DraggableDeck key={deck.id} deckId={deck.id}>
                       <Link
                         href={`/decks/${deck.id}`}
                         className="group relative flex h-full flex-col overflow-hidden rounded-card border border-border bg-surface shadow-soft transition-all duration-200 hover:-translate-y-1 hover:border-border-strong hover:shadow-lift sm:min-h-52"
@@ -146,12 +177,12 @@ export function FolderBrowser({
                             >
                               <Layers className="size-5" />
                             </span>
-                            <Badge
-                              tone={remaining === 0 && deck.cardCount > 0 ? "success" : "neutral"}
-                            >
-                              {remaining === 0 && deck.cardCount > 0
-                                ? "Tout su"
-                                : `${remaining} à revoir`}
+                            <Badge tone={deck.dueCount > 0 ? "accent" : "success"}>
+                              {deck.dueCount > 0
+                                ? `${deck.dueCount} à réviser`
+                                : deck.cardCount > 0
+                                  ? "À jour"
+                                  : "Vide"}
                             </Badge>
                           </div>
 
@@ -179,7 +210,7 @@ export function FolderBrowser({
                           </div>
                         </div>
                       </Link>
-                    </li>
+                    </DraggableDeck>
                   );
                 })}
               </ul>
@@ -191,11 +222,34 @@ export function FolderBrowser({
   );
 }
 
+// Point d'entrée quotidien : un seul nombre, et le geste qui va avec.
+function TodayBanner({ count }: { count: number }) {
+  return (
+    <Link
+      href="/study"
+      className="group flex items-center gap-4 rounded-card border border-accent/25 bg-accent-soft p-5 shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift"
+    >
+      <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-accent text-accent-fg shadow-soft">
+        <CalendarClock className="size-6" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block font-display text-lg font-semibold text-fg">
+          {count} carte{count > 1 ? "s" : ""} à réviser aujourd&apos;hui
+        </span>
+        <span className="block text-sm text-fg-muted">
+          Toutes tes matières mélangées, dans l&apos;ordre le plus utile.
+        </span>
+      </span>
+      <ArrowRight className="size-5 shrink-0 text-accent transition-transform group-hover:translate-x-0.5" />
+    </Link>
+  );
+}
+
 function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
   return (
     <nav aria-label="Fil d'Ariane" className="-mt-1">
       <ol className="flex flex-wrap items-center gap-1 text-sm text-fg-muted">
-        <li>
+        <DropTarget folderId={null} className="!rounded-lg">
           <Link
             href="/"
             className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 transition-colors hover:text-fg"
@@ -203,7 +257,7 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
             <Home className="size-3.5" />
             Accueil
           </Link>
-        </li>
+        </DropTarget>
         {trail.map((folder, index) => {
           const last = index === trail.length - 1;
           return (
@@ -216,12 +270,14 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
                   {folder.name}
                 </span>
               ) : (
-                <Link
-                  href={`/folders/${folder.id}`}
-                  className="flex min-h-11 items-center rounded-lg px-2 transition-colors hover:text-fg"
-                >
-                  {folder.name}
-                </Link>
+                <DropTarget folderId={folder.id} as="div" className="!rounded-lg">
+                  <Link
+                    href={`/folders/${folder.id}`}
+                    className="flex min-h-11 items-center rounded-lg px-2 transition-colors hover:text-fg"
+                  >
+                    {folder.name}
+                  </Link>
+                </DropTarget>
               )}
             </li>
           );

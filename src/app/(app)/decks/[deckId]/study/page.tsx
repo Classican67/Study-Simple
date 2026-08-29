@@ -7,26 +7,19 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/panel";
 import { requireUser } from "@/lib/auth";
 import { getDeckCards, getDeckForUser } from "@/lib/decks";
+import { isDue } from "@/lib/scheduling";
+import { shuffle } from "@/lib/shuffle";
 import { StudyClient } from "./study-client";
+import { WriteClient } from "./write-client";
+import { ModeSwitch } from "./mode-switch";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Révision" };
 
-// Mélange de Fisher-Yates : l'ordre de saisie ne doit pas devenir un indice
-// de rappel, sinon on apprend la séquence plutôt que le contenu.
-function shuffle<T>(items: T[]): T[] {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-}
-
 export default async function StudyPage(props: PageProps<"/decks/[deckId]/study">) {
   const { deckId } = await props.params;
-  const { all } = await props.searchParams;
+  const { all, mode } = await props.searchParams;
   const user = await requireUser();
 
   const deck = await getDeckForUser(deckId, user.id);
@@ -34,9 +27,12 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
 
   const cards = await getDeckCards(deckId, user.id);
   const reviewAll = all === "1";
+  const writeMode = mode === "write";
   // Par défaut on ne repasse que ce qui n'est pas encore acquis ; `?all=1`
   // rejoue le paquet entier.
-  const pool = reviewAll ? cards : cards.filter((card) => card.status !== "known");
+    // Par défaut on ne présente que ce qui est arrivé à échéance ; `?all=1`
+  // rejoue tout, quelle que soit la planification.
+  const pool = reviewAll ? cards : cards.filter((card) => isDue(card.dueAt));
 
   if (cards.length === 0) notFound();
 
@@ -45,8 +41,8 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
       <div className="mx-auto max-w-md">
         <EmptyState
           icon={<PartyPopper className="size-5" />}
-          title="Tout est su"
-          description="Aucune carte de ce paquet n'est en attente de révision. Tu peux quand même le repasser en entier."
+          title="Rien à réviser pour l'instant"
+          description="Toutes les cartes de ce paquet sont planifiées pour plus tard. Tu peux quand même le repasser en entier dès maintenant."
           action={
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button asChild variant="secondary">
@@ -72,7 +68,25 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
         {deck.title}
       </Link>
 
-      <StudyClient deckId={deckId} deckTitle={deck.title} cards={shuffle(pool)} />
+      <ModeSwitch base={`/decks/${deckId}/study`} all={reviewAll} write={writeMode} />
+
+      {writeMode ? (
+        <WriteClient
+          deckId={deckId}
+          title={deck.title}
+          backHref={`/decks/${deckId}`}
+          cardsHref={`/decks/${deckId}/study${reviewAll ? "?all=1" : ""}`}
+          cards={shuffle(pool)}
+        />
+      ) : (
+        <StudyClient
+          deckId={deckId}
+          title={deck.title}
+          backHref={`/decks/${deckId}`}
+          replayHref={`/decks/${deckId}/study?all=1`}
+          cards={shuffle(pool)}
+        />
+      )}
     </div>
   );
 }
