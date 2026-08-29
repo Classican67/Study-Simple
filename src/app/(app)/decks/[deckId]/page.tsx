@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth";
 import { deckColor, getDeckCards, getDeckForUser } from "@/lib/decks";
 import { CardRow } from "./card-row";
 import { AddCardButton, DeckSettings } from "./deck-toolbar";
+import { ImportDialog } from "./import-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -74,9 +75,10 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
             <Badge tone={toReview > 0 ? "accent" : "neutral"}>{toReview} à revoir</Badge>
           </div>
 
-          {/* Sur téléphone les deux boutons prennent toute la largeur : ce sont
-              les seules actions de la page, autant les rendre faciles à viser. */}
-          <div className="flex w-full gap-2 sm:w-auto">
+          {/* Trois actions ne tiennent pas sur une ligne de téléphone : la
+              rangée passe à la ligne plutôt que de les comprimer sous la
+              taille tactile. */}
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:flex-nowrap">
             {cards.length > 0 ? (
               <Button asChild size="lg" className="flex-1 sm:flex-none">
                 <Link href={`/decks/${deck.id}/study`}>
@@ -86,6 +88,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
               </Button>
             ) : null}
             <AddCardButton deckId={deck.id} variant={cards.length > 0 ? "secondary" : "primary"} />
+            <ImportDialog deckId={deck.id} />
           </div>
         </div>
         <ProgressBar value={progress} className="mt-5" />
@@ -95,8 +98,13 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
         <EmptyState
           icon={<Layers className="size-5" />}
           title="Ce paquet est vide"
-          description="Ajoute une première carte : une question au recto, la réponse au verso, avec une image si ça aide."
-          action={<AddCardButton deckId={deck.id} />}
+          description="Ajoute une première carte à la main, ou colle une liste venue de Quizlet, de Studyield ou d'un tableur."
+          action={
+            <div className="flex w-full flex-col gap-2 sm:flex-row">
+              <AddCardButton deckId={deck.id} />
+              <ImportDialog deckId={deck.id} />
+            </div>
+          }
         />
       ) : (
         <ul className="space-y-3">

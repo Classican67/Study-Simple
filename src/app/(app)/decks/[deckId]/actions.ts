@@ -2,9 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 
+import { z } from "zod";
+
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { cardSchema } from "@/lib/validation";
+import { MAX_IMPORT_CARDS, parseImport, type ImportOptions } from "@/lib/import";
 import { deleteUpload, saveUpload, UploadError } from "@/lib/uploads";
 
 export type CardFormState = { error?: string; ok?: boolean };
@@ -139,4 +142,94 @@ export async function deleteCard(cardId: string) {
   if (card.imagePath) await deleteUpload(card.imagePath);
 
   revalidatePath(`/decks/${card.deckId}`);
+}
+
+export type ImportState = {
+  error?: string;
+  created?: number;
+  duplicates?: number;
+  skipped?: number;
+};
+
+export async function importCards(
+  deckId: string,
+  _prev: ImportState,
+  formData: FormData,
+): Promise<ImportState> {
+  const user = await requireUser();
+  if (!(await assertOwnsDeck(deckId, user.id))) return { error: "Paquet introuvable." };
+
+  const raw = formData.get("text");
+  if (typeof raw !== "string" || !raw.trim()) {
+    return { error: "Colle d'abord tes cartes dans le champ." };
+  }
+
+  // Le texte brut est réanalysé ici avec les mêmes règles que l'aperçu :
+  // on ne fait pas confiance au découpage fait dans le navigateur, qui peut
+  // être modifié avant l'envoi.
+  const options: ImportOptions = {
+    termSeparator: (formData.get("termSeparator") as ImportOptions["termSeparator"]) ?? "tab",
+    cardSeparator: (formData.get("cardSeparator") as ImportOptions["cardSeparator"]) ?? "newline",
+    customTerm: (formData.get("customTerm") as string) || undefined,
+    customCard: (formData.get("customCard") as string) || undefined,
+  };
+
+  const { cards, skipped } = parseImport(raw, options);
+  if (cards.length === 0) {
+    return { error: "Aucune carte reconnue. Vérifie les séparateurs." };
+  }
+  if (cards.length > MAX_IMPORT_CARDS) {
+    return { error: `Import limité à ${MAX_IMPORT_CARDS} cartes à la fois (${cards.length} trouvées).` };
+  }
+
+  const parsed = z.array(cardSchema.pick({ term: true, definition: true })).safeParse(cards);
+  if (!parsed.success) {
+    return { error: "Certaines cartes dépassent la longueur autorisée." };
+  }
+
+  const skipDuplicates = formData.get("skipDuplicates") === "on";
+
+  // Comparaison insensible à la casse et aux espaces de bord : un même terme
+  // recollé depuis Quizlet ne doit pas créer un doublon pour une majuscule.
+  const existing = new Set(
+    (await prisma.card.findMany({ where: { deckId }, select: { term: true } })).map((c) =>
+      c.term.trim().toLowerCase(),
+    ),
+  );
+
+  const seenInBatch = new Set<string>();
+  const toCreate: { term: string; definition: string }[] = [];
+  let duplicates = 0;
+
+  for (const card of parsed.data) {
+    const key = card.term.trim().toLowerCase();
+    // Le collage lui-même peut contenir deux fois le même terme.
+    if (skipDuplicates && (existing.has(key) || seenInBatch.has(key))) {
+      duplicates++;
+      continue;
+    }
+    seenInBatch.add(key);
+    toCreate.push(card);
+  }
+
+  if (toCreate.length === 0) {
+    return { error: "Toutes les cartes existent déjà dans ce paquet.", duplicates };
+  }
+
+  const last = await prisma.card.findFirst({
+    where: { deckId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+  let position = (last?.position ?? -1) + 1;
+
+  await prisma.card.createMany({
+    data: toCreate.map((card) => ({ ...card, deckId, position: position++ })),
+  });
+  await prisma.deck.update({ where: { id: deckId }, data: { updatedAt: new Date() } });
+
+  revalidatePath(`/decks/${deckId}`);
+  revalidatePath("/");
+
+  return { created: toCreate.length, duplicates, skipped: skipped.length };
 }

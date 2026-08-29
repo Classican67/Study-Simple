@@ -127,6 +127,42 @@ gardent des états distincts.
 
 ---
 
+## Importer des cartes existantes
+
+Le bouton **Importer** d'un paquet accepte un collage de texte, au format
+« terme *séparateur* définition », une carte par ligne.
+
+**Depuis Quizlet** — utiliser la fonction d'export du jeu de cartes, qui laisse
+choisir les deux séparateurs, puis coller le texte tel quel. Les valeurs par
+défaut de Quizlet (tabulation entre terme et définition, retour à la ligne
+entre les cartes) sont reconnues automatiquement.
+
+**Depuis Studyield, un tableur ou un fichier texte** — coller la liste, quel
+que soit le séparateur. L'app essaie tabulation, point-virgule, tiret,
+deux-points puis virgule, et retient celui qui découpe proprement au moins
+80 % des lignes. En dessous, elle ne devine rien plutôt que de couper au
+mauvais endroit : les deux menus déroulants permettent alors de choisir à la
+main, avec une option « Personnalisé » pour tout autre séparateur.
+
+Un aperçu en direct montre les premières cartes telles qu'elles seront créées,
+avant de valider. Sont gérés :
+
+- les définitions contenant le séparateur (la coupure se fait à la **première**
+  occurrence seulement) ;
+- les champs CSV entre guillemets, y compris les guillemets doublés ;
+- les réponses sur plusieurs lignes, en choisissant « ligne vide » comme
+  séparateur de cartes ;
+- les fins de ligne Windows (CRLF).
+
+Les cartes dont le terme existe déjà dans le paquet sont ignorées par défaut
+(comparaison insensible à la casse et aux espaces de bord). L'import est limité
+à 1000 cartes à la fois.
+
+**Les images ne sont pas importables** : ces exports ne contiennent que du
+texte. Il faut les rattacher ensuite, carte par carte.
+
+---
+
 ## Sauvegarde et restauration
 
 ```bash
