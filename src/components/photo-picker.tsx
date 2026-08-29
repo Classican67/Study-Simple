@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Camera, ImagePlus } from "lucide-react";
+import { Camera, ImagePlus, TriangleAlert } from "lucide-react";
 
 import { ImageCropper } from "@/components/image-cropper";
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-path";
@@ -25,6 +25,15 @@ export function PhotoPicker({
   disabled?: boolean;
   className?: string;
 }) {
+  // `isSecureContext` ne change jamais pendant la vie de la page, mais le
+  // serveur ne peut pas le connaître : useSyncExternalStore évite l'écart
+  // entre le rendu serveur et le rendu client.
+  const insecure = React.useSyncExternalStore(
+    () => () => {},
+    () => !window.isSecureContext,
+    () => false,
+  );
+
   const cameraRef = React.useRef<HTMLInputElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
   const [pending, setPending] = React.useState<File | null>(null);
@@ -82,6 +91,18 @@ export function PhotoPicker({
           <Camera className="size-4" />
           Appareil photo
         </button>
+
+        {/* Hors contexte sécurisé (LAN en http://), les navigateurs restreignent
+            l'accès à l'appareil photo. On n'enlève pas le bouton pour autant :
+            sur iOS, le sélecteur de fichiers propose lui aussi « Prendre une
+            photo ». Mais mieux vaut dire pourquoi ça peut échouer. */}
+        {insecure ? (
+          <p className="hidden items-start gap-1.5 text-[0.7rem] leading-snug text-fg-subtle [@media(pointer:coarse)]:flex">
+            <TriangleAlert className="mt-0.5 size-3 shrink-0" />
+            L&apos;appareil photo demande une connexion HTTPS. Sans elle, passe par
+            « Image ».
+          </p>
+        ) : null}
 
         <button
           type="button"

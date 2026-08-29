@@ -364,6 +364,30 @@ Dans Docker, les deux sont faits automatiquement (au build pour la génération,
 par l'entrypoint pour les migrations) : ce cas ne concerne que le
 développement local.
 
+## Le bouton « Appareil photo » ne fait rien
+
+Trois causes possibles, dans l'ordre de fréquence.
+
+**1. L'application n'est pas servie en HTTPS.** Les navigateurs restreignent
+l'accès à l'appareil photo hors contexte sécurisé. L'app affiche alors un
+avertissement sous le bouton. Correction : voir la Partie C (Tailscale + Caddy).
+En attendant, le bouton « Image » ouvre la photothèque, qui propose elle aussi
+« Prendre une photo » sur iOS.
+
+**2. L'autorisation a été refusée au navigateur.** Sur iPhone ou iPad :
+*Réglages → Safari → Appareil photo* (ou *Réglages → Fiches* si l'app est
+installée sur l'écran d'accueil). Rien ne distingue, côté web, un refus d'une
+simple annulation : le bouton reste donc silencieux.
+
+**3. L'en-tête `Permissions-Policy` interdit l'appareil photo.** À vérifier :
+
+```bash
+curl -sI https://<TAILSCALE_HOST>/ | grep -i permissions-policy
+```
+
+Doit contenir `camera=(self)`. Si un reverse proxy réécrit cet en-tête avec
+`camera=()`, l'appareil photo est interdit à l'application elle-même.
+
 ## Écriture sur le NAS refusée
 
 Le conteneur écrit en tant que `root`. Selon le type de partage :

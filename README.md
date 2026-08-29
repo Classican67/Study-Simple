@@ -153,6 +153,21 @@ bornée à 1600 px de côté. Un cliché d'iPad passe ainsi de plusieurs mégaoc
 à quelques dizaines de kilooctets — ce qui compte quand les images vivent sur
 le NAS.
 
+**Deux conditions pour que l'appareil photo fonctionne**, l'une et l'autre
+faciles à casser sans s'en apercevoir :
+
+1. L'en-tête `Permissions-Policy` doit contenir `camera=(self)`. La valeur
+   vide, `camera=()`, interdit l'appareil photo à l'application elle-même —
+   sans le moindre message d'erreur. Un test (`headers.test.ts`) garde ce
+   point.
+2. L'application doit être servie en **HTTPS** (ou depuis `localhost`). En
+   `http://` sur le LAN, les navigateurs restreignent l'accès à l'appareil ;
+   l'app le détecte et l'explique au lieu d'échouer en silence, et le bouton
+   « Image » reste utilisable.
+
+Micro et géolocalisation restent explicitement refusés : l'app ne s'en sert
+nulle part.
+
 La mise en forme est **visuelle** : un mot en gras s'affiche en gras, jamais
 entouré de `**`. Sous le capot, le contenu reste stocké en texte balisé et
 jamais en HTML — ce qui sort du navigateur repasse toujours par notre propre
@@ -368,7 +383,7 @@ npm test           # une passe
 npm run test:watch # relance à chaque modification
 ```
 
-107 tests, environ une seconde, **sans navigateur ni base de données**. Ils
+111 tests, environ une seconde, **sans navigateur ni base de données**. Ils
 utilisent le lanceur intégré de Node (`node --test`) : aucune dépendance de
 test à part `jsdom`, nécessaire pour éprouver le sérialiseur de l'éditeur.
 
@@ -382,6 +397,7 @@ Ce qui est couvert :
 | `rich-text.test.ts` | analyse du balisage, rendu React, échappement du HTML |
 | `rich-editor.test.ts` | traduction DOM → balisage, et l'aller-retour complet |
 | `crop.test.ts` | géométrie du recadrage : bornes, inversion, réduction |
+| `headers.test.ts` | politique d'autorisations et en-têtes de sécurité |
 | `folder-tree.test.ts` | fil d'Ariane, cycles, sous-arbres |
 | `upload-path.test.ts` | liste blanche des noms de fichiers, traversée de chemin |
 

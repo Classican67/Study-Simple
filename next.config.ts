@@ -45,8 +45,14 @@ const nextConfig: NextConfig = {
           // L'app n'a aucune raison d'être encadrée : coupe le clickjacking.
           { key: "X-Frame-Options", value: "DENY" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          // Rien de tout ça n'est utilisé ; on le refuse explicitement.
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // `camera=(self)` : l'app photographie les fiches depuis l'appareil
+          // de l'iPad ou du téléphone. Une valeur vide — `camera=()` —
+          // interdirait l'appareil photo à sa propre origine et casserait la
+          // fonction. Micro et géolocalisation, eux, ne servent nulle part.
+          {
+            key: "Permissions-Policy",
+            value: "camera=(self), microphone=(), geolocation=()",
+          },
         ],
       },
       {
