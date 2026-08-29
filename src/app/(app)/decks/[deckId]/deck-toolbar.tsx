@@ -1,52 +1,26 @@
 "use client";
 
 import * as React from "react";
-import { Plus, RotateCcw, Settings2, Trash2 } from "lucide-react";
+import { FolderInput, RotateCcw, Settings2, Trash2 } from "lucide-react";
 
-import { Button, type ButtonProps } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DeckForm } from "../../deck-form";
 import { deleteDeck, updateDeck } from "../../actions";
+import { moveDeck } from "../../folder-actions";
+import { MoveDialog } from "../../move-dialog";
+import type { FolderOption } from "@/lib/folders";
 import { resetDeckProgress } from "./study/actions";
-import { CardForm } from "./card-form";
-import { createCard } from "./actions";
-
-export function AddCardButton({
-  deckId,
-  variant = "primary",
-}: {
-  deckId: string;
-  variant?: ButtonProps["variant"];
-}) {
-  const [open, setOpen] = React.useState(false);
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant={variant} size="lg" className="flex-1 sm:flex-none">
-          <Plus />
-          <span className="sm:hidden">Carte</span>
-          <span className="hidden sm:inline">Ajouter une carte</span>
-        </Button>
-      </DialogTrigger>
-      <DialogContent
-        title="Nouvelle carte"
-        description="Le formulaire se vide après l'enregistrement pour enchaîner la suivante."
-      >
-        {/* Pas de onSaved : la modale reste ouverte pour saisir en rafale. */}
-        <CardForm action={createCard.bind(null, deckId)} submitLabel="Ajouter" />
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 export function DeckSettings({
   deck,
   hasProgress,
+  folderOptions,
 }: {
-  deck: { id: string; title: string; description: string; color: string };
+  deck: { id: string; title: string; description: string; color: string; folderId: string | null };
   hasProgress: boolean;
+  folderOptions: FolderOption[];
 }) {
   const [open, setOpen] = React.useState(false);
 
@@ -66,6 +40,18 @@ export function DeckSettings({
           />
         </DialogContent>
       </Dialog>
+
+      <MoveDialog
+        trigger={
+          <Button variant="ghost" size="icon" aria-label="Déplacer le paquet">
+            <FolderInput />
+          </Button>
+        }
+        title={`Déplacer « ${deck.title} »`}
+        currentParentId={deck.folderId}
+        options={folderOptions}
+        action={moveDeck.bind(null, deck.id)}
+      />
 
       {hasProgress ? (
         <ConfirmDialog

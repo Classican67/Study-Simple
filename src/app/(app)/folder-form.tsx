@@ -1,15 +1,14 @@
 "use client";
 
-import * as React from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Field, Input, Textarea } from "@/components/ui/field";
-import { DialogClose } from "@/components/ui/dialog";
 import { ColorPicker } from "@/components/ui/color-picker";
-import type { FormState } from "./actions";
+import { DialogClose } from "@/components/ui/dialog";
+import { Field, Input } from "@/components/ui/field";
+import type { FolderState } from "./folder-actions";
 
 function Submit({ label }: { label: string }) {
   const { pending } = useFormStatus();
@@ -20,41 +19,38 @@ function Submit({ label }: { label: string }) {
   );
 }
 
-export function DeckForm({
+export function FolderForm({
   action,
   submitLabel,
   defaults,
+  onSaved,
 }: {
-  action: (prev: FormState, formData: FormData) => Promise<FormState>;
+  action: (prev: FolderState, formData: FormData) => Promise<FolderState>;
   submitLabel: string;
-  defaults?: { title: string; description: string; color: string };
+  defaults?: { name: string; color: string };
+  onSaved?: () => void;
 }) {
-  const [state, formAction] = useActionState<FormState, FormData>(action, {});
+  const [state, formAction] = useActionState<FolderState, FormData>(async (prev, data) => {
+    const result = await action(prev, data);
+    // Pas d'erreur : l'opération a abouti, la modale peut se refermer.
+    if (!result.error) onSaved?.();
+    return result;
+  }, {});
 
   return (
     <form action={formAction} className="space-y-4">
-      <Field label="Titre" htmlFor="deck-title">
+      <Field label="Nom du dossier" htmlFor="folder-name">
         <Input
-          name="title"
+          name="name"
           required
-          maxLength={120}
+          maxLength={80}
           autoFocus
-          defaultValue={defaults?.title}
-          placeholder="Biologie cellulaire — chapitre 3"
+          defaultValue={defaults?.name}
+          placeholder="Session automne 2026"
         />
       </Field>
 
-      <Field label="Description" htmlFor="deck-description" hint="Optionnel">
-        <Textarea
-          name="description"
-          maxLength={500}
-          rows={2}
-          defaultValue={defaults?.description}
-          placeholder="Mitose, méiose, cycle cellulaire"
-        />
-      </Field>
-
-      <ColorPicker defaultValue={defaults?.color ?? "violet"} />
+      <ColorPicker defaultValue={defaults?.color ?? "slate"} />
 
       {state.error ? (
         <p role="alert" className="flex items-center gap-2 text-sm text-danger">

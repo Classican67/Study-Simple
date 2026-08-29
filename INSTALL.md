@@ -306,6 +306,40 @@ docker compose logs --tail 50 app
 | `Error: P1003` ou `database does not exist` | Migrations non appliquées | `docker compose exec app npx prisma migrate deploy` |
 | `bind: address already in use` | Le port est pris par un autre conteneur | Changer `APP_PORT` dans `.env`, puis `docker compose up -d` |
 
+## `npm ci` échoue sur une dépendance manquante (`@emnapi`)
+
+Symptôme, pendant `docker compose build` :
+
+```
+npm error `npm ci` can only install packages when your package.json and
+package-lock.json are in sync … Missing: @emnapi/runtime@… from lock file
+```
+
+**Cause.** Ce n'est pas un lock corrompu, mais une divergence entre versions de
+npm. npm 11 omet du lock les dépendances des paquets optionnels incompatibles
+avec la plateforme courante (ici les variantes `wasm32` de `sharp` et de
+Tailwind). npm 10 — celui qu'embarque `node:22-bookworm-slim` — les exige.
+Un lock généré sous npm 11 casse donc le build en conteneur.
+
+**Correction.** Régénérer le lock avec npm 10, qui produit un sur-ensemble
+accepté par les deux versions :
+
+```bash
+npx --yes npm@10 install --package-lock-only
+```
+
+L'opération est purement additive : elle ajoute les entrées manquantes sans
+changer aucune version. Vérifier, puis committer :
+
+```bash
+grep -c '"node_modules/@emnapi/runtime"' package-lock.json   # doit renvoyer 1
+git add package-lock.json && git commit -m "Complète le lock pour npm 10"
+```
+
+**Pour éviter la rechute.** Tout `npm install` lancé avec npm 11 réécrira le
+lock dans le format court et ramènera le problème. Après une mise à jour de
+dépendances, refaire passer la commande ci-dessus avant de committer.
+
 ## Écriture sur le NAS refusée
 
 Le conteneur écrit en tant que `root`. Selon le type de partage :
@@ -363,6 +397,7 @@ La commande réinitialise le mot de passe d'un compte existant.
 | Arrêter | `docker compose down` |
 | Sauvegarder maintenant | `./scripts/backup.sh` |
 | Restaurer | `./scripts/restore.sh fiches-AAAA-MM-JJ_HHMMSS.db.gz` |
+| Mettre à jour | `./scripts/update.sh` |
 | Lister les sauvegardes | `ls -lt <NAS_ROOT>/backups/` |
 | Créer un compte | depuis la page **Comptes** de l'application (icône bouclier) |
 
@@ -370,17 +405,20 @@ La commande réinitialise le mot de passe d'un compte existant.
 
 ```bash
 cd ~/fiches
-git pull
-docker compose up -d --build
+./scripts/update.sh
 ```
 
-L'entrypoint applique automatiquement les nouvelles migrations au démarrage.
+Le script enchaîne : contrôle qu'aucune modification locale ne sera écrasée →
+sauvegarde de la base → `git merge --ff-only` → reconstruction → redémarrage →
+contrôle de santé. La construction a lieu **avant** l'arrêt du conteneur :
+si elle échoue, l'application continue de tourner dans sa version précédente.
 
-**Vérifier :** `curl -s http://127.0.0.1:<APP_PORT>/api/health` renvoie
-`{"ok":true}`.
+Si la nouvelle version ne passe pas le contrôle de santé, le script remet le
+code et l'image d'avant, puis redémarre. Il ne sait pas annuler une migration
+de base déjà appliquée : dans ce cas, restaurer la sauvegarde prise au début
+avec `./scripts/restore.sh <fichier>`.
 
-> Faire une sauvegarde avant une mise à jour qui contient des migrations :
-> `./scripts/backup.sh`.
+**Vérifier :** le script se termine par « Fiches est à jour ».
 
 ---
 

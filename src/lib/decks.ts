@@ -70,7 +70,7 @@ export async function listDecks(userId: string): Promise<DeckSummary[]> {
 export async function getDeckForUser(deckId: string, userId: string) {
   return prisma.deck.findFirst({
     where: { id: deckId, ownerId: userId },
-    select: { id: true, title: true, description: true, color: true },
+    select: { id: true, title: true, description: true, color: true, folderId: true },
   });
 }
 

@@ -233,3 +233,109 @@ export async function importCards(
 
   return { created: toCreate.length, duplicates, skipped: skipped.length };
 }
+
+// --- Édition en ligne -------------------------------------------------------
+// Ces actions servent l'éditeur façon Quizlet : elles sont appelées au fil de
+// la saisie, donc volontairement légères et SANS revalidatePath — rafraîchir
+// la page à chaque sortie de champ ferait sauter le curseur de l'utilisateur.
+
+export type SaveResult = { ok: boolean; error?: string };
+
+export async function saveCardText(
+  cardId: string,
+  term: string,
+  definition: string,
+): Promise<SaveResult> {
+  const user = await requireUser();
+
+  const parsed = cardSchema.pick({ term: true, definition: true }).safeParse({ term, definition });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Contenu invalide." };
+  }
+
+  const { count } = await prisma.card.updateMany({
+    where: { id: cardId, deck: { ownerId: user.id } },
+    data: parsed.data,
+  });
+  return count === 1 ? { ok: true } : { ok: false, error: "Carte introuvable." };
+}
+
+// Crée une carte vide en fin de liste et la renvoie, pour que l'éditeur
+// l'ajoute à sa liste sans recharger la page.
+export async function addEmptyCard(deckId: string) {
+  const user = await requireUser();
+  if (!(await assertOwnsDeck(deckId, user.id))) return null;
+
+  const last = await prisma.card.findFirst({
+    where: { deckId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+
+  // Les champs sont requis en base : on part d'un espace, remplacé dès la
+  // première saisie. Une chaîne vide ferait échouer la validation au premier
+  // enregistrement automatique.
+  return prisma.card.create({
+    data: { deckId, term: " ", definition: " ", position: (last?.position ?? -1) + 1 },
+    select: { id: true, term: true, definition: true, imagePath: true },
+  });
+}
+
+export async function reorderCards(deckId: string, orderedIds: string[]): Promise<SaveResult> {
+  const user = await requireUser();
+  if (!(await assertOwnsDeck(deckId, user.id))) return { ok: false, error: "Paquet introuvable." };
+
+  const existing = await prisma.card.findMany({ where: { deckId }, select: { id: true } });
+  const known = new Set(existing.map((c) => c.id));
+
+  // L'ordre reçu doit décrire exactement les cartes du paquet : ni un id
+  // étranger, ni un oubli qui laisserait des positions en double.
+  if (orderedIds.length !== existing.length || !orderedIds.every((id) => known.has(id))) {
+    return { ok: false, error: "Ordre invalide." };
+  }
+
+  // Une transaction : un ordre à moitié écrit vaudrait moins que l'ancien.
+  await prisma.$transaction(
+    orderedIds.map((id, index) =>
+      prisma.card.update({ where: { id }, data: { position: index } }),
+    ),
+  );
+
+  revalidatePath(`/decks/${deckId}`);
+  return { ok: true };
+}
+
+export async function setCardImage(cardId: string, formData: FormData): Promise<
+  SaveResult & { imagePath?: string | null }
+> {
+  const user = await requireUser();
+
+  const card = await prisma.card.findFirst({
+    where: { id: cardId, deck: { ownerId: user.id } },
+    select: { id: true, imagePath: true },
+  });
+  if (!card) return { ok: false, error: "Carte introuvable." };
+
+  const file = formData.get("image");
+  const remove = formData.get("remove") === "1";
+
+  let next: string | null;
+  if (remove) {
+    next = null;
+  } else if (file instanceof File && file.size > 0) {
+    try {
+      next = await saveUpload(file);
+    } catch (error) {
+      if (error instanceof UploadError) return { ok: false, error: error.message };
+      throw error;
+    }
+  } else {
+    return { ok: false, error: "Aucun fichier reçu." };
+  }
+
+  await prisma.card.update({ where: { id: cardId }, data: { imagePath: next } });
+  // L'ancien fichier ne part qu'après l'écriture réussie en base.
+  if (card.imagePath && card.imagePath !== next) await deleteUpload(card.imagePath);
+
+  return { ok: true, imagePath: next };
+}

@@ -11,6 +11,11 @@ export const deckSchema = z.object({
   color: z.enum(["violet", "blue", "emerald", "amber", "rose", "slate"]).default("violet"),
 });
 
+export const folderSchema = z.object({
+  name: z.string().trim().min(1, "Le nom est requis").max(80, "80 caractères maximum"),
+  color: z.enum(["violet", "blue", "emerald", "amber", "rose", "slate"]).default("slate"),
+});
+
 export const cardSchema = z.object({
   term: z.string().trim().min(1, "La question est requise").max(2000),
   definition: z.string().trim().min(1, "La réponse est requise").max(10000),

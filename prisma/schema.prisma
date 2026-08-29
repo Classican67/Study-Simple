@@ -27,8 +27,31 @@ model User {
   createdAt    DateTime @default(now())
 
   decks    Deck[]
+  folders  Folder[]
   progress CardProgress[]
   sessions StudySession[]
+}
+
+// Arborescence de classement. `parentId` nul = dossier à la racine.
+// La profondeur n'est pas limitée par le schéma ; l'interface la borne pour
+// éviter des fils d'Ariane illisibles.
+model Folder {
+  id        String   @id @default(cuid())
+  ownerId   String
+  parentId  String?
+  name      String
+  color     String   @default("slate")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  // Supprimer un dossier emporte ses sous-dossiers, mais pas les paquets
+  // qu'il contient : ceux-ci remontent à la racine (voir Deck.folder).
+  parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children Folder[] @relation("FolderTree")
+  decks    Deck[]
+
+  @@index([ownerId, parentId])
 }
 
 // ---------------------------------------------------------------------------
@@ -38,6 +61,8 @@ model User {
 model Deck {
   id          String   @id @default(cuid())
   ownerId     String
+  // Nul = paquet rangé à la racine, hors de tout dossier.
+  folderId    String?
   title       String
   description String   @default("")
   // Couleur d'accent du paquet dans la grille, pour les repérer d'un coup d'œil.
@@ -45,12 +70,17 @@ model Deck {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  owner    User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner  User    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  // SetNull et non Cascade : jeter un dossier ne doit jamais détruire le
+  // travail qu'il contient, seulement le déclasser.
+  folder Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
   cards    Card[]
   tags     DeckTag[]
   sessions StudySession[]
 
   @@index([ownerId])
+  @@index([folderId])
 }
 
 // `term` = recto (la question), `definition` = verso (la réponse).

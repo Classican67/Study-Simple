@@ -102,6 +102,38 @@ processus de la machine.
 
 ---
 
+## Organiser : dossiers et paquets
+
+L'accueil montre ce qui n'est rangé nulle part ; les dossiers regroupent le
+reste. Ils s'imbriquent jusqu'à **5 niveaux**, borne d'interface destinée à
+garder le fil d'Ariane lisible.
+
+- **Nouveau dossier** crée un sous-dossier là où tu te trouves.
+- L'icône de déplacement range un paquet ou un dossier ailleurs. Un dossier ne
+  peut pas être déplacé dans lui-même ni dans l'un de ses descendants : la
+  branche entière deviendrait inaccessible, et le serveur le refuse.
+- **Supprimer un dossier** emporte ses sous-dossiers mais **jamais les paquets**
+  qu'ils contiennent : ceux-ci remontent à l'accueil. C'est délibéré — jeter un
+  classeur ne doit pas détruire le travail.
+
+---
+
+## Écrire les cartes
+
+La page d'un paquet **est** l'éditeur : toutes les cartes y sont visibles et
+modifiables en place, sans boîte de dialogue.
+
+- **Enregistrement automatique** à la sortie de chaque champ, avec un
+  indicateur discret. Rien à valider.
+- **Réordonner** : la poignée à droite se glisse à la souris comme au doigt.
+  Les flèches ↑ ↓ font la même chose au clavier, et restent plus commodes sur
+  un long paquet.
+- La barre de mise en forme (**gras**, *italique*, listes…) n'apparaît que
+  lorsqu'un champ a le focus, pour que la liste reste lisible.
+- L'image se rattache directement depuis la ligne, et s'agrandit au clic.
+
+---
+
 ## Réviser
 
 Un paquet par cours. Chaque carte a une question au recto, une réponse au
@@ -160,6 +192,25 @@ Les cartes dont le terme existe déjà dans le paquet sont ignorées par défaut
 
 **Les images ne sont pas importables** : ces exports ne contiennent que du
 texte. Il faut les rattacher ensuite, carte par carte.
+
+---
+
+## Mettre à jour
+
+```bash
+cd ~/fiches
+./scripts/update.sh
+```
+
+Le script sauvegarde la base, récupère le code, reconstruit l'image, redémarre
+et attend le contrôle de santé. La construction a lieu **avant** l'arrêt du
+conteneur : si elle échoue, l'application continue de tourner dans sa version
+précédente.
+
+Si la nouvelle version ne démarre pas, le script **revient tout seul** au code
+et à l'image d'avant. Il ne sait en revanche pas annuler une migration de base
+déjà appliquée : c'est pourquoi la sauvegarde est prise en tout premier, et
+`./scripts/restore.sh` reste le chemin de retour dans ce cas.
 
 ---
 
@@ -247,6 +298,8 @@ séparé de la production. Pour repartir de zéro :
 | `npm run db:studio` | explorateur de base Prisma |
 | `npm run user:create` | crée un compte / réinitialise un mot de passe |
 | `npm run icons` | régénère les icônes de la PWA |
+
+Côté serveur : `./scripts/update.sh` met à jour, `./scripts/backup.sh` sauvegarde.
 
 ### Modifier le schéma
 

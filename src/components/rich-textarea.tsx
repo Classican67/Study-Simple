@@ -81,9 +81,20 @@ const PREFIX_RULES = {
 export type RichTextareaProps = Omit<React.ComponentProps<"textarea">, "onChange"> & {
   /** Texte d'aide affiché sous la barre d'outils quand l'aperçu est masqué. */
   hint?: string;
+  /**
+   * Masque la barre d'outils tant que le champ n'a pas le focus. Dans une
+   * liste de cartes, deux barres complètes par ligne noieraient le contenu.
+   */
+  compact?: boolean;
 };
 
-export function RichTextarea({ className, defaultValue, hint, ...props }: RichTextareaProps) {
+export function RichTextarea({
+  className,
+  defaultValue,
+  hint,
+  compact = false,
+  ...props
+}: RichTextareaProps) {
   const ref = React.useRef<HTMLTextAreaElement>(null);
   const [text, setText] = React.useState(String(defaultValue ?? ""));
   const [preview, setPreview] = React.useState(false);
@@ -186,11 +197,18 @@ export function RichTextarea({ className, defaultValue, hint, ...props }: RichTe
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-xl border border-border bg-surface",
+        "group overflow-hidden rounded-xl border border-border bg-surface",
         "focus-within:border-accent focus-within:ring-2 focus-within:ring-ring",
       )}
     >
-      <div className="flex flex-wrap items-center gap-0.5 border-b border-border bg-surface-raised px-1.5 py-1">
+      <div
+        className={cn(
+          "flex-wrap items-center gap-0.5 border-b border-border bg-surface-raised px-1.5 py-1",
+          // En mode compact la barre n'apparaît qu'au focus ; `has-[:checked]`
+          // n'est pas utilisable ici, d'où le group-focus-within.
+          compact ? "hidden group-focus-within:flex" : "flex",
+        )}
+      >
         {TOOLS.map((tool) => (
           <button
             key={tool.label}

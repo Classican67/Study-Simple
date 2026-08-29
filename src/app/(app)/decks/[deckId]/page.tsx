@@ -3,12 +3,13 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, GraduationCap, Layers } from "lucide-react";
 
-import { Badge, EmptyState, ProgressBar } from "@/components/ui/panel";
+import { Badge, ProgressBar } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 import { requireUser } from "@/lib/auth";
 import { deckColor, getDeckCards, getDeckForUser } from "@/lib/decks";
-import { CardRow } from "./card-row";
-import { AddCardButton, DeckSettings } from "./deck-toolbar";
+import { listFolderOptions } from "@/lib/folders";
+import { CardEditor } from "./card-editor";
+import { DeckSettings } from "./deck-toolbar";
 import { ImportDialog } from "./import-dialog";
 
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
   if (!deck) notFound();
 
   const cards = await getDeckCards(deckId, user.id);
+  const folderOptions = await listFolderOptions(user.id);
   const known = cards.filter((card) => card.status === "known").length;
   const toReview = cards.length - known;
   const progress = cards.length === 0 ? 0 : (known / cards.length) * 100;
@@ -64,7 +66,11 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
             </div>
           </div>
 
-          <DeckSettings deck={deck} hasProgress={known > 0 || cards.some((c) => c.status === "learning")} />
+          <DeckSettings
+            deck={deck}
+            hasProgress={known > 0 || cards.some((c) => c.status === "learning")}
+            folderOptions={folderOptions}
+          />
         </div>
       </div>
 
@@ -87,32 +93,21 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
                 </Link>
               </Button>
             ) : null}
-            <AddCardButton deckId={deck.id} variant={cards.length > 0 ? "secondary" : "primary"} />
             <ImportDialog deckId={deck.id} />
           </div>
         </div>
         <ProgressBar value={progress} className="mt-5" />
       </div>
 
-      {cards.length === 0 ? (
-        <EmptyState
-          icon={<Layers className="size-5" />}
-          title="Ce paquet est vide"
-          description="Ajoute une première carte à la main, ou colle une liste venue de Quizlet, de Studyield ou d'un tableur."
-          action={
-            <div className="flex w-full flex-col gap-2 sm:flex-row">
-              <AddCardButton deckId={deck.id} />
-              <ImportDialog deckId={deck.id} />
-            </div>
-          }
-        />
-      ) : (
-        <ul className="space-y-3">
-          {cards.map((card, index) => (
-            <CardRow key={card.id} card={card} index={index} />
-          ))}
-        </ul>
-      )}
+      <CardEditor
+        deckId={deck.id}
+        initialCards={cards.map((card) => ({
+          id: card.id,
+          term: card.term,
+          definition: card.definition,
+          imagePath: card.imagePath,
+        }))}
+      />
     </div>
   );
 }

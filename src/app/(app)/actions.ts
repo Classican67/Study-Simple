@@ -10,7 +10,11 @@ import { deleteUpload } from "@/lib/uploads";
 
 export type FormState = { error?: string };
 
-export async function createDeck(_prev: FormState, formData: FormData): Promise<FormState> {
+export async function createDeck(
+  folderId: string | null,
+  _prev: FormState,
+  formData: FormData,
+): Promise<FormState> {
   const user = await requireUser();
 
   const parsed = deckSchema.safeParse({
@@ -22,8 +26,9 @@ export async function createDeck(_prev: FormState, formData: FormData): Promise<
     return { error: parsed.error.issues[0]?.message ?? "Formulaire invalide." };
   }
 
+  // Le paquet naît dans le dossier depuis lequel on a cliqué.
   const deck = await prisma.deck.create({
-    data: { ...parsed.data, ownerId: user.id },
+    data: { ...parsed.data, ownerId: user.id, folderId },
     select: { id: true },
   });
 
