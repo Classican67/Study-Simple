@@ -1,0 +1,28 @@
+# Développement : rechargement à chaud, base isolée, aucun lien avec la prod.
+#   docker compose -f docker-compose.dev.yml up --build
+#   -> http://localhost:3001
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3001:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: "file:/app/data/dev.db"
+      UPLOAD_DIR: "/app/data/uploads"
+      SESSION_SECRET: "secret-de-developpement-uniquement-0000000000"
+      # Pas de HTTPS en local : sans ça, le cookie de session n'est jamais posé.
+      COOKIE_SECURE: "false"
+      # Sans polling, le watcher ne voit pas les écritures venues de l'hôte
+      # (macOS et Windows notamment).
+      WATCHPACK_POLLING: "true"
+    volumes:
+      - .:/app                # le code, éditable à chaud
+      - /app/node_modules     # volume anonyme : garde les deps Linux de l'image
+      - /app/.next            # idem pour le cache de build
+      - dev_data:/app/data    # base SQLite + images, séparées de la prod
+
+volumes:
+  dev_data:

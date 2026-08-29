@@ -1,0 +1,22 @@
+# Dépendances et artefacts : réinstallés et reconstruits dans l'image.
+node_modules
+.next
+out
+
+# Historique git : inutile dans l'image et gonfle le contexte de build.
+.git
+.gitignore
+
+# Données locales de développement (base SQLite, images uploadées).
+data
+
+# Secrets : le conteneur les reçoit par l'environnement, jamais par copie.
+.env
+.env.*
+!.env.example
+
+# Divers
+scripts/tmp
+*.log
+.DS_Store
+tsconfig.tsbuildinfo

@@ -1,0 +1,45 @@
+# Reverse proxy HTTPS devant Fiches.
+#
+#   sudo apt install caddy
+#   sudo cp Caddyfile.example /etc/caddy/Caddyfile   (puis ajuster)
+#   sudo systemctl reload caddy
+#
+# Pourquoi c'est nécessaire : le cookie de session est marqué Secure et les
+# service workers (donc l'installation de la PWA) exigent HTTPS. En http://
+# simple, l'app fonctionne mais n'est ni installable ni protégée en transit.
+
+# ---------------------------------------------------------------------------
+# Option A — accès depuis n'importe où via Tailscale  (recommandé)
+# ---------------------------------------------------------------------------
+# Certificat public et reconnu, aucune autorité à installer sur les appareils :
+# c'est la seule option où la PWA s'installe sans friction sur iPhone.
+#
+#   sudo tailscale up
+#   sudo tailscale cert fiches.<ton-tailnet>.ts.net
+#
+# fiches.<ton-tailnet>.ts.net {
+#     reverse_proxy 127.0.0.1:3002
+# }
+
+# ---------------------------------------------------------------------------
+# Option B — LAN seul, certificat auto-signé par Caddy
+# ---------------------------------------------------------------------------
+# Caddy crée sa propre autorité de certification. Il faut installer sa racine
+# sur CHAQUE appareil, sinon le navigateur affiche un avertissement et refuse
+# d'installer la PWA. La racine se trouve dans :
+#   /var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt
+fiches.local {
+    tls internal
+    reverse_proxy 127.0.0.1:3002
+}
+
+# ---------------------------------------------------------------------------
+# Dans les deux cas
+# ---------------------------------------------------------------------------
+# Les images des cartes peuvent atteindre 8 Mo : sans cette limite relevée,
+# Caddy tronque les envois volumineux.
+(fiches_commun) {
+    request_body {
+        max_size 12MB
+    }
+}

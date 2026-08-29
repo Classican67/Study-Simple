@@ -1,0 +1,132 @@
+// Clone de Quizlet auto-hébergé : des paquets de cartes (un par cours),
+// chaque carte pouvant porter une image à côté du texte de réponse.
+// La révision se fait en deux piles : « su » / « à revoir ».
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Comptes
+// ---------------------------------------------------------------------------
+
+// Pas d'inscription publique : les comptes sont créés en ligne de commande
+// (`npm run user:create`). `role` distingue l'admin, seul autorisé à en créer
+// d'autres depuis l'interface.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         String   @default("user") // "user" | "admin"
+  createdAt    DateTime @default(now())
+
+  decks    Deck[]
+  progress CardProgress[]
+  sessions StudySession[]
+}
+
+// ---------------------------------------------------------------------------
+// Contenu
+// ---------------------------------------------------------------------------
+
+model Deck {
+  id          String   @id @default(cuid())
+  ownerId     String
+  title       String
+  description String   @default("")
+  // Couleur d'accent du paquet dans la grille, pour les repérer d'un coup d'œil.
+  color       String   @default("violet")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  owner    User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  cards    Card[]
+  tags     DeckTag[]
+  sessions StudySession[]
+
+  @@index([ownerId])
+}
+
+// `term` = recto (la question), `definition` = verso (la réponse).
+// `imagePath` est le nom de fichier dans UPLOAD_DIR, servi par /api/uploads/<nom>.
+// `position` fixe l'ordre d'affichage dans l'éditeur ; la révision, elle, mélange.
+model Card {
+  id         String   @id @default(cuid())
+  deckId     String
+  term       String
+  definition String
+  imagePath  String?
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  deck     Deck           @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  progress CardProgress[]
+
+  @@index([deckId, position])
+}
+
+model Tag {
+  id    String    @id @default(cuid())
+  name  String    @unique
+  decks DeckTag[]
+}
+
+model DeckTag {
+  deckId String
+  tagId  String
+
+  deck Deck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([deckId, tagId])
+}
+
+// ---------------------------------------------------------------------------
+// Progression
+// ---------------------------------------------------------------------------
+
+// Un état par (utilisateur, carte) : deux personnes révisant le même paquet
+// gardent des progressions distinctes.
+//   "new"      — jamais vue
+//   "learning" — ratée au moins une fois, revient dans la pile à revoir
+//   "known"    — réussie, sort du tas tant qu'on ne réinitialise pas
+model CardProgress {
+  userId       String
+  cardId       String
+  status       String    @default("new")
+  // Nombre de bonnes réponses d'affilée. Remis à zéro à chaque échec ;
+  // c'est la base sur laquelle brancher un jour un vrai calcul de répétition espacée.
+  streak       Int       @default(0)
+  correctCount Int       @default(0)
+  missCount    Int       @default(0)
+  lastSeenAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@id([userId, cardId])
+  @@index([userId, status])
+}
+
+// Une passe de révision terminée, pour afficher un historique et des stats.
+model StudySession {
+  id           String    @id @default(cuid())
+  userId       String
+  deckId       String
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  correctCount Int       @default(0)
+  missCount    Int       @default(0)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deck Deck @relation(fields: [deckId], references: [id], onDelete: Cascade)
+
+  @@index([userId, startedAt])
+}

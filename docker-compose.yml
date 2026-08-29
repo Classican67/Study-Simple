@@ -1,0 +1,45 @@
+# Production, sur le Xubuntu.
+#   docker compose up -d --build
+#
+# Répartition des données, conforme au choix d'architecture :
+#   - la base SQLite reste sur un disque LOCAL (volume nommé `fiches_db`).
+#     SQLite sur un partage réseau NFS/SMB corrompt la base : le verrouillage
+#     de fichiers n'y est pas fiable. Elle est sauvegardée sur le NAS par
+#     scripts/backup.sh, lancé par un timer systemd.
+#   - les images vont directement sur le NAS, en bind mount.
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: fiches:latest
+    container_name: fiches
+    restart: unless-stopped
+    ports:
+      # Écoute sur la boucle locale seulement : c'est le reverse proxy (Caddy)
+      # qui expose l'app au réseau, en HTTPS. Mettre "${APP_PORT}:3000" pour
+      # exposer directement sur le LAN, sans HTTPS.
+      - "127.0.0.1:${APP_PORT:-3002}:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: "file:/app/data/app.db"
+      UPLOAD_DIR: "/app/uploads"
+      SESSION_SECRET: "${SESSION_SECRET:?SESSION_SECRET manquant — voir .env.example}"
+      # Le cookie de session n'est renvoyé qu'en HTTPS. Passer à "false"
+      # seulement pour un accès LAN en http:// sans reverse proxy.
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+    volumes:
+      - fiches_db:/app/data
+      - "${NAS_UPLOADS:?NAS_UPLOADS manquant — voir .env.example}:/app/uploads"
+      # Monté pour que scripts/backup.sh écrive le dump directement sur le NAS,
+      # sans copie intermédiaire sur le disque local.
+      - "${NAS_BACKUPS:?NAS_BACKUPS manquant — voir .env.example}:/app/backups"
+    logging:
+      # Sans limite, les logs JSON de Docker remplissent le disque à la longue.
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  fiches_db:
