@@ -38,8 +38,10 @@ function ColorPicker({ defaultValue }: { defaultValue: string }) {
             aria-pressed={value === color.value}
             aria-label={color.label}
             title={color.label}
+            // 44 px : cible tactile minimale. La pastille visible reste plus
+            // petite, dessinée par la bordure intérieure.
             className={cn(
-              "size-8 rounded-full transition-transform hover:scale-110",
+              "grid size-11 place-items-center rounded-full transition-transform hover:scale-110",
               value === color.value && "ring-2 ring-fg ring-offset-2 ring-offset-surface",
             )}
             style={{ backgroundColor: color.css }}

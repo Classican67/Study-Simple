@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { display, sans } from "./fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -10,17 +11,24 @@ export const metadata: Metadata = {
   // Évite que Safari transforme les nombres d'une carte en liens téléphoniques.
   formatDetection: { telephone: false },
   icons: {
-    icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
-    apple: [{ url: "/icons/icon-192.png", sizes: "192x192" }],
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
   },
 };
 
 export const viewport: Viewport = {
   // `viewport-fit=cover` pour que le fond passe sous l'encoche en mode PWA.
   viewportFit: "cover",
+  // Le zoom reste possible (jamais maximumScale: 1, qui casse l'accessibilité),
+  // mais la largeur initiale est celle de l'appareil.
+  width: "device-width",
+  initialScale: 1,
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#111113" },
+    { media: "(prefers-color-scheme: light)", color: "#f7f6fb" },
+    { media: "(prefers-color-scheme: dark)", color: "#131218" },
   ],
 };
 
@@ -40,7 +48,11 @@ const themeScript = `
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="fr" suppressHydrationWarning className="h-full antialiased">
+    <html
+      lang="fr"
+      suppressHydrationWarning
+      className={`${sans.variable} ${display.variable} h-full antialiased`}
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>

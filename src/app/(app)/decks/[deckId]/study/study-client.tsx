@@ -54,10 +54,10 @@ export function StudyClient({
   const answeredRight = stats.correct;
   const progress = cards.length === 0 ? 0 : (answeredRight / cards.length) * 100;
 
-  const x = useMotionValue(0);
-  const rotate = useTransform(x, [-240, 240], [-14, 14]);
-  const knownGlow = useTransform(x, [40, 160], [0, 1]);
-  const reviewGlow = useTransform(x, [-160, -40], [1, 0]);
+  // Direction de sortie de la carte qui part, et d'entrée de celle qui arrive.
+  // L'annulation a besoin des deux : la carte rappelée doit revenir par le côté
+  // où elle était partie, et celle du dessus se retirer sans rejouer un verdict.
+  const [enterDirection, setEnterDirection] = React.useState(0);
 
   const finishedRef = React.useRef(false);
 
@@ -67,6 +67,7 @@ export function StudyClient({
       if (!card) return;
 
       setExitDirection(knew ? 1 : -1);
+      setEnterDirection(0);
       // Envoi sans attendre : l'animation ne doit pas dépendre du réseau.
       // Chaque réponse est persistée seule, donc rien n'est perdu si on quitte.
       void recordAnswer(card.id, knew);
@@ -81,14 +82,18 @@ export function StudyClient({
       // session, ce qui est tout l'intérêt de la pile « à revoir ».
       setQueue((q) => (knew ? q.slice(1) : [...q.slice(1), card]));
       setFlipped(false);
-      x.set(0);
     },
-    [queue, x],
+    [queue],
   );
 
   const undo = React.useCallback(() => {
     const last = history.at(-1);
     if (!last) return;
+
+    // Sans cela, la carte du dessus rejouerait la direction de la dernière
+    // réponse : une annulation ressemblait à une bonne réponse de plus.
+    setExitDirection(0);
+    setEnterDirection(last.knew ? 1 : -1);
 
     setHistory((h) => h.slice(0, -1));
     setStats((s) => ({
@@ -99,8 +104,7 @@ export function StudyClient({
     // de la remettre en tête, sinon elle apparaîtrait deux fois.
     setQueue((q) => [last.card, ...(last.knew ? q : q.filter((c) => c.id !== last.card.id))]);
     setFlipped(false);
-    x.set(0);
-  }, [history, x]);
+  }, [history]);
 
   // Enregistre la session une seule fois, quand la file se vide.
   React.useEffect(() => {
@@ -144,26 +148,30 @@ export function StudyClient({
   const isLong = current.definition.length > LONG_ANSWER;
 
   return (
-    <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
+    <div className="mx-auto flex min-h-[calc(100dvh-11rem)] w-full max-w-xl flex-col gap-4 sm:max-w-2xl sm:gap-5">
       <div className="space-y-2">
-        <div className="flex items-center justify-between text-sm text-fg-muted">
-          <span className="tabular-nums">
-            {answeredRight}/{cards.length} sues
+        <div className="flex items-baseline justify-between">
+          <span className="font-display text-2xl font-semibold tabular-nums">
+            {answeredRight}
+            <span className="text-base font-normal text-fg-subtle">/{cards.length}</span>
           </span>
-          <span className="tabular-nums">
+          <span className="text-sm tabular-nums text-fg-muted">
             {queue.length} restante{queue.length > 1 ? "s" : ""}
           </span>
         </div>
         <ProgressBar value={progress} />
       </div>
 
-      <div className="perspective relative h-[440px] select-none">
+      {/* Hauteur relative au viewport : la carte remplit l'écran d'un téléphone
+          sans déborder, et reste confortable sur iPad. Les bornes évitent
+          l'aplatissement en paysage et l'étirement sur grand écran. */}
+      <div className="perspective relative my-auto h-[clamp(20rem,58dvh,32rem)] select-none sm:h-[clamp(24rem,60dvh,40rem)]">
         {/* Deux cartes fantômes derrière, pour montrer qu'il reste une pile. */}
         {queue.slice(1, 3).map((card, index) => (
           <div
             key={card.id}
             aria-hidden
-            className="absolute inset-x-0 top-0 h-full rounded-card border border-border bg-surface"
+            className="absolute inset-x-0 top-0 h-full rounded-panel border border-border bg-surface shadow-soft"
             style={{
               transform: `translateY(${(index + 1) * 10}px) scale(${1 - (index + 1) * 0.03})`,
               opacity: 1 - (index + 1) * 0.35,
@@ -172,61 +180,32 @@ export function StudyClient({
         ))}
 
         <AnimatePresence initial={false}>
-          <motion.div
-            key={current.id + String(history.length)}
-            className="absolute inset-0 cursor-grab active:cursor-grabbing"
-            style={{ x, rotate }}
-            drag="x"
-            dragElastic={0.6}
-            dragConstraints={{ left: 0, right: 0 }}
-            onDragEnd={(_, info) => {
-              const passed =
-                Math.abs(info.offset.x) > SWIPE_DISTANCE ||
-                Math.abs(info.velocity.x) > SWIPE_VELOCITY;
-              if (passed) answer(info.offset.x > 0);
-            }}
-            initial={{ scale: 0.96, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            exit={{
-              x: exitDirection * 420,
-              opacity: 0,
-              rotate: exitDirection * 18,
-              transition: { duration: 0.22 },
-            }}
-          >
-            <FlipCard
-              card={current}
-              flipped={flipped}
-              isLong={isLong}
-              onFlip={() => setFlipped((f) => !f)}
-              onLightboxChange={setLightboxOpen}
-            />
-
-            {/* Verdict qui se révèle au glissement, avant même de lâcher. */}
-            <motion.div
-              style={{ opacity: knownGlow }}
-              className="pointer-events-none absolute left-5 top-5 rounded-xl border-2 border-success px-3 py-1.5 text-sm font-bold uppercase tracking-wide text-success"
-            >
-              Je savais
-            </motion.div>
-            <motion.div
-              style={{ opacity: reviewGlow }}
-              className="pointer-events-none absolute right-5 top-5 rounded-xl border-2 border-danger px-3 py-1.5 text-sm font-bold uppercase tracking-wide text-danger"
-            >
-              À revoir
-            </motion.div>
-          </motion.div>
+          {/* La clé change à chaque réponse ET à chaque annulation : Motion
+              démonte l'ancienne carte et en monte une neuve, qui possède donc
+              ses propres valeurs de mouvement. */}
+          <SwipeCard
+            key={`${current.id}-${history.length}`}
+            card={current}
+            flipped={flipped}
+            isLong={isLong}
+            exitDirection={exitDirection}
+            enterDirection={enterDirection}
+            onFlip={() => setFlipped((f) => !f)}
+            onAnswer={answer}
+            onLightboxChange={setLightboxOpen}
+          />
         </AnimatePresence>
       </div>
 
-      <div className="flex items-center justify-center gap-3">
+      <div className="pb-safe flex items-center gap-2 sm:gap-3">
         <Button
           variant="secondary"
           size="icon"
           onClick={undo}
           disabled={history.length === 0}
-          aria-label="Annuler la dernière réponse (Z)"
+          aria-label="Annuler la dernière réponse"
           title="Annuler (Z)"
+          className="shrink-0"
         >
           <Undo2 />
         </Button>
@@ -241,17 +220,116 @@ export function StudyClient({
         </Button>
       </div>
 
-      <p className="text-center text-xs text-fg-muted">
-        Glisse la carte, ou utilise <Kbd>←</Kbd> <Kbd>→</Kbd> pour répondre et <Kbd>Espace</Kbd>{" "}
-        pour retourner.
+      {/* Les raccourcis n'existent qu'au clavier : inutile de les afficher sur
+          un appareil tactile, où ils n'occuperaient que de la place. */}
+      <p className="hidden text-center text-xs text-fg-subtle lg:block">
+        Glisse la carte, ou <Kbd>←</Kbd> <Kbd>→</Kbd> pour répondre, <Kbd>Espace</Kbd> pour
+        retourner, <Kbd>Z</Kbd> pour annuler.
       </p>
     </div>
   );
 }
 
+// Une carte glissable. Elle détient SES propres valeurs de mouvement : une
+// valeur partagée par le parent était écrite par l'animation de sortie de la
+// carte précédente, qui entraînait donc la suivante avec elle.
+function SwipeCard({
+  card,
+  flipped,
+  isLong,
+  exitDirection,
+  enterDirection,
+  onFlip,
+  onAnswer,
+  onLightboxChange,
+}: {
+  card: StudyCard;
+  flipped: boolean;
+  isLong: boolean;
+  exitDirection: number;
+  enterDirection: number;
+  onFlip: () => void;
+  onAnswer: (knew: boolean) => void;
+  onLightboxChange: (open: boolean) => void;
+}) {
+  const x = useMotionValue(0);
+  const rotate = useTransform(x, [-240, 240], [-14, 14]);
+  const knownGlow = useTransform(x, [40, 160], [0, 1]);
+  const reviewGlow = useTransform(x, [-160, -40], [1, 0]);
+
+  // Les tampons appartiennent au geste, pas aux animations : sans ce drapeau,
+  // « Je savais » s'affichait aussi pendant une annulation.
+  const [dragging, setDragging] = React.useState(false);
+
+  const away = 420;
+
+  return (
+    <motion.div
+      className="absolute inset-0 cursor-grab active:cursor-grabbing"
+      // `pan-y` laisse le doigt faire défiler la page verticalement tout en
+      // réservant l'horizontale au glissement de réponse. Sans cela, le
+      // navigateur et Motion se disputent le geste.
+      style={{ x, rotate, touchAction: "pan-y" }}
+      drag="x"
+      dragElastic={0.6}
+      dragConstraints={{ left: 0, right: 0 }}
+      onDragStart={() => setDragging(true)}
+      onDragEnd={(_, info) => {
+        setDragging(false);
+        const passed =
+          Math.abs(info.offset.x) > SWIPE_DISTANCE || Math.abs(info.velocity.x) > SWIPE_VELOCITY;
+        if (passed) onAnswer(info.offset.x > 0);
+      }}
+      initial={
+        enterDirection
+          ? { x: enterDirection * away, rotate: enterDirection * 18, opacity: 0 }
+          : { x: 0, scale: 0.96, opacity: 0 }
+      }
+      animate={{ x: 0, rotate: 0, scale: 1, opacity: 1 }}
+      exit={
+        exitDirection
+          ? {
+              x: exitDirection * away,
+              rotate: exitDirection * 18,
+              opacity: 0,
+              transition: { duration: 0.22 },
+            }
+          : // Annulation : la carte du dessus se retire sur place, sans verdict.
+            { scale: 0.94, opacity: 0, transition: { duration: 0.18 } }
+      }
+    >
+      <FlipCard
+        card={card}
+        flipped={flipped}
+        isLong={isLong}
+        onFlip={onFlip}
+        onLightboxChange={onLightboxChange}
+      />
+
+      {/* Verdict qui se révèle au glissement, avant même de lâcher. */}
+      {dragging ? (
+        <>
+          <motion.div
+            style={{ opacity: knownGlow }}
+            className="pointer-events-none absolute left-6 top-6 -rotate-12 rounded-2xl border-[3px] border-success bg-surface/80 px-4 py-2 font-display text-base font-bold uppercase tracking-wide text-success backdrop-blur-sm"
+          >
+            Je savais
+          </motion.div>
+          <motion.div
+            style={{ opacity: reviewGlow }}
+            className="pointer-events-none absolute right-6 top-6 rotate-12 rounded-2xl border-[3px] border-danger bg-surface/80 px-4 py-2 font-display text-base font-bold uppercase tracking-wide text-danger backdrop-blur-sm"
+          >
+            À revoir
+          </motion.div>
+        </>
+      ) : null}
+    </motion.div>
+  );
+}
+
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded-md border border-border bg-surface-raised px-1.5 py-0.5 font-mono text-[0.7rem] text-fg">
+    <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-[0.7rem] text-fg-muted shadow-soft">
       {children}
     </kbd>
   );
@@ -277,15 +355,15 @@ function FlipCard({
     >
       {/* Recto : la question. */}
       <Face onClick={onFlip} label="Question">
-        <RichText className="text-balance text-center text-xl font-medium leading-snug">
+        <RichText className="text-balance text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
           {card.term}
         </RichText>
-        <p className="mt-6 text-xs text-fg-muted">Touche la carte pour voir la réponse</p>
+        <p className="mt-7 text-xs text-fg-subtle">Touche la carte pour voir la réponse</p>
       </Face>
 
       {/* Verso : la réponse, tournée à 180° et masquée tant qu'on est de face. */}
       <Face onClick={onFlip} label="Réponse" className="[transform:rotateY(180deg)]">
-        <div className="w-full overflow-y-auto overscroll-contain">
+        <div className="scroll-slim w-full overflow-y-auto overscroll-contain">
           <AnswerView
             definition={card.definition}
             imagePath={card.imagePath}
@@ -336,14 +414,14 @@ function Face({
       onClick={onClick}
       className={cn(
         "backface-hidden absolute inset-0 flex flex-col items-center justify-center",
-        "rounded-card border border-border bg-surface p-6 shadow-lg",
+        "rounded-panel border border-border bg-surface p-6 shadow-card sm:p-8",
         className,
       )}
     >
-      <span className="absolute left-5 top-4 text-xs font-medium uppercase tracking-wide text-fg-muted">
+      <span className="absolute left-6 top-5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-fg-subtle">
         {label}
       </span>
-      <div className="flex max-h-full w-full flex-col items-center justify-center overflow-hidden pt-6">
+      <div className="flex max-h-full w-full flex-col items-center justify-center overflow-hidden pt-7">
         {children}
       </div>
     </div>
@@ -366,11 +444,11 @@ function Summary({
 
   return (
     <div className="mx-auto max-w-md animate-slide-up text-center">
-      <div className="mx-auto mb-5 grid size-16 place-items-center rounded-2xl bg-success/15 text-success">
-        <Trophy className="size-8" />
+      <div className="mx-auto mb-6 grid size-20 animate-pop place-items-center rounded-3xl bg-success/12 text-success">
+        <Trophy className="size-10" />
       </div>
 
-      <h1 className="text-2xl font-semibold tracking-tight">Paquet terminé</h1>
+      <h1 className="text-3xl font-semibold tracking-tight">Paquet terminé</h1>
       <p className="mt-1 text-sm text-fg-muted">
         Tu as passé les {total} carte{total > 1 ? "s" : ""} de « {deckTitle} ».
       </p>
@@ -400,9 +478,9 @@ function Summary({
 
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
   return (
-    <div className="rounded-card border border-border bg-surface p-4">
-      <dt className="text-xs text-fg-muted">{label}</dt>
-      <dd className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
+    <div className="rounded-card border border-border bg-surface p-4 shadow-soft">
+      <dt className="text-xs text-fg-subtle">{label}</dt>
+      <dd className={cn("mt-1 font-display text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
     </div>
   );
 }

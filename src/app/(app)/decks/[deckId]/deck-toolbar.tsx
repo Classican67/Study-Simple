@@ -3,7 +3,7 @@
 import * as React from "react";
 import { Plus, RotateCcw, Settings2, Trash2 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { Button, type ButtonProps } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DeckForm } from "../../deck-form";
@@ -12,15 +12,22 @@ import { resetDeckProgress } from "./study/actions";
 import { CardForm } from "./card-form";
 import { createCard } from "./actions";
 
-export function AddCardButton({ deckId }: { deckId: string }) {
+export function AddCardButton({
+  deckId,
+  variant = "primary",
+}: {
+  deckId: string;
+  variant?: ButtonProps["variant"];
+}) {
   const [open, setOpen] = React.useState(false);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button>
+        <Button variant={variant} size="lg" className="flex-1 sm:flex-none">
           <Plus />
-          Ajouter une carte
+          <span className="sm:hidden">Carte</span>
+          <span className="hidden sm:inline">Ajouter une carte</span>
         </Button>
       </DialogTrigger>
       <DialogContent

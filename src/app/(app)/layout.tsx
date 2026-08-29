@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Layers, LogOut, ShieldUser } from "lucide-react";
+import { LogOut, ShieldUser } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ServiceWorkerRegistrar } from "@/components/service-worker";
 import { requireUser } from "@/lib/auth";
@@ -14,20 +15,22 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="sticky top-0 z-40 border-b border-border bg-bg/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full max-w-5xl items-center gap-3 px-4 sm:px-6">
+      <header className="pt-safe sticky top-0 z-40 border-b border-border/70 bg-bg/70 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-2 px-4 sm:px-6">
           <Link
             href="/"
-            className="flex items-center gap-2 rounded-lg font-semibold tracking-tight"
+            className="-my-1 flex items-center gap-2.5 rounded-xl py-1 outline-offset-4"
+            aria-label="Accueil — mes paquets"
           >
-            <span className="grid size-7 place-items-center rounded-lg bg-accent text-accent-fg">
-              <Layers className="size-4" />
-            </span>
-            Fiches
+            <Logo className="size-9" />
+            <span className="font-display text-lg font-semibold tracking-tight">Fiches</span>
           </Link>
 
-          <div className="ml-auto flex items-center gap-1">
-            <span className="mr-1 hidden text-sm text-fg-muted sm:inline">{user.name}</span>
+          <div className="ml-auto flex items-center gap-0.5">
+            {/* Le nom encombre inutilement une barre de 390 px de large. */}
+            <span className="mr-2 hidden text-sm font-medium text-fg-muted sm:inline">
+              {user.name}
+            </span>
 
             {user.role === "admin" ? (
               <Button asChild variant="ghost" size="icon" title="Comptes">
@@ -40,7 +43,13 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
             <ThemeToggle />
 
             <form action={logout}>
-              <Button variant="ghost" size="icon" type="submit" title="Se déconnecter" aria-label="Se déconnecter">
+              <Button
+                variant="ghost"
+                size="icon"
+                type="submit"
+                title="Se déconnecter"
+                aria-label="Se déconnecter"
+              >
                 <LogOut />
               </Button>
             </form>
@@ -48,7 +57,9 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8 sm:px-6">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-6 sm:px-6 sm:pt-10">
+        {children}
+      </main>
 
       <ServiceWorkerRegistrar />
     </div>

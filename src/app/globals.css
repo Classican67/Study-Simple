@@ -6,25 +6,32 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  /* Pile système : aucune police n'est téléchargée au build, ce qui garde le
-     `docker build` fonctionnel sans accès réseau sortant. */
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, sans-serif;
+  /* Les variables --font-*-local sont injectées par next/font (src/app/fonts.ts),
+     qui gère aussi le préchargement et l'ajustement métrique de la police de repli. */
+  --font-sans: var(--font-sans-local), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display-local), var(--font-sans-local), ui-sans-serif, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 
-  /* Rayon unique décliné, pour que boutons, champs et cartes restent cohérents. */
-  --radius-card: 1rem;
+  /* Rayons dérivés d'une même base : boutons, champs et cartes restent
+     visuellement de la même famille. */
+  --radius-card: 1.25rem;
+  --radius-panel: 1.75rem;
 
   --animate-fade-in: fade-in 180ms ease-out;
-  --animate-slide-up: slide-up 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-slide-up: slide-up 260ms cubic-bezier(0.22, 1, 0.36, 1);
+  --animate-pop: pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
 
   @keyframes fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
   }
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    from { opacity: 0; transform: translateY(10px) scale(0.985); }
     to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @keyframes pop {
+    0% { transform: scale(0.9); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
   }
 }
 
@@ -35,41 +42,76 @@
   --color-surface: var(--surface);
   --color-surface-raised: var(--surface-raised);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-fg: var(--fg);
   --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
   --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
   --color-accent-fg: var(--accent-fg);
   --color-success: var(--success);
   --color-danger: var(--danger);
+  --color-success-solid: var(--success-solid);
+  --color-danger-solid: var(--danger-solid);
   --color-ring: var(--ring);
 }
 
 :root {
-  --bg: oklch(98.5% 0.004 285);
+  color-scheme: light;
+
+  --bg: oklch(97.5% 0.006 290);
   --surface: oklch(100% 0 0);
-  --surface-raised: oklch(97% 0.005 285);
-  --border: oklch(91% 0.006 285);
-  --fg: oklch(21% 0.012 285);
-  --fg-muted: oklch(52% 0.014 285);
-  --accent: oklch(54% 0.21 292);
+  --surface-raised: oklch(96.5% 0.007 290);
+  --border: oklch(91.5% 0.008 290);
+  --border-strong: oklch(85% 0.012 290);
+  --fg: oklch(19% 0.018 285);
+  --fg-muted: oklch(48% 0.016 285);
+  --fg-subtle: oklch(50% 0.015 285);
+  --accent: oklch(52% 0.23 292);
+  --accent-soft: oklch(94% 0.035 292);
   --accent-fg: oklch(99% 0 0);
-  --success: oklch(60% 0.15 155);
-  --danger: oklch(58% 0.2 25);
-  --ring: oklch(54% 0.21 292 / 45%);
+  /* Ces deux-là servent de couleur de TEXTE sur fond clair ou sur une pastille
+     teintée : il leur faut 4,5:1, d'où une luminosité basse. */
+  --success: oklch(48% 0.15 155);
+  --danger: oklch(48% 0.20 25);
+  /* Fond des boutons pleins, sur lesquels le texte est blanc. La contrainte
+     est inverse : c'est le fond qui doit être sombre. */
+  --success-solid: oklch(48% 0.15 155);
+  --danger-solid: oklch(48% 0.20 25);
+  --ring: oklch(52% 0.23 292 / 35%);
+
+  /* Ombres teintées de l'accent plutôt que d'un gris neutre : c'est ce qui
+     empêche les cartes de paraître posées sur une feuille imprimée. */
+  --shadow-soft: 0 1px 2px oklch(30% 0.04 290 / 6%), 0 4px 16px oklch(30% 0.04 290 / 6%);
+  --shadow-lift: 0 2px 4px oklch(30% 0.04 290 / 8%), 0 12px 32px oklch(30% 0.06 290 / 12%);
+  --shadow-card: 0 4px 8px oklch(30% 0.04 290 / 8%), 0 20px 48px oklch(30% 0.06 290 / 14%);
 }
 
 .dark {
-  --bg: oklch(16% 0.011 285);
-  --surface: oklch(20.5% 0.013 285);
-  --surface-raised: oklch(25% 0.015 285);
-  --border: oklch(30% 0.014 285);
-  --fg: oklch(96% 0.004 285);
-  --fg-muted: oklch(69% 0.015 285);
-  --accent: oklch(70% 0.17 292);
-  --accent-fg: oklch(17% 0.02 292);
-  --success: oklch(74% 0.16 155);
-  --danger: oklch(70% 0.18 25);
-  --ring: oklch(70% 0.17 292 / 50%);
+  color-scheme: dark;
+
+  --bg: oklch(15.5% 0.014 288);
+  --surface: oklch(19.5% 0.016 288);
+  --surface-raised: oklch(24% 0.018 288);
+  --border: oklch(28% 0.018 288);
+  --border-strong: oklch(36% 0.022 288);
+  --fg: oklch(96.5% 0.004 288);
+  --fg-muted: oklch(70% 0.016 288);
+  --fg-subtle: oklch(68% 0.016 288);
+  --accent: oklch(72% 0.18 292);
+  --accent-soft: oklch(28% 0.06 292);
+  --accent-fg: oklch(16% 0.03 292);
+  /* Texte : clair, pour ressortir sur une surface sombre. */
+  --success: oklch(76% 0.17 155);
+  --danger: oklch(72% 0.19 25);
+  /* Fond de bouton : reste sombre même en thème sombre, le texte étant blanc. */
+  --success-solid: oklch(50% 0.15 155);
+  --danger-solid: oklch(50% 0.20 25);
+  --ring: oklch(72% 0.18 292 / 45%);
+
+  --shadow-soft: 0 1px 2px oklch(0% 0 0 / 40%), 0 4px 16px oklch(0% 0 0 / 30%);
+  --shadow-lift: 0 2px 4px oklch(0% 0 0 / 45%), 0 12px 32px oklch(0% 0 0 / 40%);
+  --shadow-card: 0 4px 8px oklch(0% 0 0 / 50%), 0 20px 48px oklch(0% 0 0 / 45%);
 }
 
 @layer base {
@@ -78,20 +120,48 @@
   }
 
   html {
-    /* Empêche iOS de zoomer sur les champs et de casser le plein écran PWA. */
+    /* Empêche iOS d'agrandir le texte en paysage et de casser la mise en page. */
     -webkit-text-size-adjust: 100%;
+    /* Coupe le surlignage bleu au toucher : sur une carte qu'on tapote pour la
+       retourner, il clignote à chaque interaction. */
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
     background-color: var(--color-bg);
     color: var(--color-fg);
     font-family: var(--font-sans);
-    /* Marge de sécurité sous l'encoche et la barre d'accueil en mode standalone. */
-    padding-bottom: env(safe-area-inset-bottom);
+    /* En PWA plein écran, le rebond élastique décolle la page du haut de
+       l'écran et laisse apparaître le fond du navigateur. */
+    overscroll-behavior-y: none;
   }
 
-  /* Un anneau de focus unique et visible partout, condition de base pour être
-     utilisable au clavier — le mode révision se joue essentiellement au clavier. */
+  /* Dégradé très retenu plutôt qu'un aplat : de la profondeur sans jamais
+     concurrencer le contenu. Fixé, donc il ne défile pas avec la page. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(60rem 40rem at 15% -10%, oklch(60% 0.14 292 / 12%), transparent 60%),
+      radial-gradient(50rem 35rem at 90% 0%, oklch(65% 0.12 250 / 10%), transparent 55%);
+  }
+
+  .dark body::before {
+    background:
+      radial-gradient(60rem 40rem at 15% -10%, oklch(60% 0.18 292 / 16%), transparent 60%),
+      radial-gradient(50rem 35rem at 90% 0%, oklch(55% 0.16 250 / 12%), transparent 55%);
+  }
+
+  h1, h2, h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  /* Un anneau de focus unique et visible partout : condition de base pour être
+     utilisable au clavier, et le mode révision se joue surtout au clavier. */
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
@@ -105,19 +175,32 @@
 @layer utilities {
   /* La pile de cartes de révision est en 3D : sans cela les cartes du dessous
      restent plates et l'effet de profondeur disparaît. */
-  .preserve-3d {
-    transform-style: preserve-3d;
+  .preserve-3d { transform-style: preserve-3d; }
+  .backface-hidden { backface-visibility: hidden; }
+  .perspective { perspective: 1800px; }
+
+  .shadow-soft { box-shadow: var(--shadow-soft); }
+  .shadow-lift { box-shadow: var(--shadow-lift); }
+  .shadow-card { box-shadow: var(--shadow-card); }
+
+  /* Barre de défilement discrète dans les zones scrollables (réponses longues),
+     pour ne pas trouer la carte d'une gouttière grise. */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
   }
-  .backface-hidden {
-    backface-visibility: hidden;
-  }
-  .perspective {
-    perspective: 1600px;
-  }
+
+  /* Encoche et barre d'accueil de l'iPhone en mode plein écran. */
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+
+  /* Cible tactile minimale recommandée (44 px), pour les commandes qui seraient
+     sinon dimensionnées par leur seule icône. */
+  .touch-target { min-height: 2.75rem; min-width: 2.75rem; }
 }
 
-/* Respecte les réglages d'accessibilité : plus d'animation de balayage pour
-   qui a demandé à en réduire. Les cartes changent alors instantanément. */
+/* Respecte les réglages d'accessibilité : plus d'animation de balayage pour qui
+   a demandé à en réduire. Les cartes changent alors instantanément. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

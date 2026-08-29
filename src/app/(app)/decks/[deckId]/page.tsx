@@ -39,24 +39,26 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
       <div>
         <Link
           href="/"
-          className="mb-4 inline-flex items-center gap-1.5 rounded-lg text-sm text-fg-muted transition-colors hover:text-fg"
+          className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm text-fg-muted transition-colors hover:text-fg"
         >
           <ArrowLeft className="size-4" />
           Tous les paquets
         </Link>
 
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex min-w-0 items-start gap-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3.5">
             <span
-              className="grid size-11 shrink-0 place-items-center rounded-xl text-white"
+              className="grid size-12 shrink-0 place-items-center rounded-2xl text-white shadow-soft"
               style={{ backgroundColor: deckColor(deck.color) }}
             >
-              <Layers className="size-5" />
+              <Layers className="size-5.5" />
             </span>
             <div className="min-w-0">
-              <h1 className="text-2xl font-semibold tracking-tight break-words">{deck.title}</h1>
+              <h1 className="text-pretty text-2xl font-semibold tracking-tight sm:text-3xl">
+                {deck.title}
+              </h1>
               {deck.description ? (
-                <p className="mt-1 text-sm text-fg-muted">{deck.description}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">{deck.description}</p>
               ) : null}
             </div>
           </div>
@@ -65,26 +67,28 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
         </div>
       </div>
 
-      <div className="rounded-card border border-border bg-surface p-5">
+      <div className="rounded-card border border-border bg-surface p-5 shadow-soft sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Badge tone="success">{known} sue{known > 1 ? "s" : ""}</Badge>
             <Badge tone={toReview > 0 ? "accent" : "neutral"}>{toReview} à revoir</Badge>
           </div>
 
-          <div className="flex gap-2">
-            <AddCardButton deckId={deck.id} />
+          {/* Sur téléphone les deux boutons prennent toute la largeur : ce sont
+              les seules actions de la page, autant les rendre faciles à viser. */}
+          <div className="flex w-full gap-2 sm:w-auto">
             {cards.length > 0 ? (
-              <Button asChild variant="secondary">
+              <Button asChild size="lg" className="flex-1 sm:flex-none">
                 <Link href={`/decks/${deck.id}/study`}>
                   <GraduationCap />
                   Réviser
                 </Link>
               </Button>
             ) : null}
+            <AddCardButton deckId={deck.id} variant={cards.length > 0 ? "secondary" : "primary"} />
           </div>
         </div>
-        <ProgressBar value={progress} className="mt-4" />
+        <ProgressBar value={progress} className="mt-5" />
       </div>
 
       {cards.length === 0 ? (

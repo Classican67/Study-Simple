@@ -8,13 +8,19 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { createDeck } from "./actions";
 import { DeckForm } from "./deck-form";
 
-export function NewDeckButton({ variant = "primary" }: { variant?: ButtonProps["variant"] }) {
+export function NewDeckButton({
+  variant = "primary",
+  className,
+}: {
+  variant?: ButtonProps["variant"];
+  className?: string;
+}) {
   const [open, setOpen] = React.useState(false);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant={variant}>
+        <Button variant={variant} size="lg" className={className}>
           <Plus />
           Nouveau paquet
         </Button>

@@ -102,13 +102,19 @@ export function ImageLightbox({
           onClick={(event) => event.stopPropagation()}
           onPointerDown={(event) => event.stopPropagation()}
           className={cn(
-            "group relative block cursor-zoom-in overflow-hidden rounded-xl border border-border",
-            "transition-colors hover:border-accent focus-visible:border-accent",
-            thumbnailClassName,
+            "group relative inline-block max-w-full cursor-zoom-in overflow-hidden rounded-xl",
+            "border border-border transition-colors hover:border-accent focus-visible:border-accent",
           )}
         >
+          {/* La contrainte de taille porte sur l'image, pas sur le bouton : un
+              bouton sans hauteur définie laissait l'image déborder et se faire
+              couper par la zone défilante de la carte. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={src} alt={alt} className="h-full w-full object-contain" />
+          <img
+            src={src}
+            alt={alt}
+            className={cn("block max-w-full object-contain", thumbnailClassName)}
+          />
           <span
             aria-hidden
             className="pointer-events-none absolute inset-0 bg-black/0 transition-colors group-hover:bg-black/10"
@@ -119,7 +125,7 @@ export function ImageLightbox({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/90 data-[state=open]:animate-fade-in" />
         <DialogPrimitive.Content
-          className="fixed inset-0 z-50 flex flex-col outline-none data-[state=open]:animate-fade-in"
+          className="pt-safe pb-safe fixed inset-0 z-50 flex flex-col outline-none data-[state=open]:animate-fade-in"
           // Le contenu est une image : rien à annoncer de plus que son alt,
           // déjà porté par le <img>.
           aria-label={alt}
@@ -127,7 +133,7 @@ export function ImageLightbox({
         >
           <DialogPrimitive.Title className="sr-only">{alt}</DialogPrimitive.Title>
           <DialogPrimitive.Description className="sr-only">
-            Image en plein écran. Double-clic ou double-tap pour zoomer, glisser pour déplacer,
+            Image en plein écran. Double-tap ou double-clic pour zoomer, glisser pour déplacer,
             Échap pour fermer.
           </DialogPrimitive.Description>
 
@@ -137,25 +143,26 @@ export function ImageLightbox({
               onClick={() => zoomTo(scale - STEP)}
               disabled={scale <= MIN_SCALE}
               aria-label="Dézoomer"
-              className="rounded-lg bg-white/10 p-2 text-white transition-colors hover:bg-white/20 disabled:opacity-30"
+              className="grid size-11 place-items-center rounded-xl bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-30"
             >
               <Minus className="size-4" />
             </button>
-            <span className="min-w-14 text-center text-sm tabular-nums text-white/80">
-              {Math.round(scale * 100)}%
+            <span className="min-w-16 text-center text-sm tabular-nums text-white/80">
+              {/* Espace avant le signe, comme partout ailleurs dans l'app. */}
+              {Math.round(scale * 100)}&nbsp;%
             </span>
             <button
               type="button"
               onClick={() => zoomTo(scale + STEP)}
               disabled={scale >= MAX_SCALE}
               aria-label="Zoomer"
-              className="rounded-lg bg-white/10 p-2 text-white transition-colors hover:bg-white/20 disabled:opacity-30"
+              className="grid size-11 place-items-center rounded-xl bg-white/10 text-white transition-colors hover:bg-white/20 disabled:opacity-30"
             >
               <Plus className="size-4" />
             </button>
             <DialogPrimitive.Close
               aria-label="Fermer"
-              className="ml-2 rounded-lg bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+              className="ml-2 grid size-11 place-items-center rounded-xl bg-white/10 text-white transition-colors hover:bg-white/20"
             >
               <X className="size-4" />
             </DialogPrimitive.Close>
@@ -185,8 +192,13 @@ export function ImageLightbox({
             />
           </div>
 
-          <p className="pb-4 text-center text-xs text-white/50">
-            Double-clic pour zoomer · glisser pour déplacer · Échap pour fermer
+          {/* La légende complète déborde d'un écran de téléphone, et parle de
+              raccourcis qui n'existent pas au doigt. */}
+          <p className="px-4 pb-4 text-center text-xs text-white/50">
+            <span className="lg:hidden">Double-tap pour zoomer · glisse pour déplacer</span>
+            <span className="hidden lg:inline">
+              Double-clic pour zoomer · glisser pour déplacer · Échap pour fermer
+            </span>
           </p>
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

@@ -5,7 +5,10 @@ import { cn } from "@/lib/utils";
 export function Panel({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
-      className={cn("rounded-card border border-border bg-surface p-5 shadow-sm", className)}
+      className={cn(
+        "rounded-card border border-border bg-surface p-5 shadow-soft sm:p-6",
+        className,
+      )}
       {...props}
     />
   );
@@ -18,15 +21,15 @@ export function Badge({
 }: React.ComponentProps<"span"> & { tone?: "neutral" | "accent" | "success" | "danger" }) {
   const tones = {
     neutral: "bg-surface-raised text-fg-muted",
-    accent: "bg-accent/15 text-accent",
-    success: "bg-success/15 text-success",
-    danger: "bg-danger/15 text-danger",
+    accent: "bg-accent-soft text-accent",
+    success: "bg-success/12 text-success",
+    danger: "bg-danger/12 text-danger",
   } as const;
 
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium tabular-nums",
+        "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium tabular-nums",
         tones[tone],
         className,
       )}
@@ -47,25 +50,39 @@ export function EmptyState({
   action?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-card border border-dashed border-border px-6 py-16 text-center">
-      <div className="mb-4 grid size-12 place-items-center rounded-full bg-surface-raised text-fg-muted">
+    <div className="flex flex-col items-center justify-center rounded-panel border border-dashed border-border-strong bg-surface/50 px-6 py-16 text-center sm:py-20">
+      <div className="mb-5 grid size-14 place-items-center rounded-2xl bg-accent-soft text-accent">
         {icon}
       </div>
-      <h2 className="text-base font-semibold text-fg">{title}</h2>
-      <p className="mt-1 max-w-sm text-sm text-fg-muted">{description}</p>
-      {action ? <div className="mt-5">{action}</div> : null}
+      <h2 className="font-display text-xl font-semibold">{title}</h2>
+      <p className="mt-2 max-w-sm text-pretty text-sm leading-relaxed text-fg-muted">
+        {description}
+      </p>
+      {action ? <div className="mt-7">{action}</div> : null}
     </div>
   );
 }
 
 // Barre de progression purement décorative : la valeur chiffrée est toujours
 // affichée en texte à côté, donc pas besoin de rôle ARIA ici.
-export function ProgressBar({ value, className }: { value: number; className?: string }) {
+export function ProgressBar({
+  value,
+  className,
+  tint,
+}: {
+  value: number;
+  className?: string;
+  // Permet à une carte de paquet de teinter sa barre à sa propre couleur.
+  tint?: string;
+}) {
   return (
-    <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-surface-raised", className)}>
+    <div className={cn("h-2 w-full overflow-hidden rounded-full bg-surface-raised", className)}>
       <div
-        className="h-full rounded-full bg-accent transition-[width] duration-500"
-        style={{ width: `${Math.min(100, Math.max(0, value))}%` }}
+        className="h-full rounded-full transition-[width] duration-700 ease-out"
+        style={{
+          width: `${Math.min(100, Math.max(0, value))}%`,
+          backgroundColor: tint ?? "var(--color-accent)",
+        }}
       />
     </div>
   );

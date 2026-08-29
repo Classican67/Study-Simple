@@ -8,6 +8,15 @@ téléphone (PWA). Multi-comptes, sans inscription publique, sans IA.
 **Pile technique** — Next.js 16 (App Router, Turbopack), React 19, Prisma +
 SQLite, Tailwind CSS v4, Radix UI, Motion.
 
+Les polices (Bricolage Grotesque pour les titres, Inter pour le texte) sont
+**auto-hébergées** dans `public/fonts` : aucun appel réseau au build, donc
+`docker build` fonctionne sur une machine sans accès sortant. Le sous-ensemble
+`latin` couvre entièrement le français. Pour en changer, remplacer les `.woff2`
+et ajuster `src/app/fonts.ts`.
+
+L'icône de la PWA est générée par `npm run icons` à partir du même dessin que
+`src/components/logo.tsx` — modifier l'un implique de relancer l'autre.
+
 ---
 
 ## Comment les données sont réparties

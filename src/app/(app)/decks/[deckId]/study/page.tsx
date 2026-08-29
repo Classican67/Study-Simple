@@ -66,7 +66,7 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
     <div className="space-y-6">
       <Link
         href={`/decks/${deckId}`}
-        className="inline-flex items-center gap-1.5 rounded-lg text-sm text-fg-muted transition-colors hover:text-fg"
+        className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm text-fg-muted transition-colors hover:text-fg"
       >
         <ArrowLeft className="size-4" />
         {deck.title}

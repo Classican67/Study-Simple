@@ -30,9 +30,11 @@ export function CardRow({ card, index }: { card: CardRowData; index: number }) {
   const boundUpdate = updateCard.bind(null, card.id);
 
   return (
-    <li className="group rounded-card border border-border bg-surface p-4 transition-colors hover:border-accent/30">
-      <div className="flex items-start gap-4">
-        <span className="mt-0.5 w-6 shrink-0 text-sm tabular-nums text-fg-muted">{index + 1}</span>
+    <li className="group rounded-card border border-border bg-surface p-4 shadow-soft transition-all hover:border-border-strong hover:shadow-lift sm:p-5">
+      <div className="flex items-start gap-3 sm:gap-4">
+        <span className="mt-1 grid size-7 shrink-0 place-items-center rounded-lg bg-surface-raised text-xs font-medium tabular-nums text-fg-subtle">
+          {index + 1}
+        </span>
 
         <div className="min-w-0 flex-1 space-y-2">
           <RichText className="font-medium leading-snug">{card.term}</RichText>
@@ -45,7 +47,7 @@ export function CardRow({ card, index }: { card: CardRowData; index: number }) {
                 <p className="line-clamp-2 break-words">{toPlainText(card.definition)}</p>
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button variant="ghost" size="sm" className="mt-1 -ml-3">
+                    <Button variant="ghost" size="md" className="-ml-3 mt-1 text-xs">
                       <Expand />
                       Voir la réponse en entier
                     </Button>
@@ -75,7 +77,9 @@ export function CardRow({ card, index }: { card: CardRowData; index: number }) {
 
         {/* Toujours dans le DOM et focalisables au clavier : n'apparaître qu'au
             survol les rendrait inatteignables sans souris. */}
-        <div className="flex shrink-0 gap-1 opacity-60 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        {/* Sur écran tactile il n'y a pas de survol : les commandes restent
+            visibles. Sur ordinateur elles s'affirment au survol. */}
+        <div className="flex shrink-0 gap-0.5 transition-opacity focus-within:opacity-100 lg:opacity-50 lg:group-hover:opacity-100">
           <Dialog open={editing} onOpenChange={setEditing}>
             <DialogTrigger asChild>
               <Button variant="ghost" size="icon" aria-label={`Modifier la carte ${index + 1}`}>

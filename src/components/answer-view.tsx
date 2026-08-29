@@ -37,10 +37,9 @@ export function AnswerView({
           src={`/api/uploads/${imagePath}`}
           alt="Illustration de la réponse"
           onOpenChange={onLightboxChange}
-          thumbnailClassName={cn(
-            "shrink-0",
-            compact ? "max-h-24 w-auto" : "max-h-64 w-full sm:max-w-[45%]",
-          )}
+          // `w-auto` plutôt qu'une largeur imposée : un schéma n'est jamais
+          // agrandi au-delà de sa taille réelle, où il deviendrait flou.
+          thumbnailClassName={compact ? "max-h-24 w-auto" : "max-h-44 w-auto sm:max-h-56"}
         />
       ) : null}
     </div>
