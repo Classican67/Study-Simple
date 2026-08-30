@@ -8,7 +8,8 @@ import { EmptyState } from "@/components/ui/panel";
 import { requireUser } from "@/lib/auth";
 import { getFolderCards, getFolderForUser } from "@/lib/folders";
 import { isDue } from "@/lib/scheduling";
-import { shuffle } from "@/lib/shuffle";
+import { orderCards } from "@/lib/study-order";
+import { readStudyOrder } from "@/lib/study-order-server";
 import { StudyClient } from "../../../decks/[deckId]/study/study-client";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,7 @@ export default async function FolderStudyPage(
   if (cards.length === 0) notFound();
 
   const reviewAll = all === "1";
+  const order = await readStudyOrder();
     // Par défaut on ne présente que ce qui est arrivé à échéance ; `?all=1`
   // rejoue tout, quelle que soit la planification.
   const pool = reviewAll ? cards : cards.filter((card) => isDue(card.dueAt));
@@ -81,7 +83,9 @@ export default async function FolderStudyPage(
         title={folder.name}
         backHref={backHref}
         replayHref={`${backHref}/study?all=1`}
-        cards={shuffle(pool)}
+        cards={orderCards(pool, order)}
+          deckOrder={pool.map((card) => card.id)}
+          order={order}
       />
     </div>
   );

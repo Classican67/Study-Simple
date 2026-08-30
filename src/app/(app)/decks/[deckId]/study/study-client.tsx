@@ -6,10 +6,13 @@ import { AnimatePresence, motion, useMotionValue, useTransform } from "motion/re
 import { Check, Expand, RotateCcw, Trophy, Undo2, X } from "lucide-react";
 
 import { AnswerView } from "@/components/answer-view";
+import { Confetti } from "@/components/confetti";
+import { StudyOrderSwitch } from "@/components/study-order-switch";
 import { RichText, toPlainText } from "@/components/rich-text";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { ProgressBar } from "@/components/ui/panel";
+import { reorderQueue, type StudyOrder } from "@/lib/study-order";
 import { cn } from "@/lib/utils";
 import { finishSession, recordAnswer } from "./actions";
 
@@ -36,6 +39,8 @@ export function StudyClient({
   backHref,
   replayHref,
   cards,
+  deckOrder,
+  order: initialOrder,
 }: {
   // Nul pour la révision d'un dossier entier : les cartes viennent alors de
   // plusieurs paquets, et aucune session ne se rattache à l'un d'eux.
@@ -43,9 +48,15 @@ export function StudyClient({
   title: string;
   backHref: string;
   replayHref: string;
+  /** Déjà triées côté serveur selon `order` : le mélange ne peut pas être
+   *  refait à l'hydratation sans afficher une autre carte que le serveur. */
   cards: StudyCard[];
+  /** Identifiants dans l'ordre du paquet, pour pouvoir y revenir. */
+  deckOrder: string[];
+  order: StudyOrder;
 }) {
   const [queue, setQueue] = React.useState<StudyCard[]>(cards);
+  const [order, setOrder] = React.useState<StudyOrder>(initialOrder);
   const [flipped, setFlipped] = React.useState(false);
   const [stats, setStats] = React.useState({ correct: 0, miss: 0 });
   const [exitDirection, setExitDirection] = React.useState(0);
@@ -149,6 +160,13 @@ export function StudyClient({
     return () => window.removeEventListener("keydown", onKey);
   }, [answer, undo, current, lightboxOpen]);
 
+  function changeOrder(next: StudyOrder) {
+    setOrder(next);
+    // On réorganise ce qui reste, sans revenir sur les cartes déjà répondues
+    // ni remplacer celle qui est affichée.
+    setQueue((current) => reorderQueue(current, deckOrder, next));
+  }
+
   if (!current) {
     return (
       <Summary
@@ -238,6 +256,10 @@ export function StudyClient({
 
       {/* Les raccourcis n'existent qu'au clavier : inutile de les afficher sur
           un appareil tactile, où ils n'occuperaient que de la place. */}
+      <div className="flex justify-center">
+        <StudyOrderSwitch value={order} onChange={changeOrder} />
+      </div>
+
       <p className="hidden text-center text-xs text-fg-subtle lg:block">
         Glisse la carte, ou <Kbd>←</Kbd> <Kbd>→</Kbd> pour répondre, <Kbd>Espace</Kbd> pour
         retourner, <Kbd>Z</Kbd> pour annuler.
@@ -468,6 +490,7 @@ function Summary({
 
   return (
     <div className="mx-auto max-w-md animate-slide-up text-center">
+      <Confetti />
       <div className="mx-auto mb-6 grid size-20 animate-pop place-items-center rounded-3xl bg-success/12 text-success">
         <Trophy className="size-10" />
       </div>

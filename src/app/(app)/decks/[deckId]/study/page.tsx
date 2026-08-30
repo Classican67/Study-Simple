@@ -8,7 +8,8 @@ import { EmptyState } from "@/components/ui/panel";
 import { requireUser } from "@/lib/auth";
 import { getDeckCards, getDeckForUser } from "@/lib/decks";
 import { isDue } from "@/lib/scheduling";
-import { shuffle } from "@/lib/shuffle";
+import { orderCards } from "@/lib/study-order";
+import { readStudyOrder } from "@/lib/study-order-server";
 import { StudyClient } from "./study-client";
 import { WriteClient } from "./write-client";
 import { ModeSwitch } from "./mode-switch";
@@ -27,6 +28,7 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
 
   const cards = await getDeckCards(deckId, user.id);
   const reviewAll = all === "1";
+  const order = await readStudyOrder();
   const writeMode = mode === "write";
   // Par défaut on ne repasse que ce qui n'est pas encore acquis ; `?all=1`
   // rejoue le paquet entier.
@@ -76,7 +78,9 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
           title={deck.title}
           backHref={`/decks/${deckId}`}
           cardsHref={`/decks/${deckId}/study${reviewAll ? "?all=1" : ""}`}
-          cards={shuffle(pool)}
+          cards={orderCards(pool, order)}
+          deckOrder={pool.map((card) => card.id)}
+          order={order}
         />
       ) : (
         <StudyClient
@@ -84,7 +88,9 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
           title={deck.title}
           backHref={`/decks/${deckId}`}
           replayHref={`/decks/${deckId}/study?all=1`}
-          cards={shuffle(pool)}
+          cards={orderCards(pool, order)}
+          deckOrder={pool.map((card) => card.id)}
+          order={order}
         />
       )}
     </div>

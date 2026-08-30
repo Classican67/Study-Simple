@@ -225,6 +225,21 @@ Chaque réponse est enregistrée immédiatement : fermer l'onglet en cours de
 session ne perd rien. Par défaut, une session ne reprend que les cartes non
 acquises ; le bouton **Tout revoir** rejoue le paquet entier.
 
+**L'ordre de passage se choisit** : *Aléatoire* ou *Dans l'ordre du paquet*.
+Le mélange reste le défaut, parce que sans lui on finit par reconnaître une
+réponse à sa position plutôt qu'à son contenu — mais l'ordre d'écriture a du
+sens quand la suite en a un (les phases d'un processus, une chronologie).
+
+Le choix est retenu d'une session à l'autre. Il vit dans un **cookie** et non
+dans le stockage local : le serveur doit pouvoir le lire pour rendre la bonne
+carte dès la première image, sinon le serveur en afficherait une et le
+navigateur une autre. Basculer en cours de session réorganise ce qui reste
+sans revenir sur les cartes déjà répondues, et sans remplacer celle qui est
+affichée.
+
+La fin d'une série est fêtée par des confettis — dessinés sur un canvas, et
+**pas joués du tout** si le système demande à réduire les animations.
+
 La progression est **par compte** : deux personnes révisant le même paquet
 gardent des états distincts.
 
@@ -383,7 +398,7 @@ npm test           # une passe
 npm run test:watch # relance à chaque modification
 ```
 
-111 tests, environ une seconde, **sans navigateur ni base de données**. Ils
+124 tests, environ une seconde, **sans navigateur ni base de données**. Ils
 utilisent le lanceur intégré de Node (`node --test`) : aucune dépendance de
 test à part `jsdom`, nécessaire pour éprouver le sérialiseur de l'éditeur.
 
@@ -398,6 +413,7 @@ Ce qui est couvert :
 | `rich-editor.test.ts` | traduction DOM → balisage, et l'aller-retour complet |
 | `crop.test.ts` | géométrie du recadrage : bornes, inversion, réduction |
 | `headers.test.ts` | politique d'autorisations et en-têtes de sécurité |
+| `study-order.test.ts` | ordre de passage, et retour à l'ordre du paquet |
 | `folder-tree.test.ts` | fil d'Ariane, cycles, sous-arbres |
 | `upload-path.test.ts` | liste blanche des noms de fichiers, traversée de chemin |
 

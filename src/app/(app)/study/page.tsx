@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/panel";
 import { requireUser } from "@/lib/auth";
 import { getDueCards } from "@/lib/decks";
-import { shuffle } from "@/lib/shuffle";
+import { orderCards } from "@/lib/study-order";
+import { readStudyOrder } from "@/lib/study-order-server";
 import { StudyClient } from "../decks/[deckId]/study/study-client";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,7 @@ export const metadata: Metadata = { title: "À réviser aujourd'hui" };
 export default async function TodayPage() {
   const user = await requireUser();
   const cards = await getDueCards(user.id);
+  const order = await readStudyOrder();
 
   if (cards.length === 0) {
     return (
@@ -47,7 +49,9 @@ export default async function TodayPage() {
       title="la révision du jour"
       backHref="/"
       replayHref="/study"
-      cards={shuffle(cards)}
+      cards={orderCards(cards, order)}
+      deckOrder={cards.map((card) => card.id)}
+      order={order}
     />
   );
 }

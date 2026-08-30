@@ -5,10 +5,13 @@ import Link from "next/link";
 import { Check, CircleHelp, RotateCcw, ThumbsUp, Trophy, X } from "lucide-react";
 
 import { AnswerView } from "@/components/answer-view";
+import { Confetti } from "@/components/confetti";
+import { StudyOrderSwitch } from "@/components/study-order-switch";
 import { RichText, toPlainText } from "@/components/rich-text";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/panel";
 import { checkAnswer, type AnswerVerdict } from "@/lib/answer-check";
+import { reorderQueue, type StudyOrder } from "@/lib/study-order";
 import { cn } from "@/lib/utils";
 import { finishSession, recordAnswer } from "./actions";
 import type { StudyCard } from "./study-client";
@@ -27,15 +30,22 @@ export function WriteClient({
   backHref,
   cards,
   cardsHref,
+  deckOrder,
+  order: initialOrder,
 }: {
   deckId: string | null;
   title: string;
   backHref: string;
+  /** Déjà triées côté serveur selon `order`. */
   cards: StudyCard[];
   /** Retour au mode cartes, en conservant le paquet. */
   cardsHref: string;
+  /** Identifiants dans l'ordre du paquet, pour pouvoir y revenir. */
+  deckOrder: string[];
+  order: StudyOrder;
 }) {
   const [queue, setQueue] = React.useState(cards);
+  const [order, setOrder] = React.useState<StudyOrder>(initialOrder);
   const [typed, setTyped] = React.useState("");
   const [verdict, setVerdict] = React.useState<AnswerVerdict | null>(null);
   const [stats, setStats] = React.useState({ correct: 0, miss: 0 });
@@ -86,6 +96,11 @@ export function WriteClient({
     if (result !== "wrong") {
       window.setTimeout(() => advance(true), result === "exact" ? 650 : 1100);
     }
+  }
+
+  function changeOrder(next: StudyOrder) {
+    setOrder(next);
+    setQueue((current) => reorderQueue(current, deckOrder, next));
   }
 
   if (!current) {
@@ -214,6 +229,10 @@ export function WriteClient({
         ) : null}
       </div>
 
+      <div className="flex justify-center">
+        <StudyOrderSwitch value={order} onChange={changeOrder} />
+      </div>
+
       <p className="hidden text-center text-xs text-fg-subtle lg:block">
         <Kbd>Entrée</Kbd> pour vérifier, puis pour enchaîner.
       </p>
@@ -247,6 +266,7 @@ function Summary({
 
   return (
     <div className="mx-auto max-w-md animate-slide-up text-center">
+      <Confetti />
       <div className="mx-auto mb-6 grid size-20 animate-pop place-items-center rounded-3xl bg-success/12 text-success">
         <Trophy className="size-10" />
       </div>
