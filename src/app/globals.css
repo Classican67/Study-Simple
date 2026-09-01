@@ -1,206 +1,311 @@
 @import "tailwindcss";
 
-/* Tailwind v4 pilote le mode sombre par media query. On le bascule sur une
-   classe pour que le sélecteur de thème puisse forcer clair ou sombre, la
-   préférence système restant le défaut (posée par le script anti-flash). */
+/* Material 3 pilote le thème sombre par une classe, pour que le sélecteur
+   puisse forcer clair ou sombre, la préférence système restant le défaut
+   (posée par le script anti-flash du layout racine). */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ==========================================================================
+   Material 3 — palettes tonales
+   --------------------------------------------------------------------------
+   Material 3 dérive tout d'une couleur source, déclinée en paliers de « ton »
+   (0 = noir, 100 = blanc). Les rôles (primary, surface, outline…) pointent
+   ensuite vers un palier précis, différent en clair et en sombre.
+   Les valeurs sont en oklch : la clarté y est perceptuelle, donc un palier
+   donné pèse le même poids visuel quelle que soit la teinte.
+   ========================================================================== */
 @theme {
-  /* Les variables --font-*-local sont injectées par next/font (src/app/fonts.ts),
-     qui gère aussi le préchargement et l'ajustement métrique de la police de repli. */
-  --font-sans: var(--font-sans-local), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-display-local), var(--font-sans-local), ui-sans-serif, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --font-sans: var(--font-sans-local), Roboto, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, "Roboto Mono", "SF Mono", Menlo, monospace;
 
-  /* Rayons dérivés d'une même base : boutons, champs et cartes restent
-     visuellement de la même famille. */
-  --radius-card: 1.25rem;
-  --radius-panel: 1.75rem;
+  /* Échelle de formes de Material 3. Les coins très arrondis (extra-large et
+     full) sont la signature visuelle de M3 Expressive. */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 28px;
+  --radius-2xl: 36px;
+  --radius-full: 999px;
 
-  --animate-fade-in: fade-in 180ms ease-out;
-  --animate-slide-up: slide-up 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  --animate-pop: pop 240ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Mouvement : Material 3 Expressive privilégie des courbes ressort plutôt
+     que des transitions linéaires. */
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  --animate-fade-in: fade-in 150ms var(--ease-emphasized);
+  --animate-slide-up: slide-up 300ms var(--ease-emphasized);
+  --animate-pop: pop 400ms var(--ease-spring);
 
   @keyframes fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
   }
   @keyframes slide-up {
-    from { opacity: 0; transform: translateY(10px) scale(0.985); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
   }
   @keyframes pop {
-    0% { transform: scale(0.9); opacity: 0; }
+    0% { transform: scale(0.85); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
   }
 }
 
-/* Palette sémantique : les composants ne référencent que ces variables, jamais
-   une couleur brute. Changer de thème ne touche donc qu'à ce bloc. */
+/* Rôles de couleur : les composants ne référencent que ceux-ci, jamais un
+   palier tonal directement. Changer de thème ne touche donc qu'aux blocs
+   :root et .dark ci-dessous. */
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-raised: var(--surface-raised);
-  --color-border: var(--border);
-  --color-border-strong: var(--border-strong);
-  --color-fg: var(--fg);
-  --color-fg-muted: var(--fg-muted);
-  --color-fg-subtle: var(--fg-subtle);
-  --color-accent: var(--accent);
-  --color-accent-soft: var(--accent-soft);
-  --color-accent-fg: var(--accent-fg);
-  --color-success: var(--success);
-  --color-danger: var(--danger);
-  --color-success-solid: var(--success-solid);
-  --color-danger-solid: var(--danger-solid);
-  --color-ring: var(--ring);
+  --color-primary: var(--m3-primary);
+  --color-on-primary: var(--m3-on-primary);
+  --color-primary-container: var(--m3-primary-container);
+  --color-on-primary-container: var(--m3-on-primary-container);
+
+  --color-secondary-container: var(--m3-secondary-container);
+  --color-on-secondary-container: var(--m3-on-secondary-container);
+
+  --color-tertiary: var(--m3-tertiary);
+  --color-tertiary-container: var(--m3-tertiary-container);
+  --color-on-tertiary-container: var(--m3-on-tertiary-container);
+
+  --color-error: var(--m3-error);
+  --color-on-error: var(--m3-on-error);
+  --color-error-container: var(--m3-error-container);
+  --color-on-error-container: var(--m3-on-error-container);
+
+  --color-success: var(--m3-success);
+  --color-on-success: var(--m3-on-success);
+  --color-success-container: var(--m3-success-container);
+  --color-on-success-container: var(--m3-on-success-container);
+
+  --color-surface: var(--m3-surface);
+  --color-on-surface: var(--m3-on-surface);
+  --color-on-surface-variant: var(--m3-on-surface-variant);
+  --color-surface-lowest: var(--m3-surface-lowest);
+  --color-surface-low: var(--m3-surface-low);
+  --color-surface-container: var(--m3-surface-container);
+  --color-surface-high: var(--m3-surface-high);
+  --color-surface-highest: var(--m3-surface-highest);
+
+  --color-outline: var(--m3-outline);
+  --color-outline-variant: var(--m3-outline-variant);
 }
 
 :root {
   color-scheme: light;
 
-  --bg: oklch(97.5% 0.006 290);
-  --surface: oklch(100% 0 0);
-  --surface-raised: oklch(96.5% 0.007 290);
-  --border: oklch(91.5% 0.008 290);
-  --border-strong: oklch(85% 0.012 290);
-  --fg: oklch(19% 0.018 285);
-  --fg-muted: oklch(48% 0.016 285);
-  --fg-subtle: oklch(50% 0.015 285);
-  --accent: oklch(52% 0.23 292);
-  --accent-soft: oklch(94% 0.035 292);
-  --accent-fg: oklch(99% 0 0);
-  /* Ces deux-là servent de couleur de TEXTE sur fond clair ou sur une pastille
-     teintée : il leur faut 4,5:1, d'où une luminosité basse. */
-  --success: oklch(48% 0.15 155);
-  --danger: oklch(48% 0.20 25);
-  /* Fond des boutons pleins, sur lesquels le texte est blanc. La contrainte
-     est inverse : c'est le fond qui doit être sombre. */
-  --success-solid: oklch(48% 0.15 155);
-  --danger-solid: oklch(48% 0.20 25);
-  --ring: oklch(52% 0.23 292 / 35%);
+  /* --- Schéma clair ------------------------------------------------------
+     primary = ton 40, on-primary = 100, container = 90, on-container = 10.
+     C'est la correspondance de rôles définie par Material 3. */
+  --m3-primary: oklch(48% 0.20 292);
+  --m3-on-primary: oklch(100% 0 0);
+  --m3-primary-container: oklch(92% 0.055 292);
+  --m3-on-primary-container: oklch(24% 0.12 292);
 
-  /* Ombres teintées de l'accent plutôt que d'un gris neutre : c'est ce qui
-     empêche les cartes de paraître posées sur une feuille imprimée. */
-  --shadow-soft: 0 1px 2px oklch(30% 0.04 290 / 6%), 0 4px 16px oklch(30% 0.04 290 / 6%);
-  --shadow-lift: 0 2px 4px oklch(30% 0.04 290 / 8%), 0 12px 32px oklch(30% 0.06 290 / 12%);
-  --shadow-card: 0 4px 8px oklch(30% 0.04 290 / 8%), 0 20px 48px oklch(30% 0.06 290 / 14%);
+  --m3-secondary-container: oklch(92% 0.022 292);
+  --m3-on-secondary-container: oklch(26% 0.035 292);
+
+  --m3-tertiary: oklch(48% 0.13 352);
+  --m3-tertiary-container: oklch(92% 0.045 352);
+  --m3-on-tertiary-container: oklch(25% 0.09 352);
+
+  --m3-error: oklch(48% 0.20 25);
+  --m3-on-error: oklch(100% 0 0);
+  --m3-error-container: oklch(92% 0.05 25);
+  --m3-on-error-container: oklch(26% 0.12 25);
+
+  /* Le vert n'appartient pas aux rôles de Material 3, mais l'app en a besoin
+     pour « je savais » : on lui construit une déclinaison cohérente. */
+  --m3-success: oklch(45% 0.14 155);
+  --m3-on-success: oklch(100% 0 0);
+  --m3-success-container: oklch(91% 0.05 155);
+  --m3-on-success-container: oklch(24% 0.09 155);
+
+  /* Surfaces : en M3, la hiérarchie se lit par des paliers de surface teintés
+     de la couleur source, et non par des ombres empilées. */
+  --m3-surface: oklch(98.5% 0.004 292);
+  --m3-on-surface: oklch(18% 0.012 292);
+  --m3-on-surface-variant: oklch(44% 0.016 292);
+  --m3-surface-lowest: oklch(100% 0 0);
+  --m3-surface-low: oklch(97% 0.006 292);
+  --m3-surface-container: oklch(95% 0.008 292);
+  --m3-surface-high: oklch(93% 0.010 292);
+  --m3-surface-highest: oklch(91% 0.012 292);
+
+  --m3-outline: oklch(55% 0.016 292);
+  --m3-outline-variant: oklch(86% 0.010 292);
+
+  /* Élévation : très discrète en M3, la profondeur venant surtout du palier
+     de surface. */
+  --m3-elevation-1: 0 1px 2px oklch(20% 0.03 292 / 12%), 0 1px 3px 1px oklch(20% 0.03 292 / 6%);
+  --m3-elevation-2: 0 1px 2px oklch(20% 0.03 292 / 12%), 0 2px 6px 2px oklch(20% 0.03 292 / 8%);
+  --m3-elevation-3: 0 4px 8px 3px oklch(20% 0.03 292 / 8%), 0 1px 3px oklch(20% 0.03 292 / 12%);
 }
 
 .dark {
   color-scheme: dark;
 
-  --bg: oklch(15.5% 0.014 288);
-  --surface: oklch(19.5% 0.016 288);
-  --surface-raised: oklch(24% 0.018 288);
-  --border: oklch(28% 0.018 288);
-  --border-strong: oklch(36% 0.022 288);
-  --fg: oklch(96.5% 0.004 288);
-  --fg-muted: oklch(70% 0.016 288);
-  --fg-subtle: oklch(68% 0.016 288);
-  --accent: oklch(72% 0.18 292);
-  --accent-soft: oklch(28% 0.06 292);
-  --accent-fg: oklch(16% 0.03 292);
-  /* Texte : clair, pour ressortir sur une surface sombre. */
-  --success: oklch(76% 0.17 155);
-  --danger: oklch(72% 0.19 25);
-  /* Fond de bouton : reste sombre même en thème sombre, le texte étant blanc. */
-  --success-solid: oklch(50% 0.15 155);
-  --danger-solid: oklch(50% 0.20 25);
-  --ring: oklch(72% 0.18 292 / 45%);
+  /* --- Schéma sombre -----------------------------------------------------
+     Les rôles basculent : primary = ton 80, on-primary = 20, container = 30.
+     Une couleur claire sur fond sombre, et l'inverse pour le texte. */
+  --m3-primary: oklch(82% 0.13 292);
+  --m3-on-primary: oklch(26% 0.13 292);
+  --m3-primary-container: oklch(38% 0.16 292);
+  --m3-on-primary-container: oklch(92% 0.055 292);
 
-  --shadow-soft: 0 1px 2px oklch(0% 0 0 / 40%), 0 4px 16px oklch(0% 0 0 / 30%);
-  --shadow-lift: 0 2px 4px oklch(0% 0 0 / 45%), 0 12px 32px oklch(0% 0 0 / 40%);
-  --shadow-card: 0 4px 8px oklch(0% 0 0 / 50%), 0 20px 48px oklch(0% 0 0 / 45%);
+  --m3-secondary-container: oklch(34% 0.035 292);
+  --m3-on-secondary-container: oklch(90% 0.022 292);
+
+  --m3-tertiary: oklch(82% 0.10 352);
+  --m3-tertiary-container: oklch(38% 0.11 352);
+  --m3-on-tertiary-container: oklch(92% 0.045 352);
+
+  --m3-error: oklch(80% 0.13 25);
+  --m3-on-error: oklch(26% 0.13 25);
+  --m3-error-container: oklch(38% 0.16 25);
+  --m3-on-error-container: oklch(92% 0.05 25);
+
+  --m3-success: oklch(82% 0.14 155);
+  /* Bascule avec le rôle : en sombre, `success` est un vert CLAIR, donc son
+     texte doit être foncé. Un blanc codé en dur y devient illisible. */
+  --m3-on-success: oklch(26% 0.09 155);
+  --m3-success-container: oklch(35% 0.11 155);
+  --m3-on-success-container: oklch(91% 0.05 155);
+
+  --m3-surface: oklch(15% 0.010 292);
+  --m3-on-surface: oklch(92% 0.006 292);
+  --m3-on-surface-variant: oklch(76% 0.014 292);
+  --m3-surface-lowest: oklch(11% 0.010 292);
+  --m3-surface-low: oklch(18% 0.011 292);
+  --m3-surface-container: oklch(21% 0.012 292);
+  --m3-surface-high: oklch(25% 0.013 292);
+  --m3-surface-highest: oklch(29% 0.014 292);
+
+  --m3-outline: oklch(63% 0.014 292);
+  --m3-outline-variant: oklch(35% 0.012 292);
+
+  --m3-elevation-1: 0 1px 3px oklch(0% 0 0 / 40%);
+  --m3-elevation-2: 0 2px 6px 2px oklch(0% 0 0 / 40%);
+  --m3-elevation-3: 0 4px 10px 4px oklch(0% 0 0 / 45%);
 }
 
 @layer base {
   * {
-    border-color: var(--color-border);
+    border-color: var(--color-outline-variant);
   }
 
   html {
     /* Empêche iOS d'agrandir le texte en paysage et de casser la mise en page. */
     -webkit-text-size-adjust: 100%;
-    /* Coupe le surlignage bleu au toucher : sur une carte qu'on tapote pour la
-       retourner, il clignote à chaque interaction. */
+    /* Le retour au toucher est fourni par les couches d'état de Material 3,
+       pas par le surlignage bleu du navigateur. */
     -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    background-color: var(--color-bg);
-    color: var(--color-fg);
+    background-color: var(--color-surface);
+    color: var(--color-on-surface);
     font-family: var(--font-sans);
     /* En PWA plein écran, le rebond élastique décolle la page du haut de
        l'écran et laisse apparaître le fond du navigateur. */
     overscroll-behavior-y: none;
   }
 
-  /* Dégradé très retenu plutôt qu'un aplat : de la profondeur sans jamais
-     concurrencer le contenu. Fixé, donc il ne défile pas avec la page. */
-  body::before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    z-index: -1;
-    pointer-events: none;
-    background:
-      radial-gradient(60rem 40rem at 15% -10%, oklch(60% 0.14 292 / 12%), transparent 60%),
-      radial-gradient(50rem 35rem at 90% 0%, oklch(65% 0.12 250 / 10%), transparent 55%);
-  }
-
-  .dark body::before {
-    background:
-      radial-gradient(60rem 40rem at 15% -10%, oklch(60% 0.18 292 / 16%), transparent 60%),
-      radial-gradient(50rem 35rem at 90% 0%, oklch(55% 0.16 250 / 12%), transparent 55%);
-  }
-
-  h1, h2, h3 {
-    font-family: var(--font-display);
-    letter-spacing: -0.02em;
-  }
-
-  /* Un anneau de focus unique et visible partout : condition de base pour être
-     utilisable au clavier, et le mode révision se joue surtout au clavier. */
+  /* Material 3 marque le focus par un contour épais de la couleur primaire. */
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 3px solid var(--color-primary);
     outline-offset: 2px;
   }
 
   ::selection {
-    background-color: var(--color-ring);
+    background-color: var(--color-primary-container);
+    color: var(--color-on-primary-container);
   }
 }
 
+/* ==========================================================================
+   Échelle typographique de Material 3
+   Une classe par rôle, plutôt que des tailles choisies au cas par cas : c'est
+   ce qui donne sa cohérence à l'ensemble, et c'est directement transposable
+   dans l'app native.
+   ========================================================================== */
 @layer utilities {
+  .m3-display-large  { font-size: 3.5rem;  line-height: 4rem;    font-weight: 600; letter-spacing: -0.02em; }
+  .m3-display-medium { font-size: 2.8rem;  line-height: 3.25rem; font-weight: 600; letter-spacing: -0.02em; }
+  .m3-display-small  { font-size: 2.25rem; line-height: 2.75rem; font-weight: 600; letter-spacing: -0.015em; }
+
+  .m3-headline-large  { font-size: 2rem;    line-height: 2.5rem;  font-weight: 600; letter-spacing: -0.015em; }
+  .m3-headline-medium { font-size: 1.75rem; line-height: 2.25rem; font-weight: 600; letter-spacing: -0.01em; }
+  .m3-headline-small  { font-size: 1.5rem;  line-height: 2rem;    font-weight: 600; letter-spacing: -0.01em; }
+
+  .m3-title-large  { font-size: 1.375rem; line-height: 1.75rem; font-weight: 500; }
+  .m3-title-medium { font-size: 1rem;     line-height: 1.5rem;  font-weight: 600; letter-spacing: 0.009em; }
+  .m3-title-small  { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; letter-spacing: 0.006em; }
+
+  .m3-body-large  { font-size: 1rem;     line-height: 1.5rem;  font-weight: 400; letter-spacing: 0.03em; }
+  .m3-body-medium { font-size: 0.875rem; line-height: 1.25rem; font-weight: 400; letter-spacing: 0.017em; }
+  .m3-body-small  { font-size: 0.75rem;  line-height: 1rem;    font-weight: 400; letter-spacing: 0.03em; }
+
+  .m3-label-large  { font-size: 0.875rem; line-height: 1.25rem; font-weight: 600; letter-spacing: 0.006em; }
+  .m3-label-medium { font-size: 0.75rem;  line-height: 1rem;    font-weight: 600; letter-spacing: 0.04em; }
+  .m3-label-small  { font-size: 0.6875rem; line-height: 1rem;   font-weight: 600; letter-spacing: 0.04em; }
+
+  .elevation-1 { box-shadow: var(--m3-elevation-1); }
+  .elevation-2 { box-shadow: var(--m3-elevation-2); }
+  .elevation-3 { box-shadow: var(--m3-elevation-3); }
+
   /* La pile de cartes de révision est en 3D : sans cela les cartes du dessous
      restent plates et l'effet de profondeur disparaît. */
   .preserve-3d { transform-style: preserve-3d; }
   .backface-hidden { backface-visibility: hidden; }
   .perspective { perspective: 1800px; }
 
-  .shadow-soft { box-shadow: var(--shadow-soft); }
-  .shadow-lift { box-shadow: var(--shadow-lift); }
-  .shadow-card { box-shadow: var(--shadow-card); }
-
-  /* Barre de défilement discrète dans les zones scrollables (réponses longues),
-     pour ne pas trouer la carte d'une gouttière grise. */
+  /* Barre de défilement discrète dans les zones scrollables. */
   .scroll-slim {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-border-strong) transparent;
+    scrollbar-color: var(--color-outline-variant) transparent;
   }
 
-  /* Encoche et barre d'accueil de l'iPhone en mode plein écran. */
+  /* Encoche et barre d'accueil en mode plein écran. */
   .pt-safe { padding-top: env(safe-area-inset-top); }
   .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
 
-  /* Cible tactile minimale recommandée (44 px), pour les commandes qui seraient
-     sinon dimensionnées par leur seule icône. */
-  .touch-target { min-height: 2.75rem; min-width: 2.75rem; }
+  /* Couches d'état de Material 3 : au survol et à l'appui, un voile de la
+     couleur de premier plan se pose sur l'élément. C'est le mécanisme de
+     retour visuel du système, à la place d'un changement de teinte codé en dur. */
+  .state-layer {
+    position: relative;
+    isolation: isolate;
+  }
+  .state-layer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: currentColor;
+    opacity: 0;
+    transition: opacity 120ms var(--ease-emphasized);
+    pointer-events: none;
+    z-index: -1;
+  }
+  .state-layer:hover::after { opacity: 0.08; }
+  .state-layer:active::after { opacity: 0.12; }
+
+  /* Couleurs de texte du contenu des cartes, alignées sur les rôles M3. */
+  .text-c-rose { color: oklch(48% 0.20 15); }
+  .text-c-amber { color: oklch(46% 0.13 70); }
+  .text-c-emerald { color: oklch(45% 0.14 160); }
+  .text-c-blue { color: oklch(46% 0.16 250); }
+  .text-c-violet { color: oklch(48% 0.20 292); }
+
+  .dark .text-c-rose { color: oklch(82% 0.13 15); }
+  .dark .text-c-amber { color: oklch(85% 0.13 75); }
+  .dark .text-c-emerald { color: oklch(82% 0.14 160); }
+  .dark .text-c-blue { color: oklch(82% 0.11 250); }
+  .dark .text-c-violet { color: oklch(82% 0.13 292); }
 }
 
-/* Respecte les réglages d'accessibilité : plus d'animation de balayage pour qui
-   a demandé à en réduire. Les cartes changent alors instantanément. */
+/* Respecte les réglages d'accessibilité : pas d'animation pour qui a demandé
+   à en réduire. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -209,21 +314,4 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-@layer utilities {
-  /* Couleurs de texte du contenu des cartes. Elles s'éclaircissent en thème
-     sombre : la version claire serait illisible sur fond foncé. La liste doit
-     rester alignée sur TEXT_COLORS dans src/components/rich-text.tsx. */
-  .text-c-rose { color: oklch(55% 0.21 15); }
-  .text-c-amber { color: oklch(52% 0.14 70); }
-  .text-c-emerald { color: oklch(48% 0.14 160); }
-  .text-c-blue { color: oklch(50% 0.17 250); }
-  .text-c-violet { color: oklch(50% 0.21 292); }
-
-  .dark .text-c-rose { color: oklch(75% 0.17 15); }
-  .dark .text-c-amber { color: oklch(78% 0.15 75); }
-  .dark .text-c-emerald { color: oklch(76% 0.16 160); }
-  .dark .text-c-blue { color: oklch(75% 0.14 250); }
-  .dark .text-c-violet { color: oklch(76% 0.15 292); }
 }

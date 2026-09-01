@@ -43,7 +43,7 @@ export function MoveDialog({
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {trigger ?? (
-          <Button variant="ghost" size="icon" aria-label="Déplacer">
+          <Button variant="text" size="icon" aria-label="Déplacer">
             <FolderInput />
           </Button>
         )}
@@ -57,14 +57,14 @@ export function MoveDialog({
           className="space-y-4"
         >
           <div className="space-y-1.5">
-            <label htmlFor="move-destination" className="text-sm font-medium text-fg">
+            <label htmlFor="move-destination" className="text-sm font-medium text-on-surface">
               Destination
             </label>
             <select
               id="move-destination"
               value={destination}
               onChange={(event) => setDestination(event.target.value)}
-              className="h-11 w-full rounded-xl border border-border bg-surface px-3 text-sm text-fg focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring"
+              className="h-11 w-full rounded-xl border border-outline-variant bg-surface-container px-3 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
             >
               <option value="">Accueil (aucun dossier)</option>
               {options.map((option) => (
@@ -82,7 +82,7 @@ export function MoveDialog({
 
           <div className="flex justify-end gap-2 pt-2">
             <DialogClose asChild>
-              <Button type="button" variant="secondary">
+              <Button type="button" variant="outlined">
                 Annuler
               </Button>
             </DialogClose>

@@ -45,17 +45,17 @@ export function FolderBrowser({
         <div className="flex min-w-0 items-start gap-3">
           {current ? (
             <span
-              className="mt-1 grid size-11 shrink-0 place-items-center rounded-2xl text-white shadow-soft"
+              className="mt-1 grid size-11 shrink-0 place-items-center rounded-2xl text-white elevation-1"
               style={{ backgroundColor: deckColor(current.color) }}
             >
               <FolderIcon className="size-5" />
             </span>
           ) : null}
           <div className="min-w-0">
-            <h1 className="text-pretty text-3xl font-semibold tracking-tight sm:text-4xl">
+            <h1 className="text-pretty m3-display-small">
               {current ? current.name : "Mes paquets"}
             </h1>
-            <p className="mt-2 text-sm text-fg-muted">
+            <p className="mt-2 m3-body-large text-on-surface-variant">
               {describe(folders.length, decks.length, totalKnown, totalCards)}
             </p>
           </div>
@@ -103,7 +103,7 @@ export function FolderBrowser({
         <div className="space-y-8">
           {folders.length > 0 ? (
             <section className="space-y-3">
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-subtle">
+              <h2 className="m3-title-small uppercase tracking-widest text-on-surface-variant">
                 Dossiers
               </h2>
               <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
@@ -111,19 +111,19 @@ export function FolderBrowser({
                   <DropTarget key={folder.id} folderId={folder.id}>
                     <Link
                       href={`/folders/${folder.id}`}
-                      className="group flex items-center gap-3 rounded-card border border-border bg-surface p-4 shadow-soft transition-all hover:-translate-y-0.5 hover:border-border-strong hover:shadow-lift"
+                      className="group flex items-center gap-3 rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1 transition-all hover:-translate-y-0.5 hover:border-outline hover:elevation-2"
                     >
                       <span
-                        className="grid size-10 shrink-0 place-items-center rounded-xl text-white shadow-soft"
+                        className="grid size-10 shrink-0 place-items-center rounded-xl text-white elevation-1"
                         style={{ backgroundColor: deckColor(folder.color) }}
                       >
                         <FolderIcon className="size-4.5" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-display font-semibold">
+                        <span className="block truncate font-semibold">
                           {folder.name}
                         </span>
-                        <span className="block text-xs text-fg-subtle">
+                        <span className="block m3-body-small text-on-surface-variant">
                           {summarise(folder.deckCount, folder.childCount)}
                         </span>
                       </span>
@@ -134,7 +134,7 @@ export function FolderBrowser({
                       ) : null}
                       <span className="contents">
                       </span>
-                      <ChevronRight className="size-4 shrink-0 text-fg-subtle transition-transform group-hover:translate-x-0.5" />
+                      <ChevronRight className="size-4 shrink-0 text-on-surface-variant transition-transform group-hover:translate-x-0.5" />
                     </Link>
                   </DropTarget>
                 ))}
@@ -145,7 +145,7 @@ export function FolderBrowser({
           {decks.length > 0 ? (
             <section className="space-y-3">
               {folders.length > 0 ? (
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-fg-subtle">
+                <h2 className="m3-title-small uppercase tracking-widest text-on-surface-variant">
                   Paquets
                 </h2>
               ) : null}
@@ -159,7 +159,7 @@ export function FolderBrowser({
                     <DraggableDeck key={deck.id} deckId={deck.id}>
                       <Link
                         href={`/decks/${deck.id}`}
-                        className="group relative flex h-full flex-col overflow-hidden rounded-card border border-border bg-surface shadow-soft transition-all duration-200 hover:-translate-y-1 hover:border-border-strong hover:shadow-lift sm:min-h-52"
+                        className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-outline-variant bg-surface-container elevation-1 transition-all duration-200 hover:-translate-y-1 hover:border-outline hover:elevation-2 sm:min-h-52"
                       >
                         {/* Lavis de la couleur du paquet : identifie le cours d'un
                             coup d'œil sans coloriser toute la carte. */}
@@ -172,7 +172,7 @@ export function FolderBrowser({
                         <div className="relative flex flex-1 flex-col p-5">
                           <div className="mb-4 flex items-start justify-between gap-3">
                             <span
-                              className="grid size-11 shrink-0 place-items-center rounded-2xl text-white shadow-soft"
+                              className="grid size-11 shrink-0 place-items-center rounded-2xl text-white elevation-1"
                               style={{ backgroundColor: color }}
                             >
                               <Layers className="size-5" />
@@ -186,22 +186,22 @@ export function FolderBrowser({
                             </Badge>
                           </div>
 
-                          <h3 className="text-pretty font-display text-lg font-semibold leading-snug">
+                          <h3 className="text-pretty text-lg font-semibold leading-snug">
                             {deck.title}
                           </h3>
                           {deck.description ? (
-                            <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-fg-muted">
+                            <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-on-surface-variant">
                               {deck.description}
                             </p>
                           ) : null}
 
                           <div className="mt-auto pt-5">
-                            <div className="mb-2 flex items-center justify-between text-xs text-fg-subtle">
+                            <div className="mb-2 flex items-center justify-between m3-body-small text-on-surface-variant">
                               <span className="tabular-nums">
                                 {deck.knownCount}/{deck.cardCount} carte
                                 {deck.cardCount > 1 ? "s" : ""}
                               </span>
-                              <span className="flex items-center gap-1 font-medium text-fg-muted opacity-0 transition-opacity group-hover:opacity-100">
+                              <span className="flex items-center gap-1 font-medium text-on-surface-variant opacity-0 transition-opacity group-hover:opacity-100">
                                 Ouvrir
                                 <ArrowRight className="size-3.5" />
                               </span>
@@ -227,20 +227,20 @@ function TodayBanner({ count }: { count: number }) {
   return (
     <Link
       href="/study"
-      className="group flex items-center gap-4 rounded-card border border-accent/25 bg-accent-soft p-5 shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift"
+      className="group flex items-center gap-4 rounded-xl border border-primary/25 bg-primary-container p-5 elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
     >
-      <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-accent text-accent-fg shadow-soft">
+      <span className="grid size-12 shrink-0 place-items-center rounded-2xl bg-primary text-on-primary elevation-1">
         <CalendarClock className="size-6" />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block font-display text-lg font-semibold text-fg">
+        <span className="block text-lg font-semibold text-on-surface">
           {count} carte{count > 1 ? "s" : ""} à réviser aujourd&apos;hui
         </span>
-        <span className="block text-sm text-fg-muted">
+        <span className="block m3-body-medium text-on-surface-variant">
           Toutes tes matières mélangées, dans l&apos;ordre le plus utile.
         </span>
       </span>
-      <ArrowRight className="size-5 shrink-0 text-accent transition-transform group-hover:translate-x-0.5" />
+      <ArrowRight className="size-5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
     </Link>
   );
 }
@@ -248,11 +248,11 @@ function TodayBanner({ count }: { count: number }) {
 function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
   return (
     <nav aria-label="Fil d'Ariane" className="-mt-1">
-      <ol className="flex flex-wrap items-center gap-1 text-sm text-fg-muted">
+      <ol className="flex flex-wrap items-center gap-1 m3-body-medium text-on-surface-variant">
         <DropTarget folderId={null} className="!rounded-lg">
           <Link
             href="/"
-            className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 transition-colors hover:text-fg"
+            className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 transition-colors hover:text-on-surface"
           >
             <Home className="size-3.5" />
             Accueil
@@ -262,18 +262,18 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
           const last = index === trail.length - 1;
           return (
             <li key={folder.id} className="flex items-center">
-              <ChevronRight className="size-3.5 shrink-0 text-fg-subtle" />
+              <ChevronRight className="size-3.5 shrink-0 text-on-surface-variant" />
               {last ? (
                 // Le dernier maillon est la page courante : un lien vers
                 // soi-même n'apporte rien et brouille la navigation clavier.
-                <span aria-current="page" className="px-2 font-medium text-fg">
+                <span aria-current="page" className="px-2 font-medium text-on-surface">
                   {folder.name}
                 </span>
               ) : (
                 <DropTarget folderId={folder.id} as="div" className="!rounded-lg">
                   <Link
                     href={`/folders/${folder.id}`}
-                    className="flex min-h-11 items-center rounded-lg px-2 transition-colors hover:text-fg"
+                    className="flex min-h-11 items-center rounded-lg px-2 transition-colors hover:text-on-surface"
                   >
                     {folder.name}
                   </Link>

@@ -102,7 +102,7 @@ export function CardEditor({
   return (
     <div className="space-y-3">
       {error ? (
-        <p role="alert" className="flex items-center gap-2 text-sm text-danger">
+        <p role="alert" className="flex items-center gap-2 text-sm text-error">
           <TriangleAlert className="size-4 shrink-0" />
           {error}
         </p>
@@ -125,7 +125,7 @@ export function CardEditor({
       </Reorder.Group>
 
       <Button
-        variant="secondary"
+        variant="outlined"
         size="lg"
         onClick={add}
         disabled={pendingAdd}
@@ -239,11 +239,11 @@ function CardRow({
       // pourrait plus sélectionner de texte dans les champs.
       dragListener={false}
       dragControls={controls}
-      className="rounded-card border border-border bg-surface shadow-soft"
+      className="rounded-xl border border-outline-variant bg-surface-container elevation-1"
     >
       <div ref={rowRef}>
-        <header className="flex items-center gap-1 border-b border-border px-3 py-2">
-          <span className="w-7 text-center text-sm font-medium tabular-nums text-fg-subtle">
+        <header className="flex items-center gap-1 border-b border-outline-variant px-3 py-2">
+          <span className="w-7 text-center text-sm font-medium tabular-nums text-on-surface-variant">
             {index + 1}
           </span>
 
@@ -253,7 +253,7 @@ function CardRow({
             {/* Flèches en plus du glisser : au clavier et sur un long paquet,
                 c'est la seule façon confortable de réordonner. */}
             <Button
-              variant="ghost"
+              variant="text"
               size="icon"
               onClick={() => onMove(-1)}
               disabled={index === 0}
@@ -262,7 +262,7 @@ function CardRow({
               <ChevronUp />
             </Button>
             <Button
-              variant="ghost"
+              variant="text"
               size="icon"
               onClick={() => onMove(1)}
               disabled={index === total - 1}
@@ -278,7 +278,7 @@ function CardRow({
               tabIndex={-1}
               // `touch-none` empêche le navigateur de faire défiler la page
               // pendant qu'on glisse la carte au doigt.
-              className="grid size-11 cursor-grab touch-none place-items-center rounded-xl text-fg-subtle transition-colors hover:bg-surface-raised hover:text-fg active:cursor-grabbing"
+              className="grid size-11 cursor-grab touch-none place-items-center rounded-xl text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface active:cursor-grabbing"
             >
               <GripVertical className="size-4" />
             </button>
@@ -286,10 +286,10 @@ function CardRow({
             <ConfirmDialog
               trigger={
                 <Button
-                  variant="ghost"
+                  variant="text"
                   size="icon"
                   aria-label={`Supprimer la carte ${index + 1}`}
-                  className="hover:text-danger"
+                  className="hover:text-error"
                 >
                   <Trash2 />
                 </Button>
@@ -331,7 +331,7 @@ function CardRow({
           </LabelledField>
 
           <div className="lg:w-40">
-            <span className="mb-1.5 block text-[0.7rem] font-semibold uppercase tracking-wide text-fg-subtle">
+            <span className="mb-1.5 block text-[0.7rem] font-semibold uppercase tracking-wide text-on-surface-variant">
               Image
             </span>
             {imagePath ? (
@@ -349,7 +349,7 @@ function CardRow({
                   aria-label="Retirer l'image"
                   className="group/remove absolute -right-4 -top-4 grid size-11 place-items-center"
                 >
-                  <span className="grid size-7 place-items-center rounded-full bg-surface text-fg-muted shadow-lift transition-colors group-hover/remove:text-danger">
+                  <span className="grid size-7 place-items-center rounded-full bg-surface-container text-on-surface-variant elevation-2 transition-colors group-hover/remove:text-error">
                     <X className="size-3.5" />
                   </span>
                 </button>
@@ -367,7 +367,7 @@ function CardRow({
 function LabelledField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <span className="mb-1.5 block text-[0.7rem] font-semibold uppercase tracking-wide text-fg-subtle">
+      <span className="mb-1.5 block text-[0.7rem] font-semibold uppercase tracking-wide text-on-surface-variant">
         {label}
       </span>
       {children}
@@ -380,7 +380,7 @@ function SaveIndicator({ state, message }: { state: SaveState; message: string |
 
   if (state === "error") {
     return (
-      <span role="alert" className="flex items-center gap-1.5 text-xs font-medium text-danger">
+      <span role="alert" className="flex items-center gap-1.5 text-xs font-medium text-error">
         <TriangleAlert className="size-3.5 shrink-0" />
         {message ?? "Erreur"}
       </span>
@@ -389,7 +389,7 @@ function SaveIndicator({ state, message }: { state: SaveState; message: string |
 
   return (
     // `role="status"` : le changement est annoncé sans voler le focus.
-    <span role="status" className="flex items-center gap-1.5 text-xs text-fg-subtle">
+    <span role="status" className="flex items-center gap-1.5 m3-body-small text-on-surface-variant">
       {state === "saving" ? (
         <>
           <Loader2 className="size-3.5 animate-spin" />

@@ -9,11 +9,11 @@ export default function OfflinePage() {
   return (
     <main className="grid min-h-dvh place-items-center px-6 text-center">
       <div>
-        <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-surface-raised text-fg-muted">
+        <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-surface-container-high text-on-surface-variant">
           <WifiOff className="size-6" />
         </div>
-        <h1 className="text-xl font-semibold">Pas de connexion</h1>
-        <p className="mt-2 max-w-xs text-sm text-fg-muted">
+        <h1 className="m3-title-large">Pas de connexion</h1>
+        <p className="mt-2 max-w-xs m3-body-medium text-on-surface-variant">
           Fiches a besoin du serveur pour charger tes paquets. Réessaie dès que le réseau revient.
         </p>
       </div>

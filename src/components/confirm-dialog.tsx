@@ -23,7 +23,7 @@ export function ConfirmDialog({
   description,
   confirmLabel,
   action,
-  variant = "danger",
+  variant = "error",
 }: {
   trigger: React.ReactNode;
   title: string;
@@ -38,7 +38,7 @@ export function ConfirmDialog({
       <DialogContent title={title} description={description} className="max-w-md">
         <form action={action} className="flex justify-end gap-2">
           <DialogClose asChild>
-            <Button type="button" variant="secondary">
+            <Button type="button" variant="outlined">
               Annuler
             </Button>
           </DialogClose>

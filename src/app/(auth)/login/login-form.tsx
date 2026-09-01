@@ -44,7 +44,7 @@ export function LoginForm({ from }: { from: string }) {
       {state.error ? (
         <p
           role="alert"
-          className="flex items-center gap-2 rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger"
+          className="flex items-center gap-2 rounded-xl bg-error-container/10 px-3 py-2 text-sm text-error"
         >
           <TriangleAlert className="size-4 shrink-0" />
           {state.error}

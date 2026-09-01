@@ -21,11 +21,11 @@ export default function GlobalError({
   return (
     <main className="grid min-h-dvh place-items-center px-6 text-center">
       <div>
-        <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-danger/15 text-danger">
+        <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-error-container/15 text-error">
           <TriangleAlert className="size-6" />
         </div>
-        <h1 className="text-xl font-semibold">Quelque chose a lâché</h1>
-        <p className="mt-2 max-w-xs text-sm text-fg-muted">
+        <h1 className="m3-title-large">Quelque chose a lâché</h1>
+        <p className="mt-2 max-w-xs m3-body-medium text-on-surface-variant">
           L&apos;erreur a été écrite dans les logs du serveur.
           {error.digest ? (
             <span className="mt-1 block font-mono text-xs">{error.digest}</span>

@@ -12,10 +12,13 @@ WORKDIR /app
 # masqué par un volume anonyme côté compose : les binaires natifs restent ceux
 # de Linux et non ceux de l'hôte (macOS ou autre).
 COPY package.json package-lock.json ./
-RUN npm ci
 
+# Avant `npm ci`, pour la même raison qu'en production : le `postinstall`
+# lance `prisma generate`, qui a besoin du schéma. Il génère donc le client
+# au passage, sans qu'une commande séparée soit nécessaire.
 COPY prisma ./prisma
-RUN npx prisma generate
+
+RUN npm ci
 
 EXPOSE 3000
 CMD ["sh", "-c", "npx prisma migrate deploy && npm run dev -- --hostname 0.0.0.0"]

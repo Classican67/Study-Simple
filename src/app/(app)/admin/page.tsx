@@ -29,8 +29,8 @@ export default async function AdminPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Comptes</h1>
-        <p className="mt-1 text-sm text-fg-muted">
+        <h1 className="m3-headline-medium">Comptes</h1>
+        <p className="mt-1 m3-body-medium text-on-surface-variant">
           L&apos;inscription est fermée : les comptes se créent uniquement ici ou en ligne de
           commande.
         </p>
@@ -49,16 +49,16 @@ export default async function AdminPage() {
           {users.map((user) => (
             <li
               key={user.id}
-              className="flex items-center gap-4 rounded-card border border-border bg-surface px-4 py-3"
+              className="flex items-center gap-4 rounded-xl border border-outline-variant bg-surface-container px-4 py-3"
             >
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium">
                   {user.name}
                   {user.id === admin.id ? (
-                    <span className="ml-2 text-xs font-normal text-fg-muted">(toi)</span>
+                    <span className="ml-2 text-xs font-normal text-on-surface-variant">(toi)</span>
                   ) : null}
                 </p>
-                <p className="truncate text-sm text-fg-muted">{user.email}</p>
+                <p className="truncate m3-body-medium text-on-surface-variant">{user.email}</p>
               </div>
 
               <Badge tone={user.role === "admin" ? "accent" : "neutral"}>
@@ -76,10 +76,10 @@ export default async function AdminPage() {
                 <ConfirmDialog
                   trigger={
                     <Button
-                      variant="ghost"
+                      variant="text"
                       size="icon"
                       aria-label={`Supprimer le compte de ${user.name}`}
-                      className="hover:text-danger"
+                      className="hover:text-error"
                     >
                       <Trash2 />
                     </Button>

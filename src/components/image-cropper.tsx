@@ -262,18 +262,18 @@ export function ImageCropper({
           </div>
 
           {error ? (
-            <p role="alert" className="text-center text-sm text-danger">
+            <p role="alert" className="text-center text-sm text-error">
               {error}
             </p>
           ) : null}
 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex gap-2">
-              <Button type="button" variant="secondary" onClick={() => setCrop(FULL_CROP)}>
+              <Button type="button" variant="outlined" onClick={() => setCrop(FULL_CROP)}>
                 <Maximize />
                 Toute l&apos;image
               </Button>
-              <Button type="button" variant="secondary" onClick={rotate} disabled={busy}>
+              <Button type="button" variant="outlined" onClick={rotate} disabled={busy}>
                 <RotateCw />
                 Pivoter
               </Button>
@@ -282,7 +282,7 @@ export function ImageCropper({
             <div className="flex flex-1 gap-2 sm:flex-none">
               <Button
                 type="button"
-                variant="secondary"
+                variant="outlined"
                 onClick={onCancel}
                 className="flex-1 sm:flex-none"
               >

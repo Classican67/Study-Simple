@@ -388,6 +388,32 @@ curl -sI https://<TAILSCALE_HOST>/ | grep -i permissions-policy
 Doit contenir `camera=(self)`. Si un reverse proxy réécrit cet en-tête avec
 `camera=()`, l'appareil photo est interdit à l'application elle-même.
 
+## `npm ci` échoue au build sur `prisma generate`
+
+Symptôme, pendant `docker compose build` :
+
+```
+npm error command sh -c prisma generate
+prisma/schema.prisma: file not found
+```
+
+**Cause.** `package.json` déclare un `postinstall` qui lance `prisma generate`,
+exécuté par npm à la fin de `npm ci`. Si le `Dockerfile` copie `prisma/` après
+l'installation, le schéma n'existe pas encore à ce moment-là et l'installation
+entière échoue.
+
+**Correction.** Copier le schéma avant d'installer :
+
+```dockerfile
+COPY package.json package-lock.json ./
+COPY prisma ./prisma
+RUN npm ci
+```
+
+Le cache Docker reste efficace : `prisma/` ne change que lorsqu'on touche au
+modèle de données, cas où il faut de toute façon réinstaller. Un test
+(`dockerfile.test.ts`) vérifie cet ordre, dans les deux Dockerfile.
+
 ## Écriture sur le NAS refusée
 
 Le conteneur écrit en tant que `root`. Selon le type de partage :

@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
-import { display, sans } from "./fonts";
+import { sans } from "./fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -51,12 +51,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="fr"
       suppressHydrationWarning
-      className={`${sans.variable} ${display.variable} h-full antialiased`}
+      className={`${sans.variable} h-full antialiased`}
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="min-h-full bg-bg text-fg">{children}</body>
+      <body className="min-h-full bg-surface text-on-surface">{children}</body>
     </html>
   );
 }

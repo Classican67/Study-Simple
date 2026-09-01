@@ -121,22 +121,22 @@ export function WriteClient({
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <span className="font-display text-2xl font-semibold tabular-nums">
+          <span className="text-2xl font-semibold tabular-nums">
             {stats.correct}
-            <span className="text-base font-normal text-fg-subtle">/{cards.length}</span>
+            <span className="text-base font-normal text-on-surface-variant">/{cards.length}</span>
           </span>
-          <span className="text-sm tabular-nums text-fg-muted">
+          <span className="text-sm tabular-nums text-on-surface-variant">
             {queue.length} restante{queue.length > 1 ? "s" : ""}
           </span>
         </div>
         <ProgressBar value={progress} />
       </div>
 
-      <div className="rounded-panel border border-border bg-surface p-6 shadow-card sm:p-8">
-        <span className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-fg-subtle">
+      <div className="rounded-2xl border border-outline-variant bg-surface-container p-6 elevation-3 sm:p-8">
+        <span className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-on-surface-variant">
           Question
         </span>
-        <RichText className="mt-4 text-balance text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
+        <RichText className="mt-4 text-balance text-center m3-headline-medium sm:m3-display-small">
           {current.term}
         </RichText>
 
@@ -159,10 +159,10 @@ export function WriteClient({
             placeholder="Écris la réponse…"
             aria-label="Ta réponse"
             className={cn(
-              "h-12 w-full rounded-xl border bg-surface px-4 text-center text-base text-fg",
-              "placeholder:text-fg-subtle focus:outline-none focus:ring-2",
-              verdict === null && "border-border focus:border-accent focus:ring-ring",
-              verdict === "wrong" && "border-danger text-danger focus:ring-0",
+              "h-12 w-full rounded-xl border bg-surface-container px-4 text-center text-base text-on-surface",
+              "placeholder:text-on-surface-variant focus:outline-none focus:ring-2",
+              verdict === null && "border-outline-variant focus:border-primary focus:ring-primary",
+              verdict === "wrong" && "border-error text-error focus:ring-0",
               verdict !== null && verdict !== "wrong" && "border-success text-success focus:ring-0",
             )}
           />
@@ -171,7 +171,7 @@ export function WriteClient({
             <div className="flex gap-2">
               <Button
                 type="button"
-                variant="secondary"
+                variant="outlined"
                 size="lg"
                 onClick={() => setVerdict("wrong")}
                 className="flex-1"
@@ -199,8 +199,8 @@ export function WriteClient({
 
         {verdict === "wrong" ? (
           <div className="mt-5 space-y-4">
-            <div className="rounded-xl border border-border bg-surface-raised p-4">
-              <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-danger">
+            <div className="rounded-xl border border-outline-variant bg-surface-container-high p-4">
+              <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-error">
                 <X className="size-3.5" />
                 La réponse attendue
               </p>
@@ -213,7 +213,7 @@ export function WriteClient({
                   mode devient punitif. */}
               <Button
                 type="button"
-                variant="secondary"
+                variant="outlined"
                 size="lg"
                 onClick={() => advance(true)}
                 className="flex-1"
@@ -233,7 +233,7 @@ export function WriteClient({
         <StudyOrderSwitch value={order} onChange={changeOrder} />
       </div>
 
-      <p className="hidden text-center text-xs text-fg-subtle lg:block">
+      <p className="hidden text-center m3-body-small text-on-surface-variant lg:block">
         <Kbd>Entrée</Kbd> pour vérifier, puis pour enchaîner.
       </p>
     </div>
@@ -242,7 +242,7 @@ export function WriteClient({
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-[0.7rem] text-fg-muted shadow-soft">
+    <kbd className="rounded-md border border-outline-variant bg-surface-container px-1.5 py-0.5 font-mono text-[0.7rem] text-on-surface-variant elevation-1">
       {children}
     </kbd>
   );
@@ -267,23 +267,23 @@ function Summary({
   return (
     <div className="mx-auto max-w-md animate-slide-up text-center">
       <Confetti />
-      <div className="mx-auto mb-6 grid size-20 animate-pop place-items-center rounded-3xl bg-success/12 text-success">
+      <div className="mx-auto mb-6 grid size-20 animate-pop place-items-center rounded-3xl bg-success-container/12 text-success">
         <Trophy className="size-10" />
       </div>
 
-      <h1 className="text-3xl font-semibold tracking-tight">Série terminée</h1>
-      <p className="mt-1 text-sm text-fg-muted">
+      <h1 className="m3-headline-large">Série terminée</h1>
+      <p className="mt-1 m3-body-medium text-on-surface-variant">
         Tu as écrit les {total} réponse{total > 1 ? "s" : ""} de « {toPlainText(title)} ».
       </p>
 
       <dl className="mt-6 grid grid-cols-3 gap-3">
         <Stat label="Justes" value={stats.correct} tone="text-success" />
-        <Stat label="Ratées" value={stats.miss} tone="text-danger" />
+        <Stat label="Ratées" value={stats.miss} tone="text-error" />
         <Stat label="Réussite" value={`${accuracy} %`} />
       </dl>
 
       <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
-        <Button asChild variant="secondary">
+        <Button asChild variant="outlined">
           <Link href={backHref}>Retour</Link>
         </Button>
         <Button asChild>
@@ -299,9 +299,9 @@ function Summary({
 
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
   return (
-    <div className="rounded-card border border-border bg-surface p-4 shadow-soft">
-      <dt className="text-xs text-fg-subtle">{label}</dt>
-      <dd className={cn("mt-1 font-display text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
+    <div className="rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1">
+      <dt className="m3-body-small text-on-surface-variant">{label}</dt>
+      <dd className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
     </div>
   );
 }

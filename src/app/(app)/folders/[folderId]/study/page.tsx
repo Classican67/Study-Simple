@@ -53,7 +53,7 @@ export default async function FolderStudyPage(
           description={`Toutes les cartes de « ${folder.name} » sont planifiées pour plus tard. Tu peux quand même tout repasser dès maintenant.`}
           action={
             <div className="flex w-full flex-col gap-2 sm:flex-row">
-              <Button asChild variant="secondary">
+              <Button asChild variant="outlined">
                 <Link href={backHref}>Retour au dossier</Link>
               </Button>
               <Button asChild>
@@ -70,7 +70,7 @@ export default async function FolderStudyPage(
     <div className="space-y-6">
       <Link
         href={backHref}
-        className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm text-fg-muted transition-colors hover:text-fg"
+        className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 m3-body-medium text-on-surface-variant transition-colors hover:text-on-surface"
       >
         <ArrowLeft className="size-4" />
         {folder.name}

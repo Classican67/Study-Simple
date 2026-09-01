@@ -14,16 +14,16 @@ export default async function LoginPage(props: PageProps<"/login">) {
     <main className="grid min-h-dvh place-items-center px-5 py-10">
       <div className="w-full max-w-sm animate-slide-up">
         <div className="mb-9 flex flex-col items-center text-center">
-          <Logo className="mb-5 size-16 shadow-lift" id="login" />
-          <h1 className="text-3xl font-semibold tracking-tight">Fiches</h1>
-          <p className="mt-2 text-sm text-fg-muted">Connecte-toi pour retrouver tes paquets.</p>
+          <Logo className="mb-5 size-16 elevation-2" id="login" />
+          <h1 className="m3-headline-large">Fiches</h1>
+          <p className="mt-2 m3-body-large text-on-surface-variant">Connecte-toi pour retrouver tes paquets.</p>
         </div>
 
-        <div className="rounded-panel border border-border bg-surface p-6 shadow-card sm:p-7">
+        <div className="rounded-2xl border border-outline-variant bg-surface-container p-6 elevation-3 sm:p-7">
           <LoginForm from={target} />
         </div>
 
-        <p className="mt-7 text-center text-xs text-fg-subtle">
+        <p className="mt-7 text-center m3-body-small text-on-surface-variant">
           Les comptes sont créés par l&apos;administrateur.
         </p>
       </div>

@@ -47,7 +47,7 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
           description="Toutes les cartes de ce paquet sont planifiées pour plus tard. Tu peux quand même le repasser en entier dès maintenant."
           action={
             <div className="flex flex-col gap-2 sm:flex-row">
-              <Button asChild variant="secondary">
+              <Button asChild variant="outlined">
                 <Link href={`/decks/${deckId}`}>Retour au paquet</Link>
               </Button>
               <Button asChild>
@@ -64,7 +64,7 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
     <div className="space-y-6">
       <Link
         href={`/decks/${deckId}`}
-        className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm text-fg-muted transition-colors hover:text-fg"
+        className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 m3-body-medium text-on-surface-variant transition-colors hover:text-on-surface"
       >
         <ArrowLeft className="size-4" />
         {deck.title}

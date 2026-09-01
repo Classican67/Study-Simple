@@ -84,7 +84,7 @@ export function ThemeToggle() {
 
   return (
     <Button
-      variant="ghost"
+      variant="toolbar-icon"
       size="icon"
       title={LABELS[theme]}
       aria-label={LABELS[theme]}

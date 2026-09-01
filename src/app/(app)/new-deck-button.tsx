@@ -10,7 +10,7 @@ import { DeckForm } from "./deck-form";
 
 export function NewDeckButton({
   folderId,
-  variant = "primary",
+  variant = "filled",
   className,
 }: {
   folderId: string | null;

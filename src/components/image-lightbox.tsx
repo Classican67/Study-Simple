@@ -103,7 +103,7 @@ export function ImageLightbox({
           onPointerDown={(event) => event.stopPropagation()}
           className={cn(
             "group relative inline-block max-w-full cursor-zoom-in overflow-hidden rounded-xl",
-            "border border-border transition-colors hover:border-accent focus-visible:border-accent",
+            "border border-outline-variant transition-colors hover:border-primary focus-visible:border-primary",
           )}
         >
           {/* La contrainte de taille porte sur l'image, pas sur le bouton : un

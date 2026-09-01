@@ -21,7 +21,7 @@ export function ModeSwitch({
   const suffix = all ? "&all=1" : "";
 
   return (
-    <div className="mx-auto flex w-fit rounded-xl border border-border bg-surface p-1 shadow-soft">
+    <div className="mx-auto flex w-fit rounded-xl border border-outline-variant bg-surface-container p-1 elevation-1">
       <Item href={`${base}${all ? "?all=1" : ""}`} active={!write} icon={Layers} label="Cartes" />
       <Item href={`${base}?mode=write${suffix}`} active={write} icon={Keyboard} label="Écrire" />
     </div>
@@ -45,7 +45,7 @@ function Item({
       aria-current={active ? "page" : undefined}
       className={cn(
         "flex min-h-11 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors",
-        active ? "bg-accent text-accent-fg shadow-soft" : "text-fg-muted hover:text-fg",
+        active ? "bg-primary text-on-primary elevation-1" : "text-on-surface-variant hover:text-on-surface",
       )}
     >
       <Icon className="size-4" />

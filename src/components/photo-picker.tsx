@@ -86,7 +86,7 @@ export function PhotoPicker({
           type="button"
           disabled={disabled}
           onClick={() => cameraRef.current?.click()}
-          className="hidden min-h-11 items-center justify-center gap-2 rounded-xl border border-dashed border-border-strong px-3 text-xs text-fg-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50 [@media(pointer:coarse)]:flex"
+          className="hidden min-h-11 items-center justify-center gap-2 rounded-xl border border-dashed border-outline px-3 m3-body-small text-on-surface-variant transition-colors hover:border-primary hover:text-primary disabled:opacity-50 [@media(pointer:coarse)]:flex"
         >
           <Camera className="size-4" />
           Appareil photo
@@ -97,7 +97,7 @@ export function PhotoPicker({
             sur iOS, le sélecteur de fichiers propose lui aussi « Prendre une
             photo ». Mais mieux vaut dire pourquoi ça peut échouer. */}
         {insecure ? (
-          <p className="hidden items-start gap-1.5 text-[0.7rem] leading-snug text-fg-subtle [@media(pointer:coarse)]:flex">
+          <p className="hidden items-start gap-1.5 text-[0.7rem] leading-snug text-on-surface-variant [@media(pointer:coarse)]:flex">
             <TriangleAlert className="mt-0.5 size-3 shrink-0" />
             L&apos;appareil photo demande une connexion HTTPS. Sans elle, passe par
             « Image ».
@@ -108,7 +108,7 @@ export function PhotoPicker({
           type="button"
           disabled={disabled}
           onClick={() => fileRef.current?.click()}
-          className="flex min-h-11 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong px-3 py-3 text-fg-subtle transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+          className="flex min-h-11 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-outline px-3 py-3 text-on-surface-variant transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
         >
           <ImagePlus className="size-5" />
           <span className="text-xs">Image</span>
@@ -116,7 +116,7 @@ export function PhotoPicker({
       </div>
 
       {error ? (
-        <p role="alert" className="mt-1 text-xs font-medium text-danger">
+        <p role="alert" className="mt-1 text-xs font-medium text-error">
           {error}
         </p>
       ) : null}

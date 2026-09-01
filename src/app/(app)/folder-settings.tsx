@@ -26,7 +26,7 @@ export function FolderSettings({
     <div className="flex items-center gap-1">
       <Dialog open={editing} onOpenChange={setEditing}>
         <DialogTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Renommer le dossier">
+          <Button variant="text" size="icon" aria-label="Renommer le dossier">
             <Settings2 />
           </Button>
         </DialogTrigger>
@@ -42,7 +42,7 @@ export function FolderSettings({
 
       <MoveDialog
         trigger={
-          <Button variant="ghost" size="icon" aria-label="Déplacer le dossier">
+          <Button variant="text" size="icon" aria-label="Déplacer le dossier">
             <FolderInput />
           </Button>
         }
@@ -55,10 +55,10 @@ export function FolderSettings({
       <ConfirmDialog
         trigger={
           <Button
-            variant="ghost"
+            variant="text"
             size="icon"
             aria-label="Supprimer le dossier"
-            className="hover:text-danger"
+            className="hover:text-error"
           >
             <Trash2 />
           </Button>

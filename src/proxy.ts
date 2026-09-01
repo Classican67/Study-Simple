@@ -8,7 +8,17 @@ import { SESSION_COOKIE_NAME } from "@/lib/session";
 // base de données, pas de vérification de signature. L'autorisation réelle est
 // faite par le DAL (`requireUser`) dans chaque page et action serveur ; ceci
 // évite juste un aller-retour inutile vers une page qui redirigerait.
-const PUBLIC_PATHS = ["/login", "/manifest.webmanifest", "/sw.js", "/api/health", "/offline"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/manifest.webmanifest",
+  "/sw.js",
+  "/api/health",
+  "/offline",
+  // Les routes d'API s'authentifient elles-mêmes et répondent 401 en JSON.
+  // Les laisser au proxy les ferait rediriger vers /login, ce qu'un client
+  // mobile ne saurait pas interpréter.
+  "/api/v1",
+];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

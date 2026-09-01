@@ -57,7 +57,7 @@ export function DeckForm({
       <ColorPicker defaultValue={defaults?.color ?? "violet"} />
 
       {state.error ? (
-        <p role="alert" className="flex items-center gap-2 text-sm text-danger">
+        <p role="alert" className="flex items-center gap-2 text-sm text-error">
           <TriangleAlert className="size-4 shrink-0" />
           {state.error}
         </p>
@@ -65,7 +65,7 @@ export function DeckForm({
 
       <div className="flex justify-end gap-2 pt-2">
         <DialogClose asChild>
-          <Button type="button" variant="secondary">
+          <Button type="button" variant="outlined">
             Annuler
           </Button>
         </DialogClose>

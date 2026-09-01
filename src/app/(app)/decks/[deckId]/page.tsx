@@ -50,7 +50,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
       <div>
         <Link
           href="/"
-          className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-sm text-fg-muted transition-colors hover:text-fg"
+          className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 m3-body-medium text-on-surface-variant transition-colors hover:text-on-surface"
         >
           <ArrowLeft className="size-4" />
           Tous les paquets
@@ -59,17 +59,17 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3.5">
             <span
-              className="grid size-12 shrink-0 place-items-center rounded-2xl text-white shadow-soft"
+              className="grid size-12 shrink-0 place-items-center rounded-2xl text-white elevation-1"
               style={{ backgroundColor: deckColor(deck.color) }}
             >
               <Layers className="size-5.5" />
             </span>
             <div className="min-w-0">
-              <h1 className="text-pretty text-2xl font-semibold tracking-tight sm:text-3xl">
+              <h1 className="text-pretty m3-headline-medium">
                 {deck.title}
               </h1>
               {deck.description ? (
-                <p className="mt-1.5 text-sm leading-relaxed text-fg-muted">{deck.description}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-on-surface-variant">{deck.description}</p>
               ) : null}
             </div>
           </div>
@@ -82,7 +82,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
         </div>
       </div>
 
-      <div className="rounded-card border border-border bg-surface p-5 shadow-soft sm:p-6">
+      <div className="rounded-xl border border-outline-variant bg-surface-container p-5 elevation-1 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge tone={due > 0 ? "accent" : "neutral"}>

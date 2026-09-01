@@ -22,8 +22,8 @@ import { cn } from "@/lib/utils";
 import { importCards, type ImportState } from "./actions";
 
 const selectClass =
-  "h-11 w-full rounded-xl border border-border bg-surface px-3 text-sm text-fg " +
-  "focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring";
+  "h-11 w-full rounded-xl border border-outline-variant bg-surface-container px-3 text-sm text-on-surface " +
+  "focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary";
 
 const PLACEHOLDER = `mitose\tDivision en deux cellules identiques
 méiose\tDivision réductionnelle
@@ -113,7 +113,7 @@ export function ImportDialog({ deckId }: { deckId: string }) {
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="secondary" size="lg" className="flex-1 sm:flex-none">
+        <Button variant="outlined" size="lg" className="flex-1 sm:flex-none">
           <Download />
           <span className="sm:hidden">Importer</span>
           <span className="hidden sm:inline">Importer des cartes</span>
@@ -128,11 +128,11 @@ export function ImportDialog({ deckId }: { deckId: string }) {
           // Compte-rendu : on remplace le formulaire plutôt que de l'empiler,
           // pour que le résultat soit la seule chose à lire.
           <div className="space-y-5 text-center">
-            <div className="mx-auto grid size-14 animate-pop place-items-center rounded-2xl bg-success/12 text-success">
+            <div className="mx-auto grid size-14 animate-pop place-items-center rounded-2xl bg-success-container/12 text-success">
               <CircleCheck className="size-7" />
             </div>
             <div>
-              <p className="font-display text-xl font-semibold">
+              <p className="m3-title-large">
                 {state.created} carte{state.created > 1 ? "s" : ""} importée
                 {state.created > 1 ? "s" : ""}
               </p>
@@ -166,13 +166,13 @@ export function ImportDialog({ deckId }: { deckId: string }) {
                 autoFocus
                 spellCheck={false}
                 placeholder={PLACEHOLDER}
-                className="w-full resize-y rounded-xl border border-border bg-surface px-3 py-2 font-mono text-xs leading-relaxed text-fg placeholder:text-fg-subtle focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring"
+                className="w-full resize-y rounded-xl border border-outline-variant bg-surface-container px-3 py-2 font-mono text-xs leading-relaxed text-on-surface placeholder:text-on-surface-variant focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </Field>
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label htmlFor="import-term" className="text-sm font-medium text-fg">
+                <label htmlFor="import-term" className="text-sm font-medium text-on-surface">
                   Entre le terme et la définition
                 </label>
                 <select
@@ -202,7 +202,7 @@ export function ImportDialog({ deckId }: { deckId: string }) {
               </div>
 
               <div className="space-y-1.5">
-                <label htmlFor="import-card" className="text-sm font-medium text-fg">
+                <label htmlFor="import-card" className="text-sm font-medium text-on-surface">
                   Entre deux cartes
                 </label>
                 <select
@@ -233,7 +233,7 @@ export function ImportDialog({ deckId }: { deckId: string }) {
             </div>
 
             {detected ? (
-              <p className="flex items-center gap-2 text-xs text-accent">
+              <p className="flex items-center gap-2 text-xs text-primary">
                 <Wand2 className="size-3.5 shrink-0" />
                 Format reconnu automatiquement. Change les séparateurs si l&apos;aperçu est faux.
               </p>
@@ -241,12 +241,12 @@ export function ImportDialog({ deckId }: { deckId: string }) {
 
             {/* Le libellé fait partie de la cible : on lui donne la hauteur
                 tactile, pour que toute la ligne réponde au doigt. */}
-            <label className="-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-2 text-sm text-fg transition-colors hover:bg-surface-raised">
+            <label className="-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-2 text-sm text-on-surface transition-colors hover:bg-surface-container-high">
               <input
                 type="checkbox"
                 name="skipDuplicates"
                 defaultChecked
-                className="size-5 shrink-0 rounded border-border accent-[var(--color-accent)]"
+                className="size-5 shrink-0 rounded border-outline-variant accent-[var(--color-accent)]"
               />
               Ignorer les cartes dont le terme existe déjà
             </label>
@@ -254,14 +254,14 @@ export function ImportDialog({ deckId }: { deckId: string }) {
             {text.trim() ? <Preview result={preview} /> : null}
 
             {state.error ? (
-              <p role="alert" className="flex items-center gap-2 text-sm text-danger">
+              <p role="alert" className="flex items-center gap-2 text-sm text-error">
                 <TriangleAlert className="size-4 shrink-0" />
                 {state.error}
               </p>
             ) : null}
 
             <div className="flex justify-end gap-2 pt-1">
-              <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+              <Button type="button" variant="outlined" onClick={() => setOpen(false)}>
                 Annuler
               </Button>
               <Submit disabled={preview.cards.length === 0} />
@@ -279,7 +279,7 @@ function Preview({ result }: { result: ReturnType<typeof parseImport> }) {
   const { cards, skipped } = result;
 
   return (
-    <div className="rounded-xl border border-border bg-surface-raised p-3">
+    <div className="rounded-xl border border-outline-variant bg-surface-container-high p-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Badge tone={cards.length > 0 ? "success" : "danger"}>
           {cards.length} carte{cards.length > 1 ? "s" : ""} reconnue{cards.length > 1 ? "s" : ""}
@@ -296,23 +296,23 @@ function Preview({ result }: { result: ReturnType<typeof parseImport> }) {
         <ul className="space-y-1.5">
           {cards.slice(0, 3).map((c, i) => (
             <li key={i} className="grid grid-cols-[1fr_auto_1.4fr] items-start gap-2 text-xs">
-              <span className="truncate font-medium text-fg">{c.term}</span>
-              <span className="text-fg-subtle">→</span>
-              <span className="line-clamp-2 text-fg-muted">{c.definition}</span>
+              <span className="truncate font-medium text-on-surface">{c.term}</span>
+              <span className="text-on-surface-variant">→</span>
+              <span className="line-clamp-2 text-on-surface-variant">{c.definition}</span>
             </li>
           ))}
           {cards.length > 3 ? (
-            <li className="text-xs text-fg-subtle">et {cards.length - 3} autre{cards.length - 3 > 1 ? "s" : ""}…</li>
+            <li className="m3-body-small text-on-surface-variant">et {cards.length - 3} autre{cards.length - 3 > 1 ? "s" : ""}…</li>
           ) : null}
         </ul>
       ) : (
-        <p className="text-xs text-fg-muted">
+        <p className="m3-body-small text-on-surface-variant">
           Aucune carte reconnue avec ces séparateurs. Essaie-en un autre.
         </p>
       )}
 
       {skipped.length > 0 ? (
-        <p className={cn("mt-2 truncate text-xs text-fg-subtle")}>
+        <p className={cn("mt-2 truncate m3-body-small text-on-surface-variant")}>
           Ignoré : « {skipped[0]} »{skipped.length > 1 ? ` et ${skipped.length - 1} de plus` : ""}
         </p>
       ) : null}

@@ -31,7 +31,7 @@ export function StudyOrderSwitch({
     <div
       role="group"
       aria-label="Ordre des cartes"
-      className={cn("flex rounded-xl border border-border bg-surface p-1 shadow-soft", className)}
+      className={cn("flex rounded-xl border border-outline-variant bg-surface-container p-1 elevation-1", className)}
     >
       <Item
         active={value === "shuffle"}
@@ -67,7 +67,7 @@ function Item({
       aria-pressed={active}
       className={cn(
         "flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm font-medium transition-colors",
-        active ? "bg-accent text-accent-fg shadow-soft" : "text-fg-muted hover:text-fg",
+        active ? "bg-primary text-on-primary elevation-1" : "text-on-surface-variant hover:text-on-surface",
       )}
     >
       <Icon className="size-4 shrink-0" />

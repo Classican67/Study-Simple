@@ -28,7 +28,7 @@ export function DeckSettings({
     <div className="flex items-center gap-1">
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="Modifier le paquet">
+          <Button variant="text" size="icon" aria-label="Modifier le paquet">
             <Settings2 />
           </Button>
         </DialogTrigger>
@@ -43,7 +43,7 @@ export function DeckSettings({
 
       <MoveDialog
         trigger={
-          <Button variant="ghost" size="icon" aria-label="Déplacer le paquet">
+          <Button variant="text" size="icon" aria-label="Déplacer le paquet">
             <FolderInput />
           </Button>
         }
@@ -56,21 +56,21 @@ export function DeckSettings({
       {hasProgress ? (
         <ConfirmDialog
           trigger={
-            <Button variant="ghost" size="icon" aria-label="Réinitialiser ma progression">
+            <Button variant="text" size="icon" aria-label="Réinitialiser ma progression">
               <RotateCcw />
             </Button>
           }
           title="Réinitialiser ta progression ?"
           description="Toutes les cartes de ce paquet redeviennent « à revoir ». Les cartes elles-mêmes ne sont pas touchées, et la progression des autres comptes non plus."
           confirmLabel="Réinitialiser"
-          variant="secondary"
+          variant="outlined"
           action={resetDeckProgress.bind(null, deck.id)}
         />
       ) : null}
 
       <ConfirmDialog
         trigger={
-          <Button variant="ghost" size="icon" aria-label="Supprimer le paquet" className="hover:text-danger">
+          <Button variant="text" size="icon" aria-label="Supprimer le paquet" className="hover:text-error">
             <Trash2 />
           </Button>
         }

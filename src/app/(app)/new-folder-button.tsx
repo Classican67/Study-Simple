@@ -21,7 +21,7 @@ export function NewFolderButton({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="secondary" size="lg" className={className}>
+        <Button variant="outlined" size="lg" className={className}>
           <FolderPlus />
           Dossier
         </Button>

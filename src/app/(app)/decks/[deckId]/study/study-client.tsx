@@ -185,11 +185,11 @@ export function StudyClient({
     <div className="mx-auto flex min-h-[calc(100dvh-11rem)] w-full max-w-xl flex-col gap-4 sm:max-w-2xl sm:gap-5">
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
-          <span className="font-display text-2xl font-semibold tabular-nums">
+          <span className="text-2xl font-semibold tabular-nums">
             {answeredRight}
-            <span className="text-base font-normal text-fg-subtle">/{cards.length}</span>
+            <span className="text-base font-normal text-on-surface-variant">/{cards.length}</span>
           </span>
-          <span className="text-sm tabular-nums text-fg-muted">
+          <span className="text-sm tabular-nums text-on-surface-variant">
             {queue.length} restante{queue.length > 1 ? "s" : ""}
           </span>
         </div>
@@ -205,7 +205,7 @@ export function StudyClient({
           <div
             key={card.id}
             aria-hidden
-            className="absolute inset-x-0 top-0 h-full rounded-panel border border-border bg-surface shadow-soft"
+            className="absolute inset-x-0 top-0 h-full rounded-2xl border border-outline-variant bg-surface-container elevation-1"
             style={{
               transform: `translateY(${(index + 1) * 10}px) scale(${1 - (index + 1) * 0.03})`,
               opacity: 1 - (index + 1) * 0.35,
@@ -233,7 +233,7 @@ export function StudyClient({
 
       <div className="pb-safe flex items-center gap-2 sm:gap-3">
         <Button
-          variant="secondary"
+          variant="outlined"
           size="icon"
           onClick={undo}
           disabled={history.length === 0}
@@ -244,7 +244,7 @@ export function StudyClient({
           <Undo2 />
         </Button>
 
-        <Button variant="danger" size="lg" className="flex-1" onClick={() => answer(false)}>
+        <Button variant="error" size="lg" className="flex-1" onClick={() => answer(false)}>
           <X />
           À revoir
         </Button>
@@ -260,7 +260,7 @@ export function StudyClient({
         <StudyOrderSwitch value={order} onChange={changeOrder} />
       </div>
 
-      <p className="hidden text-center text-xs text-fg-subtle lg:block">
+      <p className="hidden text-center m3-body-small text-on-surface-variant lg:block">
         Glisse la carte, ou <Kbd>←</Kbd> <Kbd>→</Kbd> pour répondre, <Kbd>Espace</Kbd> pour
         retourner, <Kbd>Z</Kbd> pour annuler.
       </p>
@@ -349,13 +349,13 @@ function SwipeCard({
         <>
           <motion.div
             style={{ opacity: knownGlow }}
-            className="pointer-events-none absolute left-6 top-6 -rotate-12 rounded-2xl border-[3px] border-success bg-surface/80 px-4 py-2 font-display text-base font-bold uppercase tracking-wide text-success backdrop-blur-sm"
+            className="pointer-events-none absolute left-6 top-6 -rotate-12 rounded-2xl border-[3px] border-success bg-surface-container-container/80 px-4 py-2 text-base font-bold uppercase tracking-wide text-success backdrop-blur-sm"
           >
             Je savais
           </motion.div>
           <motion.div
             style={{ opacity: reviewGlow }}
-            className="pointer-events-none absolute right-6 top-6 rotate-12 rounded-2xl border-[3px] border-danger bg-surface/80 px-4 py-2 font-display text-base font-bold uppercase tracking-wide text-danger backdrop-blur-sm"
+            className="pointer-events-none absolute right-6 top-6 rotate-12 rounded-2xl border-[3px] border-error bg-surface-container-container/80 px-4 py-2 text-base font-bold uppercase tracking-wide text-error backdrop-blur-sm"
           >
             À revoir
           </motion.div>
@@ -367,7 +367,7 @@ function SwipeCard({
 
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="rounded-md border border-border bg-surface px-1.5 py-0.5 font-mono text-[0.7rem] text-fg-muted shadow-soft">
+    <kbd className="rounded-md border border-outline-variant bg-surface-container px-1.5 py-0.5 font-mono text-[0.7rem] text-on-surface-variant elevation-1">
       {children}
     </kbd>
   );
@@ -393,10 +393,10 @@ function FlipCard({
     >
       {/* Recto : la question. */}
       <Face onClick={onFlip} label="Question">
-        <RichText className="text-balance text-center font-display text-2xl font-semibold leading-tight sm:text-3xl">
+        <RichText className="text-balance text-center m3-headline-medium sm:m3-display-small">
           {card.term}
         </RichText>
-        <p className="mt-7 text-xs text-fg-subtle">Touche la carte pour voir la réponse</p>
+        <p className="mt-7 m3-body-small text-on-surface-variant">Touche la carte pour voir la réponse</p>
       </Face>
 
       {/* Verso : la réponse, tournée à 180° et masquée tant qu'on est de face. */}
@@ -419,7 +419,7 @@ function FlipCard({
           <Dialog>
             <DialogTrigger asChild>
               <Button
-                variant="secondary"
+                variant="outlined"
                 size="sm"
                 className="mt-4 shrink-0"
                 // Sans cela, le clic remonterait jusqu'à la carte et la retournerait.
@@ -458,11 +458,11 @@ function Face({
       onClick={onClick}
       className={cn(
         "backface-hidden absolute inset-0 flex flex-col items-center justify-center",
-        "rounded-panel border border-border bg-surface p-6 shadow-card sm:p-8",
+        "rounded-2xl border border-outline-variant bg-surface-container p-6 elevation-3 sm:p-8",
         className,
       )}
     >
-      <span className="absolute left-6 top-5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-fg-subtle">
+      <span className="absolute left-6 top-5 text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-on-surface-variant">
         {label}
       </span>
       <div className="flex max-h-full w-full flex-col items-center justify-center overflow-hidden pt-7">
@@ -491,23 +491,23 @@ function Summary({
   return (
     <div className="mx-auto max-w-md animate-slide-up text-center">
       <Confetti />
-      <div className="mx-auto mb-6 grid size-20 animate-pop place-items-center rounded-3xl bg-success/12 text-success">
+      <div className="mx-auto mb-6 grid size-20 animate-pop place-items-center rounded-3xl bg-success-container/12 text-success">
         <Trophy className="size-10" />
       </div>
 
-      <h1 className="text-3xl font-semibold tracking-tight">Paquet terminé</h1>
-      <p className="mt-1 text-sm text-fg-muted">
+      <h1 className="m3-headline-large">Paquet terminé</h1>
+      <p className="mt-1 m3-body-medium text-on-surface-variant">
         Tu as passé les {total} carte{total > 1 ? "s" : ""} de « {title} ».
       </p>
 
       <dl className="mt-6 grid grid-cols-3 gap-3">
         <Stat label="Sues" value={stats.correct} tone="text-success" />
-        <Stat label="Ratées" value={stats.miss} tone="text-danger" />
+        <Stat label="Ratées" value={stats.miss} tone="text-error" />
         <Stat label="Réussite" value={`${accuracy}%`} />
       </dl>
 
       <div className="mt-8 flex flex-col gap-2 sm:flex-row sm:justify-center">
-        <Button asChild variant="secondary">
+        <Button asChild variant="outlined">
           <Link href={backHref}>Retour</Link>
         </Button>
         <Button asChild>
@@ -525,9 +525,9 @@ function Summary({
 
 function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
   return (
-    <div className="rounded-card border border-border bg-surface p-4 shadow-soft">
-      <dt className="text-xs text-fg-subtle">{label}</dt>
-      <dd className={cn("mt-1 font-display text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
+    <div className="rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1">
+      <dt className="m3-body-small text-on-surface-variant">{label}</dt>
+      <dd className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
     </div>
   );
 }

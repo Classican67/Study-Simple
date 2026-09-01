@@ -74,8 +74,8 @@ export function DropTarget({
         if (deckId) void moveDeck(deckId, folderId);
       }}
       className={cn(
-        "rounded-card transition-shadow",
-        over && "ring-2 ring-accent ring-offset-2 ring-offset-bg",
+        "rounded-xl transition-shadow",
+        over && "ring-2 ring-primary ring-offset-2 ring-offset-surface",
         className,
       )}
     >

@@ -8,11 +8,37 @@ téléphone (PWA). Multi-comptes, sans inscription publique, sans IA.
 **Pile technique** — Next.js 16 (App Router, Turbopack), React 19, Prisma +
 SQLite, Tailwind CSS v4, Radix UI, Motion.
 
-Les polices (Bricolage Grotesque pour les titres, Inter pour le texte) sont
-**auto-hébergées** dans `public/fonts` : aucun appel réseau au build, donc
-`docker build` fonctionne sur une machine sans accès sortant. Le sous-ensemble
-`latin` couvre entièrement le français. Pour en changer, remplacer les `.woff2`
-et ajuster `src/app/fonts.ts`.
+## Le système de design
+
+L'interface suit **Material 3** — la même langue visuelle que le système
+Android, choisie pour que l'app web et la future app native partagent leurs
+jetons plutôt que de se ressembler vaguement.
+
+Concrètement, dans `src/app/globals.css` :
+
+- **Rôles de couleur** (`primary`, `on-primary`, `primary-container`,
+  `surface`, `surface-container`, `outline`…) déclinés en schéma clair et
+  sombre. Les composants ne référencent jamais une couleur brute, seulement un
+  rôle — changer de thème ne touche qu'à deux blocs.
+- **Échelle typographique** (`m3-display-*`, `m3-headline-*`, `m3-title-*`,
+  `m3-body-*`, `m3-label-*`) plutôt que des tailles choisies au cas par cas.
+- **Échelle de formes**, des coins de 4 px à la pilule complète.
+- **Couches d'état** : au survol et à l'appui, un voile de la couleur de
+  premier plan se pose sur l'élément, comme sur Android — à la place d'un
+  changement de teinte codé en dur.
+
+La hiérarchie se lit par des **paliers de surface** teintés, pas par des ombres
+empilées : une carte se distingue du fond parce qu'elle est d'un ton différent.
+
+La navigation suit la convention Android : **barre basse sur téléphone**, là où
+se trouve le pouce, et en ligne dans la barre supérieure à partir de la
+tablette. Elle **disparaît pendant une révision** — une tâche immersive, où
+elle recouvrirait les boutons de réponse.
+
+La police est **Roboto Flex**, celle de Material 3 et du système Android,
+auto-hébergée dans `public/fonts` (84 Ko) : aucun appel réseau au build, donc
+`docker build` fonctionne sans accès sortant. Le sous-ensemble `latin` couvre
+entièrement le français.
 
 L'icône de la PWA est générée par `npm run icons` à partir du même dessin que
 `src/components/logo.tsx` — modifier l'un implique de relancer l'autre.

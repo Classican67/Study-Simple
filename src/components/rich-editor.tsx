@@ -233,14 +233,14 @@ export function RichEditor({
   return (
     <div
       className={cn(
-        "group rounded-xl border border-border bg-surface",
-        "focus-within:border-accent focus-within:ring-2 focus-within:ring-ring",
+        "group rounded-xl border border-outline-variant bg-surface-container",
+        "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary",
         className,
       )}
     >
       <div
         className={cn(
-          "relative flex-wrap items-center gap-0.5 border-b border-border bg-surface-raised px-1.5 py-1",
+          "relative flex-wrap items-center gap-0.5 border-b border-outline-variant bg-surface-container-high px-1.5 py-1",
           compact ? "hidden group-focus-within:flex" : "flex",
         )}
       >
@@ -255,7 +255,7 @@ export function RichEditor({
                   pressed={colorOpen}
                 />
                 {colorOpen ? (
-                  <div className="absolute left-0 top-full z-20 mt-1 flex gap-1 rounded-xl border border-border bg-surface p-1.5 shadow-lift">
+                  <div className="absolute left-0 top-full z-20 mt-1 flex gap-1 rounded-xl border border-outline-variant bg-surface-container p-1.5 elevation-2">
                     {(Object.keys(TEXT_COLORS) as TextColor[]).map((name) => (
                       <button
                         key={name}
@@ -278,7 +278,7 @@ export function RichEditor({
                         event.preventDefault();
                         applyColor(null);
                       }}
-                      className="grid size-7 place-items-center rounded-full border border-border text-xs text-fg-muted transition-colors hover:text-fg"
+                      className="grid size-7 place-items-center rounded-full border border-outline-variant m3-body-small text-on-surface-variant transition-colors hover:text-on-surface"
                     >
                       ✕
                     </button>
@@ -301,7 +301,7 @@ export function RichEditor({
 
       <div className="relative">
         {empty && placeholder ? (
-          <span className="pointer-events-none absolute left-3 top-2 select-none text-sm text-fg-subtle">
+          <span className="pointer-events-none absolute left-3 top-2 select-none m3-body-medium text-on-surface-variant">
             {placeholder}
           </span>
         ) : null}
@@ -318,10 +318,10 @@ export function RichEditor({
           onPaste={onPaste}
           style={{ minHeight }}
           className={cn(
-            "w-full px-3 py-2 text-sm leading-relaxed text-fg outline-none",
+            "w-full px-3 py-2 text-sm leading-relaxed text-on-surface outline-none",
             // Les listes du contenteditable n'héritent pas des styles de base.
             "[&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
-            "[&_code]:rounded [&_code]:bg-surface-raised [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono",
+            "[&_code]:rounded [&_code]:bg-surface-container-high [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono",
           )}
         />
       </div>
@@ -353,8 +353,8 @@ function ToolButton({
         onRun();
       }}
       className={cn(
-        "rounded-lg p-1.5 text-fg-muted transition-colors hover:bg-border/60 hover:text-fg",
-        pressed && "bg-border/60 text-fg",
+        "rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-outline-variant/60 hover:text-on-surface",
+        pressed && "bg-outline-variant/60 text-on-surface",
       )}
     >
       <Icon className="size-4" />

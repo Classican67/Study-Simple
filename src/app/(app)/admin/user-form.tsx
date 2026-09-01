@@ -40,7 +40,7 @@ export function UserForm() {
         <select
           name="role"
           defaultValue="user"
-          className="h-10 w-full rounded-xl border border-border bg-surface px-3 text-sm text-fg focus:border-accent focus:outline-none focus:ring-2 focus:ring-ring"
+          className="h-10 w-full rounded-xl border border-outline-variant bg-surface-container px-3 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
         >
           <option value="user">Utilisateur</option>
           <option value="admin">Administrateur</option>
@@ -48,7 +48,7 @@ export function UserForm() {
       </Field>
 
       {state.error ? (
-        <p role="alert" className="flex items-center gap-2 text-sm text-danger">
+        <p role="alert" className="flex items-center gap-2 text-sm text-error">
           <TriangleAlert className="size-4 shrink-0" />
           {state.error}
         </p>

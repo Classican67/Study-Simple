@@ -28,7 +28,7 @@ export function ColorPicker({
 
   return (
     <fieldset className="space-y-1.5">
-      <legend className="text-sm font-medium text-fg">{legend}</legend>
+      <legend className="text-sm font-medium text-on-surface">{legend}</legend>
       <input type="hidden" name={name} value={value} />
       <div className="flex flex-wrap gap-2">
         {PICKER_COLORS.map((color) => (
@@ -44,7 +44,7 @@ export function ColorPicker({
             // 44 px : cible tactile minimale.
             className={cn(
               "size-11 rounded-full transition-transform hover:scale-110",
-              value === color.value && "ring-2 ring-fg ring-offset-2 ring-offset-surface",
+              value === color.value && "ring-2 ring-on-surface ring-offset-2 ring-offset-surface-container",
             )}
             style={{ backgroundColor: color.css }}
           />

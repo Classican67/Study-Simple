@@ -14,6 +14,14 @@ WORKDIR /app
 # Couche séparée : tant que package-lock.json ne bouge pas, Docker réutilise
 # le cache et le rebuild ne réinstalle pas tout.
 COPY package.json package-lock.json ./
+
+# Le schéma AVANT l'installation : le `postinstall` de package.json lance
+# `prisma generate`, qui échoue s'il ne trouve pas prisma/schema.prisma — et
+# fait alors échouer `npm ci` tout entier. Copier ce dossier ici ne coûte
+# presque rien au cache : il ne change que lorsqu'on touche au modèle de
+# données, cas où il faut de toute façon régénérer.
+COPY prisma ./prisma
+
 RUN npm ci
 
 COPY . .
@@ -22,6 +30,9 @@ COPY . .
 # src/lib/session.ts (qui valide la clé) et touche Prisma en collectant les
 # routes. Elles sont posées en préfixe du RUN et NON via ENV, pour qu'aucune
 # valeur factice ne subsiste dans l'image au démarrage.
+# `prisma generate` a déjà tourné au `postinstall` ; on le relance ici pour que
+# le build ne dépende pas d'un script d'installation qu'une option comme
+# --ignore-scripts pourrait désactiver. Quelques secondes, aucun conflit.
 RUN DATABASE_URL="file:/app/data/app.db" \
     SESSION_SECRET="secret-de-build-uniquement-jamais-utilise-au-runtime" \
     sh -c "npx prisma generate && npm run build"

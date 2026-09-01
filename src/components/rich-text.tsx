@@ -189,7 +189,7 @@ export function parseMarkup(source: string): Block[] {
 // --- Rendu React ------------------------------------------------------------
 
 const CODE_CLASS =
-  "rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[0.9em] text-fg";
+  "rounded bg-surface-container-high px-1.5 py-0.5 font-mono text-[0.9em] text-on-surface";
 
 function renderInline(nodes: Inline[], keyPrefix: string): React.ReactNode[] {
   return nodes.map((node, index) => {
@@ -254,7 +254,7 @@ export function RichText({ children, className }: { children: string; className?
 
         if (block.kind === "bullets") {
           return (
-            <ul key={key} className="list-disc space-y-1 pl-5 text-left marker:text-fg-muted">
+            <ul key={key} className="list-disc space-y-1 pl-5 text-left marker:text-on-surface-variant">
               {block.items.map((item, i) => (
                 <li key={`${key}-${i}`}>{renderInline(item, `${key}-${i}`)}</li>
               ))}
@@ -264,7 +264,7 @@ export function RichText({ children, className }: { children: string; className?
 
         if (block.kind === "numbers") {
           return (
-            <ol key={key} className="list-decimal space-y-1 pl-5 text-left marker:text-fg-muted">
+            <ol key={key} className="list-decimal space-y-1 pl-5 text-left marker:text-on-surface-variant">
               {block.items.map((item, i) => (
                 <li key={`${key}-${i}`}>{renderInline(item, `${key}-${i}`)}</li>
               ))}
