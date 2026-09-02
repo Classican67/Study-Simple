@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/auth";
 import { getDueCards } from "@/lib/decks";
 import { orderCards } from "@/lib/study-order";
 import { readStudyOrder } from "@/lib/study-order-server";
+import { readStudySide } from "@/lib/study-side-server";
 import { StudyClient } from "../decks/[deckId]/study/study-client";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,7 @@ export default async function TodayPage() {
   const user = await requireUser();
   const cards = await getDueCards(user.id);
   const order = await readStudyOrder();
+  const side = await readStudySide();
 
   if (cards.length === 0) {
     return (
@@ -52,6 +54,7 @@ export default async function TodayPage() {
       cards={orderCards(cards, order)}
       deckOrder={cards.map((card) => card.id)}
       order={order}
+      side={side}
     />
   );
 }

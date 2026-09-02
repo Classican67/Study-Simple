@@ -8,11 +8,13 @@ import { Check, Expand, RotateCcw, Trophy, Undo2, X } from "lucide-react";
 import { AnswerView } from "@/components/answer-view";
 import { Confetti } from "@/components/confetti";
 import { StudyOrderSwitch } from "@/components/study-order-switch";
+import { StudySideSwitch } from "@/components/study-side-switch";
 import { RichText, toPlainText } from "@/components/rich-text";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { ProgressBar } from "@/components/ui/panel";
 import { reorderQueue, type StudyOrder } from "@/lib/study-order";
+import { facesOf, type CardFaces, type StudySide } from "@/lib/study-side";
 import { cn } from "@/lib/utils";
 import { finishSession, recordAnswer } from "./actions";
 
@@ -41,6 +43,7 @@ export function StudyClient({
   cards,
   deckOrder,
   order: initialOrder,
+  side: initialSide,
 }: {
   // Nul pour la révision d'un dossier entier : les cartes viennent alors de
   // plusieurs paquets, et aucune session ne se rattache à l'un d'eux.
@@ -54,9 +57,11 @@ export function StudyClient({
   /** Identifiants dans l'ordre du paquet, pour pouvoir y revenir. */
   deckOrder: string[];
   order: StudyOrder;
+  side: StudySide;
 }) {
   const [queue, setQueue] = React.useState<StudyCard[]>(cards);
   const [order, setOrder] = React.useState<StudyOrder>(initialOrder);
+  const [side, setSide] = React.useState<StudySide>(initialSide);
   const [flipped, setFlipped] = React.useState(false);
   const [stats, setStats] = React.useState({ correct: 0, miss: 0 });
   const [exitDirection, setExitDirection] = React.useState(0);
@@ -160,6 +165,13 @@ export function StudyClient({
     return () => window.removeEventListener("keydown", onKey);
   }, [answer, undo, current, lightboxOpen]);
 
+  function changeSide(next: StudySide) {
+    setSide(next);
+    // Sans cela, une carte retournée montrerait d'un coup l'autre face : on
+    // repart de la question, qui vient de changer de contenu.
+    setFlipped(false);
+  }
+
   function changeOrder(next: StudyOrder) {
     setOrder(next);
     // On réorganise ce qui reste, sans revenir sur les cartes déjà répondues
@@ -179,7 +191,8 @@ export function StudyClient({
     );
   }
 
-  const isLong = current.definition.length > LONG_ANSWER;
+  const faces = facesOf(current, side);
+  const isLong = faces.answer.length > LONG_ANSWER;
 
   return (
     <div className="mx-auto flex min-h-[calc(100dvh-9rem)] w-full max-w-xl flex-col gap-4 sm:max-w-2xl sm:gap-5">
@@ -218,8 +231,11 @@ export function StudyClient({
               démonte l'ancienne carte et en monte une neuve, qui possède donc
               ses propres valeurs de mouvement. */}
           <SwipeCard
-            key={`${current.id}-${history.length}`}
-            card={current}
+            // Le sens fait partie de la clé : changer de face doit remonter
+            // une carte neuve, sinon l'ancienne garderait son animation de
+            // retournement en cours.
+            key={`${current.id}-${history.length}-${side}`}
+            faces={faces}
             flipped={flipped}
             isLong={isLong}
             exitDirection={exitDirection}
@@ -256,7 +272,8 @@ export function StudyClient({
 
       {/* Les raccourcis n'existent qu'au clavier : inutile de les afficher sur
           un appareil tactile, où ils n'occuperaient que de la place. */}
-      <div className="flex justify-center">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <StudySideSwitch value={side} onChange={changeSide} />
         <StudyOrderSwitch value={order} onChange={changeOrder} />
       </div>
 
@@ -272,7 +289,7 @@ export function StudyClient({
 // valeur partagée par le parent était écrite par l'animation de sortie de la
 // carte précédente, qui entraînait donc la suivante avec elle.
 function SwipeCard({
-  card,
+  faces,
   flipped,
   isLong,
   exitDirection,
@@ -281,7 +298,7 @@ function SwipeCard({
   onAnswer,
   onLightboxChange,
 }: {
-  card: StudyCard;
+  faces: CardFaces;
   flipped: boolean;
   isLong: boolean;
   exitDirection: number;
@@ -337,7 +354,7 @@ function SwipeCard({
       }
     >
       <FlipCard
-        card={card}
+        faces={faces}
         flipped={flipped}
         isLong={isLong}
         onFlip={onFlip}
@@ -374,13 +391,13 @@ function Kbd({ children }: { children: React.ReactNode }) {
 }
 
 function FlipCard({
-  card,
+  faces,
   flipped,
   isLong,
   onFlip,
   onLightboxChange,
 }: {
-  card: StudyCard;
+  faces: CardFaces;
   flipped: boolean;
   isLong: boolean;
   onFlip: () => void;
@@ -393,9 +410,23 @@ function FlipCard({
     >
       {/* Recto : la question. */}
       <Face onClick={onFlip} label="Question">
-        <RichText className="text-balance text-center m3-headline-medium sm:m3-display-small">
-          {card.term}
-        </RichText>
+        {/* En sens inverse, la question est la définition : elle peut être
+            longue et venir avec son image. On la rend donc comme une réponse,
+            défilement compris, plutôt qu'en gros titre. */}
+        {faces.questionImage || faces.question.length > LONG_ANSWER ? (
+          <div className="scroll-slim w-full overflow-y-auto overscroll-contain">
+            <AnswerView
+              showcase
+              definition={faces.question}
+              imagePath={faces.questionImage}
+              onLightboxChange={onLightboxChange}
+            />
+          </div>
+        ) : (
+          <RichText className="text-balance text-center m3-headline-medium sm:m3-display-small">
+            {faces.question}
+          </RichText>
+        )}
         <p className="mt-7 m3-body-small text-on-surface-variant">Touche la carte pour voir la réponse</p>
       </Face>
 
@@ -404,13 +435,13 @@ function FlipCard({
         <div
           className={cn(
             "scroll-slim w-full overflow-y-auto overscroll-contain",
-            !card.imagePath && "flex flex-col justify-center",
+            !faces.answerImage && "flex flex-col justify-center",
           )}
         >
           <AnswerView
             showcase
-            definition={card.definition}
-            imagePath={card.imagePath}
+            definition={faces.answer}
+            imagePath={faces.answerImage}
             onLightboxChange={onLightboxChange}
           />
         </div>
@@ -430,8 +461,8 @@ function FlipCard({
                 Voir en entier
               </Button>
             </DialogTrigger>
-            <DialogContent title={toPlainText(card.term)}>
-              <AnswerView definition={card.definition} imagePath={card.imagePath} />
+            <DialogContent title={toPlainText(faces.question)}>
+              <AnswerView definition={faces.answer} imagePath={faces.answerImage} />
             </DialogContent>
           </Dialog>
         ) : null}

@@ -7,11 +7,13 @@ import { Check, CircleHelp, RotateCcw, ThumbsUp, Trophy, X } from "lucide-react"
 import { AnswerView } from "@/components/answer-view";
 import { Confetti } from "@/components/confetti";
 import { StudyOrderSwitch } from "@/components/study-order-switch";
+import { StudySideSwitch } from "@/components/study-side-switch";
 import { RichText, toPlainText } from "@/components/rich-text";
 import { Button } from "@/components/ui/button";
 import { ProgressBar } from "@/components/ui/panel";
 import { checkAnswer, type AnswerVerdict } from "@/lib/answer-check";
 import { reorderQueue, type StudyOrder } from "@/lib/study-order";
+import { facesOf, type StudySide } from "@/lib/study-side";
 import { cn } from "@/lib/utils";
 import { finishSession, recordAnswer } from "./actions";
 import type { StudyCard } from "./study-client";
@@ -32,6 +34,7 @@ export function WriteClient({
   cardsHref,
   deckOrder,
   order: initialOrder,
+  side: initialSide,
 }: {
   deckId: string | null;
   title: string;
@@ -43,9 +46,11 @@ export function WriteClient({
   /** Identifiants dans l'ordre du paquet, pour pouvoir y revenir. */
   deckOrder: string[];
   order: StudyOrder;
+  side: StudySide;
 }) {
   const [queue, setQueue] = React.useState(cards);
   const [order, setOrder] = React.useState<StudyOrder>(initialOrder);
+  const [side, setSide] = React.useState<StudySide>(initialSide);
   const [typed, setTyped] = React.useState("");
   const [verdict, setVerdict] = React.useState<AnswerVerdict | null>(null);
   const [stats, setStats] = React.useState({ correct: 0, miss: 0 });
@@ -89,7 +94,7 @@ export function WriteClient({
     event.preventDefault();
     if (!current || verdict) return;
 
-    const result = checkAnswer(typed, current.definition);
+    const result = checkAnswer(typed, facesOf(current, side).answer);
     setVerdict(result);
 
     // Réponse juste : on enchaîne tout seul, le temps de voir la confirmation.
@@ -101,6 +106,14 @@ export function WriteClient({
   function changeOrder(next: StudyOrder) {
     setOrder(next);
     setQueue((current) => reorderQueue(current, deckOrder, next));
+  }
+
+  function changeSide(next: StudySide) {
+    setSide(next);
+    // La question change de contenu : une réponse déjà tapée ou déjà jugée
+    // ne veut plus rien dire.
+    setTyped("");
+    setVerdict(null);
   }
 
   if (!current) {
@@ -116,6 +129,7 @@ export function WriteClient({
   }
 
   const answered = verdict !== null;
+  const faces = facesOf(current, side);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
@@ -137,12 +151,12 @@ export function WriteClient({
           Question
         </span>
         <RichText className="mt-4 text-balance text-center m3-headline-medium sm:m3-display-small">
-          {current.term}
+          {faces.question}
         </RichText>
 
-        {current.imagePath ? (
+        {faces.questionImage ? (
           <div className="mt-5 flex justify-center">
-            <AnswerView definition="" imagePath={current.imagePath} compact />
+            <AnswerView definition="" imagePath={faces.questionImage} compact />
           </div>
         ) : null}
 
@@ -204,7 +218,7 @@ export function WriteClient({
                 <X className="size-3.5" />
                 La réponse attendue
               </p>
-              <AnswerView definition={current.definition} />
+              <AnswerView definition={faces.answer} imagePath={faces.answerImage} />
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -229,7 +243,8 @@ export function WriteClient({
         ) : null}
       </div>
 
-      <div className="flex justify-center">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <StudySideSwitch value={side} onChange={changeSide} />
         <StudyOrderSwitch value={order} onChange={changeOrder} />
       </div>
 
