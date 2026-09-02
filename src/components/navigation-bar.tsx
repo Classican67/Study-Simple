@@ -37,11 +37,14 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 /**
- * La révision est une tâche immersive : Android masque la navigation pendant
- * ce genre d'écran. Sans cela, la barre recouvrirait les boutons de réponse,
+ * La révision est une tâche immersive : Android efface ses barres pendant ce
+ * genre d'écran. Sans cela, la navigation recouvrirait les boutons de réponse,
  * qui sont eux aussi en bas.
+ *
+ * Exporté pour que la barre supérieure applique exactement la même règle : une
+ * seule définition de « écran immersif », donc pas de divergence possible.
  */
-function isImmersive(pathname: string): boolean {
+export function isImmersive(pathname: string): boolean {
   return pathname === "/study" || pathname.endsWith("/study");
 }
 
@@ -109,7 +112,9 @@ export function InlineNavigation({ isAdmin }: { isAdmin: boolean }) {
                 href={destination.href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "state-layer flex h-10 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+                  // h-12 : la cible tactile de 48 dp de Material 3, et la
+                  // hauteur des boutons d'icône voisins dans le bandeau.
+                  "state-layer flex h-12 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
                   active
                     ? "bg-secondary-container text-on-secondary-container"
                     : "text-on-surface-variant",

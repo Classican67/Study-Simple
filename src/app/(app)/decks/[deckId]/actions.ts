@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth";
 import { cardSchema } from "@/lib/validation";
 import { MAX_IMPORT_CARDS, parseImport, type ImportOptions } from "@/lib/import";
 import { deleteUpload, saveUpload, UploadError } from "@/lib/uploads";
+import { buildSearchText } from "@/lib/search";
 
 export type CardFormState = { error?: string; ok?: boolean };
 
@@ -70,6 +71,7 @@ export async function createCard(
       deckId,
       term: parsed.data.term,
       definition: parsed.data.definition,
+      searchText: buildSearchText(parsed.data.term, parsed.data.definition),
       imagePath,
       position: (last?.position ?? -1) + 1,
     },
@@ -114,6 +116,7 @@ export async function updateCard(
     data: {
       term: parsed.data.term,
       definition: parsed.data.definition,
+      searchText: buildSearchText(parsed.data.term, parsed.data.definition),
       // `undefined` laisse Prisma ignorer le champ : l'image reste en place.
       ...(nextImage === undefined ? {} : { imagePath: nextImage }),
     },
@@ -224,7 +227,12 @@ export async function importCards(
   let position = (last?.position ?? -1) + 1;
 
   await prisma.card.createMany({
-    data: toCreate.map((card) => ({ ...card, deckId, position: position++ })),
+    data: toCreate.map((card) => ({
+      ...card,
+      deckId,
+      searchText: buildSearchText(card.term, card.definition),
+      position: position++,
+    })),
   });
   await prisma.deck.update({ where: { id: deckId }, data: { updatedAt: new Date() } });
 
@@ -255,7 +263,10 @@ export async function saveCardText(
 
   const { count } = await prisma.card.updateMany({
     where: { id: cardId, deck: { ownerId: user.id } },
-    data: parsed.data,
+    data: {
+      ...parsed.data,
+      searchText: buildSearchText(parsed.data.term, parsed.data.definition),
+    },
   });
   return count === 1 ? { ok: true } : { ok: false, error: "Carte introuvable." };
 }
@@ -276,7 +287,13 @@ export async function addEmptyCard(deckId: string) {
   // première saisie. Une chaîne vide ferait échouer la validation au premier
   // enregistrement automatique.
   return prisma.card.create({
-    data: { deckId, term: " ", definition: " ", position: (last?.position ?? -1) + 1 },
+    data: {
+      deckId,
+      term: " ",
+      definition: " ",
+      searchText: "",
+      position: (last?.position ?? -1) + 1,
+    },
     select: { id: true, term: true, definition: true, imagePath: true },
   });
 }

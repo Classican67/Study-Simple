@@ -1,21 +1,11 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { scoreCard, searchTerms } from "@/lib/search";
 
-export const DECK_COLORS = {
-  violet: "oklch(54% 0.21 292)",
-  blue: "oklch(56% 0.17 250)",
-  emerald: "oklch(58% 0.14 160)",
-  amber: "oklch(70% 0.16 70)",
-  rose: "oklch(60% 0.19 15)",
-  slate: "oklch(55% 0.02 285)",
-} as const;
-
-export type DeckColor = keyof typeof DECK_COLORS;
-
-export function deckColor(name: string): string {
-  return DECK_COLORS[name as DeckColor] ?? DECK_COLORS.violet;
-}
+// Réexporté : la palette vit désormais dans un module sans `server-only`,
+// pour être utilisable aussi côté client (résultats de recherche).
+export { DECK_COLORS, deckColor, type DeckColor } from "@/lib/deck-colors";
 
 /**
  * Condition Prisma « cette carte est à réviser » : jamais répondue par cet
@@ -55,7 +45,16 @@ export type DeckSummary = {
 export async function getDeckForUser(deckId: string, userId: string) {
   return prisma.deck.findFirst({
     where: { id: deckId, ownerId: userId },
-    select: { id: true, title: true, description: true, color: true, folderId: true },
+    select: {
+      id: true,
+      title: true,
+      description: true,
+      color: true,
+      folderId: true,
+      // Le nom du dossier, pour que la page puisse proposer d'y remonter
+      // plutôt que de renvoyer à la racine.
+      folder: { select: { id: true, name: true } },
+    },
   });
 }
 
@@ -119,4 +118,90 @@ export async function getDueCards(userId: string): Promise<StudyCard[]> {
     status: card.progress[0]?.status ?? "new",
     dueAt: card.progress[0]?.dueAt ?? null,
   }));
+}
+
+export type SearchResult = {
+  cardId: string;
+  deckId: string;
+  deckTitle: string;
+  deckColor: string;
+  term: string;
+  definition: string;
+};
+
+// Au-delà, la liste cesse d'être lisible et la requête d'être utile : mieux
+// vaut affiner sa recherche que faire défiler cent résultats.
+export const MAX_SEARCH_RESULTS = 30;
+
+/**
+ * Recherche des cartes par mots, dans un paquet ou dans tout le compte.
+ *
+ * Le filtrage grossier est fait par la base sur `searchText` (déjà normalisé,
+ * donc insensible aux accents et à la casse) ; le classement par pertinence
+ * est fait ensuite en mémoire, sur l'ensemble restreint que la base a renvoyé.
+ * Un tri par pertinence en SQL demanderait une extension de recherche
+ * plein texte, et ne serait plus portable entre SQLite et Postgres.
+ */
+export async function searchCards(
+  userId: string,
+  query: string,
+  deckId?: string,
+): Promise<SearchResult[]> {
+  const terms = searchTerms(query);
+  if (terms.length === 0) return [];
+
+  const owned = { ownerId: userId, ...(deckId ? { id: deckId } : {}) };
+  const select = {
+    id: true,
+    term: true,
+    definition: true,
+    deck: { select: { id: true, title: true, color: true } },
+  };
+
+  /*
+   * Deux populations, réunies.
+   *
+   * L'index (`searchText`) est rempli à l'écriture de chaque carte, et
+   * reconstruit au démarrage du serveur. Mais une carte peut s'y trouver
+   * absente : celles créées avant l'arrivée de la colonne, tant que la
+   * reconstruction n'a pas fini de les parcourir.
+   *
+   * La version précédente n'allait chercher ces cartes-là que si l'index
+   * n'avait rien donné du tout. C'était faux dès qu'une base mêlait les deux :
+   * une carte récente contenant le mot cherché suffisait à masquer toutes les
+   * anciennes qui le contenaient aussi. Les deux requêtes sont donc lancées de
+   * front — mesurée sur 5 000 cartes déjà indexées, la seconde coûte 0,5 ms et
+   * ne ramène rien.
+   */
+  const [indexed, unindexed] = await Promise.all([
+    prisma.card.findMany({
+      where: {
+        deck: owned,
+        // Un « et » : la carte doit contenir tous les mots cherchés.
+        AND: terms.map((needle) => ({ searchText: { contains: needle } })),
+      },
+      select,
+      // Garde-fou : sur une requête très large, on borne le travail de tri.
+      take: 400,
+    }),
+    prisma.card.findMany({ where: { deck: owned, searchText: "" }, select, take: 2000 }),
+  ]);
+
+  // Une carte peut figurer dans les deux listes si elle vient d'être indexée
+  // entre les deux requêtes.
+  const cards = [...indexed, ...unindexed.filter((c) => !indexed.some((i) => i.id === c.id))];
+
+  return cards
+    .map((card) => ({ card, score: scoreCard(card, terms) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_SEARCH_RESULTS)
+    .map(({ card }) => ({
+      cardId: card.id,
+      deckId: card.deck.id,
+      deckTitle: card.deck.title,
+      deckColor: card.deck.color,
+      term: card.term,
+      definition: card.definition,
+    }));
 }

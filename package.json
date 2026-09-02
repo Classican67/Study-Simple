@@ -15,7 +15,8 @@
     "db:studio": "prisma studio",
     "user:create": "tsx scripts/create-user.ts",
     "icons": "node scripts/generate-icons.mjs",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:backfill-search": "tsx scripts/backfill-search.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

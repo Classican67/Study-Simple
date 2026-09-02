@@ -235,6 +235,11 @@ function CardRow({
   return (
     <Reorder.Item
       value={card}
+      // Cible des liens de résultats de recherche (/decks/…#card-…).
+      id={`card-${card.id}`}
+      // `scroll-mt` dégage la barre supérieure collante : sans elle, la carte
+      // visée arriverait à moitié cachée dessous.
+      style={{ scrollMarginTop: "6rem" }}
       // Sans `dragListener={false}`, tout le bloc devient une poignée : on ne
       // pourrait plus sélectionner de texte dans les champs.
       dragListener={false}

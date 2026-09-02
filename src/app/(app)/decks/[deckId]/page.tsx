@@ -12,6 +12,7 @@ import { describeDue, isDue } from "@/lib/scheduling";
 import { CardEditor } from "./card-editor";
 import { DeckSettings } from "./deck-toolbar";
 import { ImportDialog } from "./import-dialog";
+import { SearchDialog } from "@/components/search-dialog";
 
 export const dynamic = "force-dynamic";
 
@@ -48,12 +49,17 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
   return (
     <div className="space-y-8">
       <div>
+        {/* Remonte d'un cran dans la hiérarchie, et non à la racine : un
+            paquet rangé dans un dossier renvoyait jusqu'ici vers « tous les
+            paquets », ce qui perdait le chemin parcouru. La destination vient
+            du paquet lui-même, pas de l'historique de navigation : elle est
+            donc juste même en arrivant par un lien direct ou un signet. */}
         <Link
-          href="/"
+          href={deck.folder ? `/folders/${deck.folder.id}` : "/"}
           className="-ml-2 mb-3 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 m3-body-medium text-on-surface-variant transition-colors hover:text-on-surface"
         >
           <ArrowLeft className="size-4" />
-          Tous les paquets
+          {deck.folder ? deck.folder.name : "Tous les paquets"}
         </Link>
 
         <div className="flex items-start justify-between gap-4">
@@ -74,6 +80,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
             </div>
           </div>
 
+          <SearchDialog deckId={deck.id} deckTitle={deck.title} />
           <DeckSettings
             deck={deck}
             hasProgress={known > 0 || cards.some((c) => c.status === "learning")}

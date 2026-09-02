@@ -182,7 +182,7 @@ export function StudyClient({
   const isLong = current.definition.length > LONG_ANSWER;
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-11rem)] w-full max-w-xl flex-col gap-4 sm:max-w-2xl sm:gap-5">
+    <div className="mx-auto flex min-h-[calc(100dvh-9rem)] w-full max-w-xl flex-col gap-4 sm:max-w-2xl sm:gap-5">
       <div className="space-y-2">
         <div className="flex items-baseline justify-between">
           <span className="text-2xl font-semibold tabular-nums">
@@ -199,7 +199,7 @@ export function StudyClient({
       {/* Hauteur relative au viewport : la carte remplit l'écran d'un téléphone
           sans déborder, et reste confortable sur iPad. Les bornes évitent
           l'aplatissement en paysage et l'étirement sur grand écran. */}
-      <div className="perspective relative my-auto h-[clamp(20rem,58dvh,32rem)] select-none sm:h-[clamp(24rem,60dvh,40rem)]">
+      <div className="perspective relative my-auto h-[clamp(22rem,64dvh,36rem)] select-none sm:h-[clamp(26rem,68dvh,44rem)]">
         {/* Deux cartes fantômes derrière, pour montrer qu'il reste une pile. */}
         {queue.slice(1, 3).map((card, index) => (
           <div

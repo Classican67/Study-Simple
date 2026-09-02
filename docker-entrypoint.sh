@@ -25,5 +25,10 @@ fi
 echo "→ Application des migrations…"
 npx prisma migrate deploy
 
+# Indexation des cartes antérieures à la recherche. Idempotent : sur une base
+# déjà à jour, ne touche aucune ligne.
+echo "→ Indexation de la recherche…"
+npx tsx scripts/backfill-search.ts
+
 echo "→ Démarrage de Fiches sur le port ${PORT:-3000}"
 exec "$@"

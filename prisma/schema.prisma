@@ -92,6 +92,13 @@ model Card {
   term       String
   definition String
   imagePath  String?
+  // Copie normalisée du terme et de la définition — sans accent, sans
+  // majuscule, sans balisage — sur laquelle porte la recherche. SQLite ne sait
+  // pas retirer les accents en SQL, et Postgres ne le fait qu'avec une
+  // extension : stocker la forme comparable rend la recherche portable.
+  // Volontairement sans index : une recherche « contient » ne peut pas s'en
+  // servir, un index ne ferait qu'alourdir les écritures.
+  searchText String   @default("")
   position   Int      @default(0)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt

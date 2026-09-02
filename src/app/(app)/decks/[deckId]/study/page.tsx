@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, PartyPopper } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { FullscreenToggle } from "@/components/fullscreen-toggle";
 import { EmptyState } from "@/components/ui/panel";
 import { requireUser } from "@/lib/auth";
 import { getDeckCards, getDeckForUser } from "@/lib/decks";
@@ -62,13 +63,16 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
 
   return (
     <div className="space-y-6">
-      <Link
-        href={`/decks/${deckId}`}
-        className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-lg px-2 m3-body-medium text-on-surface-variant transition-colors hover:text-on-surface"
-      >
-        <ArrowLeft className="size-4" />
-        {deck.title}
-      </Link>
+      <div className="flex items-center justify-between gap-2">
+        <Link
+          href={`/decks/${deckId}`}
+          className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 m3-label-large text-on-surface-variant transition-colors hover:text-on-surface"
+        >
+          <ArrowLeft className="size-4" />
+          {deck.title}
+        </Link>
+        <FullscreenToggle />
+      </div>
 
       <ModeSwitch base={`/decks/${deckId}/study`} all={reviewAll} write={writeMode} />
 

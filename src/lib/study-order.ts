@@ -21,10 +21,15 @@ export type StudyOrder = "deck" | "shuffle";
  */
 export const STUDY_ORDER_COOKIE = "fiches_study_order";
 
-// Le mélange reste le défaut : c'est le meilleur pour mémoriser. Mais le choix
-// est visible et retenu d'une session à l'autre, parce que l'ordre du paquet a
-// du sens pour certaines matières.
-export const DEFAULT_STUDY_ORDER: StudyOrder = "shuffle";
+/**
+ * L'ordre du paquet est le défaut.
+ *
+ * Le mélange mémorise mieux — il empêche de reconnaître une réponse à sa
+ * position — mais démarrer sur un ordre imprévisible surprend, surtout juste
+ * après avoir écrit ses cartes. Le choix reste à un geste, et il est retenu
+ * d'une session à l'autre.
+ */
+export const DEFAULT_STUDY_ORDER: StudyOrder = "deck";
 
 export function isStudyOrder(value: unknown): value is StudyOrder {
   return value === "deck" || value === "shuffle";

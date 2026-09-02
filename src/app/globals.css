@@ -220,6 +220,15 @@
     background-color: var(--color-primary-container);
     color: var(--color-on-primary-container);
   }
+
+  /* `input[type="search"]` : le navigateur dessine sa propre croix d'effacement.
+     Elle double celle de l'app, n'en suit ni la couleur ni la taille de cible,
+     et n'existe pas sur tous les navigateurs — donc rien à en tirer. */
+  input[type="search"]::-webkit-search-cancel-button,
+  input[type="search"]::-webkit-search-decoration {
+    -webkit-appearance: none;
+    appearance: none;
+  }
 }
 
 /* ==========================================================================
@@ -228,6 +237,35 @@
    ce qui donne sa cohérence à l'ensemble, et c'est directement transposable
    dans l'app native.
    ========================================================================== */
+@layer components {
+  /* Couches d'état de Material 3 : au survol et à l'appui, un voile de la
+     couleur de premier plan se pose sur l'élément. C'est le mécanisme de
+     retour visuel du système, à la place d'un changement de teinte codé en dur.
+
+     Dans `components` et non `utilities` : `position: relative` n'est ici
+     qu'un moyen d'ancrer le voile, pas une intention de mise en page. Déclarée
+     parmi les utilitaires, la règle passait après ceux de Tailwind et écrasait
+     leur `absolute` à spécificité égale — un bouton positionné retombait dans
+     le flux, faussant à la fois sa place et la hauteur de son conteneur. */
+  .state-layer {
+    position: relative;
+    isolation: isolate;
+  }
+  .state-layer::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: currentColor;
+    opacity: 0;
+    transition: opacity 120ms var(--ease-emphasized);
+    pointer-events: none;
+    z-index: -1;
+  }
+  .state-layer:hover::after { opacity: 0.08; }
+  .state-layer:active::after { opacity: 0.12; }
+}
+
 @layer utilities {
   .m3-display-large  { font-size: 3.5rem;  line-height: 4rem;    font-weight: 600; letter-spacing: -0.02em; }
   .m3-display-medium { font-size: 2.8rem;  line-height: 3.25rem; font-weight: 600; letter-spacing: -0.02em; }
@@ -268,27 +306,6 @@
   /* Encoche et barre d'accueil en mode plein écran. */
   .pt-safe { padding-top: env(safe-area-inset-top); }
   .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-
-  /* Couches d'état de Material 3 : au survol et à l'appui, un voile de la
-     couleur de premier plan se pose sur l'élément. C'est le mécanisme de
-     retour visuel du système, à la place d'un changement de teinte codé en dur. */
-  .state-layer {
-    position: relative;
-    isolation: isolate;
-  }
-  .state-layer::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    background-color: currentColor;
-    opacity: 0;
-    transition: opacity 120ms var(--ease-emphasized);
-    pointer-events: none;
-    z-index: -1;
-  }
-  .state-layer:hover::after { opacity: 0.08; }
-  .state-layer:active::after { opacity: 0.12; }
 
   /* Couleurs de texte du contenu des cartes, alignées sur les rôles M3. */
   .text-c-rose { color: oklch(48% 0.20 15); }

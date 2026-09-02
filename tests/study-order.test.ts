@@ -95,8 +95,9 @@ describe("préférence", () => {
     assert.equal(isStudyOrder(null), false);
   });
 
-  it("mélange par défaut", () => {
-    // Meilleur pour mémoriser : sans mélange, on apprend la séquence.
-    assert.equal(DEFAULT_STUDY_ORDER, "shuffle");
+  it("suit l'ordre du paquet par défaut", () => {
+    // Le mélange mémorise mieux, mais démarrer sur un ordre imprévisible
+    // surprend. Le choix reste à un geste, et il est retenu.
+    assert.equal(DEFAULT_STUDY_ORDER, "deck");
   });
 });
