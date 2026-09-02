@@ -2,15 +2,21 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Check, CircleHelp, RotateCcw, ThumbsUp, Trophy, X } from "lucide-react";
+import {
+  Check,
+  CircleHelp,
+  RotateCcw,
+  ThumbsUp,
+  Trophy,
+  X,
+} from "lucide-react";
 
 import { AnswerView } from "@/components/answer-view";
 import { Confetti } from "@/components/confetti";
-import { StudyOrderSwitch } from "@/components/study-order-switch";
-import { StudySideSwitch } from "@/components/study-side-switch";
+import { StudyHeader } from "@/components/study-header";
+import { StudyOptions } from "@/components/study-options";
 import { RichText, toPlainText } from "@/components/rich-text";
 import { Button } from "@/components/ui/button";
-import { ProgressBar } from "@/components/ui/panel";
 import { checkAnswer, type AnswerVerdict } from "@/lib/answer-check";
 import { reorderQueue, type StudyOrder } from "@/lib/study-order";
 import { facesOf, type StudySide } from "@/lib/study-side";
@@ -28,6 +34,7 @@ import type { StudyCard } from "./study-client";
  */
 export function WriteClient({
   deckId,
+  extraOptions,
   title,
   backHref,
   cards,
@@ -37,6 +44,8 @@ export function WriteClient({
   side: initialSide,
 }: {
   deckId: string | null;
+  /** Réglages propres à la page appelante — voir StudyClient. */
+  extraOptions?: React.ReactNode;
   title: string;
   backHref: string;
   /** Déjà triées côté serveur selon `order`. */
@@ -59,7 +68,8 @@ export function WriteClient({
 
   const current = queue[0];
   const done = stats.correct + stats.miss;
-  const progress = cards.length === 0 ? 0 : (stats.correct / cards.length) * 100;
+  const progress =
+    cards.length === 0 ? 0 : (stats.correct / cards.length) * 100;
 
   React.useEffect(() => {
     if (queue.length > 0 || done === 0 || finishedRef.current) return;
@@ -130,136 +140,166 @@ export function WriteClient({
 
   const answered = verdict !== null;
   const faces = facesOf(current, side);
+  // Voir StudyClient : les cartes ratées repassent en fin de file.
+  const position = Math.min(cards.length - queue.length + 1, cards.length);
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5">
-      <div className="space-y-2">
-        <div className="flex items-baseline justify-between">
-          <span className="text-2xl font-semibold tabular-nums">
-            {stats.correct}
-            <span className="text-base font-normal text-on-surface-variant">/{cards.length}</span>
-          </span>
-          <span className="text-sm tabular-nums text-on-surface-variant">
-            {queue.length} restante{queue.length > 1 ? "s" : ""}
-          </span>
-        </div>
-        <ProgressBar value={progress} />
+    // Même surface plein écran que le mode cartes, pour que passer de l'un à
+    // l'autre ne déplace pas l'interface sous les doigts.
+    <div
+      className={cn(
+        "fixed inset-0 z-20 flex flex-col gap-4 bg-surface px-4 sm:px-6",
+        "pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)]",
+      )}
+    >
+      <div className="mx-auto w-full max-w-2xl shrink-0">
+        <StudyHeader
+          backHref={backHref}
+          position={position}
+          total={cards.length}
+          known={stats.correct}
+          progress={progress}
+          options={
+            <StudyOptions
+              side={side}
+              order={order}
+              onSideChange={changeSide}
+              onOrderChange={changeOrder}
+              replayHref={cardsHref}
+              extra={extraOptions}
+            />
+          }
+        />
       </div>
 
-      <div className="rounded-2xl border border-outline-variant bg-surface-container p-6 elevation-3 sm:p-8">
-        <span className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-on-surface-variant">
-          Question
-        </span>
-        <RichText className="mt-4 text-balance text-center m3-headline-medium sm:m3-display-small">
-          {faces.question}
-        </RichText>
+      {/* Le panneau garde sa taille naturelle et se centre ; c'est le conteneur
+          qui absorbe la place restante. Lui donner `flex-1` l'étirait sur toute
+          la hauteur, laissant un grand vide sous les boutons. Quand la question
+          est longue — le cas du sens inversé — c'est ce conteneur qui défile,
+          sans jamais pousser les boutons hors de l'écran. */}
+      <div className="scroll-slim min-h-0 flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col justify-center">
+          <div className="rounded-2xl border border-outline-variant bg-surface-container p-6 elevation-3 sm:p-8">
+            <span className="text-[0.7rem] font-semibold uppercase tracking-[0.12em] text-on-surface-variant">
+              Question
+            </span>
+            <RichText className="mt-4 text-balance text-center m3-headline-medium sm:m3-display-small">
+              {faces.question}
+            </RichText>
 
-        {faces.questionImage ? (
-          <div className="mt-5 flex justify-center">
-            <AnswerView definition="" imagePath={faces.questionImage} compact />
-          </div>
-        ) : null}
+            {faces.questionImage ? (
+              <div className="mt-5 flex justify-center">
+                <AnswerView
+                  definition=""
+                  imagePath={faces.questionImage}
+                  compact
+                />
+              </div>
+            ) : null}
 
-        <form onSubmit={submit} className="mt-7 space-y-3">
-          <input
-            ref={inputRef}
-            value={typed}
-            onChange={(event) => setTyped(event.target.value)}
-            readOnly={answered}
-            autoFocus
-            autoComplete="off"
-            autoCorrect="off"
-            spellCheck={false}
-            placeholder="Écris la réponse…"
-            aria-label="Ta réponse"
-            className={cn(
-              "h-12 w-full rounded-xl border bg-surface-container px-4 text-center text-base text-on-surface",
-              "placeholder:text-on-surface-variant focus:outline-none focus:ring-2",
-              verdict === null && "border-outline-variant focus:border-primary focus:ring-primary",
-              verdict === "wrong" && "border-error text-error focus:ring-0",
-              verdict !== null && verdict !== "wrong" && "border-success text-success focus:ring-0",
-            )}
-          />
+            <form onSubmit={submit} className="mt-7 space-y-3">
+              <input
+                ref={inputRef}
+                value={typed}
+                onChange={(event) => setTyped(event.target.value)}
+                readOnly={answered}
+                autoFocus
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="Écris la réponse…"
+                aria-label="Ta réponse"
+                className={cn(
+                  "h-12 w-full rounded-xl border bg-surface-container px-4 text-center text-base text-on-surface",
+                  "placeholder:text-on-surface-variant focus:outline-none focus:ring-2",
+                  verdict === null &&
+                    "border-outline-variant focus:border-primary focus:ring-primary",
+                  verdict === "wrong" && "border-error text-error focus:ring-0",
+                  verdict !== null &&
+                    verdict !== "wrong" &&
+                    "border-success text-success focus:ring-0",
+                )}
+              />
 
-          {!answered ? (
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outlined"
-                size="lg"
-                onClick={() => setVerdict("wrong")}
-                className="flex-1"
+              {!answered ? (
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outlined"
+                    size="lg"
+                    onClick={() => setVerdict("wrong")}
+                    className="flex-1"
+                  >
+                    <CircleHelp />
+                    Je ne sais pas
+                  </Button>
+                  <Button
+                    type="submit"
+                    size="lg"
+                    className="flex-1"
+                    disabled={!typed.trim()}
+                  >
+                    <Check />
+                    Vérifier
+                  </Button>
+                </div>
+              ) : null}
+            </form>
+
+            {verdict !== null && verdict !== "wrong" ? (
+              <p
+                role="status"
+                className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-success"
               >
-                <CircleHelp />
-                Je ne sais pas
-              </Button>
-              <Button type="submit" size="lg" className="flex-1" disabled={!typed.trim()}>
-                <Check />
-                Vérifier
-              </Button>
-            </div>
-          ) : null}
-        </form>
-
-        {verdict !== null && verdict !== "wrong" ? (
-          <p
-            role="status"
-            className="mt-4 flex items-center justify-center gap-2 text-sm font-medium text-success"
-          >
-            <Check className="size-4" />
-            {verdict === "exact" ? "Correct" : "Correct, à l'orthographe près"}
-          </p>
-        ) : null}
-
-        {verdict === "wrong" ? (
-          <div className="mt-5 space-y-4">
-            <div className="rounded-xl border border-outline-variant bg-surface-container-high p-4">
-              <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-error">
-                <X className="size-3.5" />
-                La réponse attendue
+                <Check className="size-4" />
+                {verdict === "exact"
+                  ? "Correct"
+                  : "Correct, à l'orthographe près"}
               </p>
-              <AnswerView definition={faces.answer} imagePath={faces.answerImage} />
-            </div>
+            ) : null}
 
-            <div className="flex flex-col gap-2 sm:flex-row">
-              {/* Indispensable : la comparaison ne reconnaît ni un synonyme ni
+            {verdict === "wrong" ? (
+              <div className="mt-5 space-y-4">
+                <div className="rounded-xl border border-outline-variant bg-surface-container-high p-4">
+                  <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-error">
+                    <X className="size-3.5" />
+                    La réponse attendue
+                  </p>
+                  <AnswerView
+                    definition={faces.answer}
+                    imagePath={faces.answerImage}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  {/* Indispensable : la comparaison ne reconnaît ni un synonyme ni
                   une formulation différente. Sans cette porte de sortie, le
                   mode devient punitif. */}
-              <Button
-                type="button"
-                variant="outlined"
-                size="lg"
-                onClick={() => advance(true)}
-                className="flex-1"
-              >
-                <ThumbsUp />
-                En fait, je savais
-              </Button>
-              <Button type="button" size="lg" onClick={() => advance(false)} className="flex-1">
-                Continuer
-              </Button>
-            </div>
+                  <Button
+                    type="button"
+                    variant="outlined"
+                    size="lg"
+                    onClick={() => advance(true)}
+                    className="flex-1"
+                  >
+                    <ThumbsUp />
+                    En fait, je savais
+                  </Button>
+                  <Button
+                    type="button"
+                    size="lg"
+                    onClick={() => advance(false)}
+                    className="flex-1"
+                  >
+                    Continuer
+                  </Button>
+                </div>
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        </div>
       </div>
-
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <StudySideSwitch value={side} onChange={changeSide} />
-        <StudyOrderSwitch value={order} onChange={changeOrder} />
-      </div>
-
-      <p className="hidden text-center m3-body-small text-on-surface-variant lg:block">
-        <Kbd>Entrée</Kbd> pour vérifier, puis pour enchaîner.
-      </p>
     </div>
-  );
-}
-
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="rounded-md border border-outline-variant bg-surface-container px-1.5 py-0.5 font-mono text-[0.7rem] text-on-surface-variant elevation-1">
-      {children}
-    </kbd>
   );
 }
 
@@ -277,7 +317,8 @@ function Summary({
   total: number;
 }) {
   const attempts = stats.correct + stats.miss;
-  const accuracy = attempts === 0 ? 0 : Math.round((stats.correct / attempts) * 100);
+  const accuracy =
+    attempts === 0 ? 0 : Math.round((stats.correct / attempts) * 100);
 
   return (
     <div className="mx-auto max-w-md animate-slide-up text-center">
@@ -288,7 +329,8 @@ function Summary({
 
       <h1 className="m3-headline-large">Série terminée</h1>
       <p className="mt-1 m3-body-medium text-on-surface-variant">
-        Tu as écrit les {total} réponse{total > 1 ? "s" : ""} de « {toPlainText(title)} ».
+        Tu as écrit les {total} réponse{total > 1 ? "s" : ""} de «{" "}
+        {toPlainText(title)} ».
       </p>
 
       <dl className="mt-6 grid grid-cols-3 gap-3">
@@ -312,11 +354,21 @@ function Summary({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: string;
+}) {
   return (
     <div className="rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1">
       <dt className="m3-body-small text-on-surface-variant">{label}</dt>
-      <dd className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
+      <dd className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>
+        {value}
+      </dd>
     </div>
   );
 }

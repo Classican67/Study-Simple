@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, PartyPopper } from "lucide-react";
+import { PartyPopper } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { FullscreenToggle } from "@/components/fullscreen-toggle";
 import { EmptyState } from "@/components/ui/panel";
 import { requireUser } from "@/lib/auth";
 import { getFolderCards, getFolderForUser } from "@/lib/folders";
@@ -41,7 +40,7 @@ export default async function FolderStudyPage(
   const reviewAll = all === "1";
   const order = await readStudyOrder();
   const side = await readStudySide();
-    // Par défaut on ne présente que ce qui est arrivé à échéance ; `?all=1`
+  // Par défaut on ne présente que ce qui est arrivé à échéance ; `?all=1`
   // rejoue tout, quelle que soit la planification.
   const pool = reviewAll ? cards : cards.filter((card) => isDue(card.dueAt));
 
@@ -70,30 +69,17 @@ export default async function FolderStudyPage(
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-2">
-        <Link
-          href={backHref}
-          className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 m3-label-large text-on-surface-variant transition-colors hover:text-on-surface"
-        >
-          <ArrowLeft className="size-4" />
-          {folder.name}
-        </Link>
-        <FullscreenToggle />
-      </div>
-
-      <StudyClient
-        // Pas de paquet unique : la session n'est pas rattachée à l'un d'eux,
-        // seule la progression par carte est enregistrée.
-        deckId={null}
-        title={folder.name}
-        backHref={backHref}
-        replayHref={`${backHref}/study?all=1`}
-        cards={orderCards(pool, order)}
-        deckOrder={pool.map((card) => card.id)}
-        order={order}
-        side={side}
-      />
-    </div>
+    <StudyClient
+      // Pas de paquet unique : la session n'est pas rattachée à l'un d'eux,
+      // seule la progression par carte est enregistrée.
+      deckId={null}
+      title={folder.name}
+      backHref={backHref}
+      replayHref={`${backHref}/study?all=1`}
+      cards={orderCards(pool, order)}
+      deckOrder={pool.map((card) => card.id)}
+      order={order}
+      side={side}
+    />
   );
 }

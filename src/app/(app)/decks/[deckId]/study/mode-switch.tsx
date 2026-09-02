@@ -21,9 +21,19 @@ export function ModeSwitch({
   const suffix = all ? "&all=1" : "";
 
   return (
-    <div className="mx-auto flex w-fit rounded-xl border border-outline-variant bg-surface-container p-1 elevation-1">
-      <Item href={`${base}${all ? "?all=1" : ""}`} active={!write} icon={Layers} label="Cartes" />
-      <Item href={`${base}?mode=write${suffix}`} active={write} icon={Keyboard} label="Écrire" />
+    <div className="flex rounded-full bg-surface-container p-1">
+      <Item
+        href={`${base}${all ? "?all=1" : ""}`}
+        active={!write}
+        icon={Layers}
+        label="Cartes"
+      />
+      <Item
+        href={`${base}?mode=write${suffix}`}
+        active={write}
+        icon={Keyboard}
+        label="Écrire"
+      />
     </div>
   );
 }
@@ -44,8 +54,12 @@ function Item({
       href={href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex min-h-11 items-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors",
-        active ? "bg-primary text-on-primary elevation-1" : "text-on-surface-variant hover:text-on-surface",
+        // `flex-1` : les deux moitiés font la même largeur, comme le sélecteur
+        // du recto juste au-dessus dans la feuille d'options.
+        "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+        active
+          ? "bg-primary text-on-primary elevation-1"
+          : "text-on-surface-variant hover:text-on-surface",
       )}
     >
       <Icon className="size-4" />

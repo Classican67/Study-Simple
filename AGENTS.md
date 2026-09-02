@@ -23,6 +23,11 @@ Après toute modification visuelle, depuis `scratchpad/` :
 - `node audit.mjs` — contraste WCAG (4.5:1), cibles tactiles (44 px), et
   cohérence des positions : chaque classe `absolute` / `fixed` / `sticky` est
   comparée au `position` réellement calculé
+- `node hauteur.mjs` — la révision doit tenir dans l'écran, sur iPhone, iPad
+  portrait et paysage, iPad mini et portable. `shoot.mjs` ne mesure que le
+  débordement **horizontal** : c'est ce qui a laissé passer 70 à 227 px de
+  dépassement vertical selon l'appareil, et obligé à faire défiler la page
+  pour atteindre les réglages
 
 Puis **ouvrir les captures**. Une mesure qui passe ne dit pas que c'est joli.
 
@@ -54,6 +59,11 @@ couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`.
   comme du RGB donne des rapports de contraste absurdes ; passer par un canvas.
 - **Material 3.** Cible tactile de 48 dp, `state-layer` sur tout ce qui se
   touche, jamais de teinte codée en dur à la place d'un rôle de couleur.
+- **Hauteur en flexbox.** Un enfant de colonne flexible refuse de descendre
+  sous la hauteur de son contenu tant qu'il n'a pas `min-h-0` : sans lui,
+  `flex-1` ne borne rien et le débordement revient. Et une hauteur fixe en
+  `clamp()` ignore par construction ce qui l'entoure — c'est au conteneur
+  d'être borné et à l'élément d'absorber la place restante.
 - **Jeton de session périmé.** Les scripts de `scratchpad/` s'authentifient par
   un cookie stocké dans `ctx.json`. Expiré, il fait rediriger vers `/login` : le
   script mesure alors l'écran de connexion et annonce que tout va bien. Devant

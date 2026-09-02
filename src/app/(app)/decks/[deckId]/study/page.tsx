@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, PartyPopper } from "lucide-react";
+import { PartyPopper } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { FullscreenToggle } from "@/components/fullscreen-toggle";
 import { EmptyState } from "@/components/ui/panel";
 import { requireUser } from "@/lib/auth";
 import { getDeckCards, getDeckForUser } from "@/lib/decks";
@@ -20,7 +19,9 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Révision" };
 
-export default async function StudyPage(props: PageProps<"/decks/[deckId]/study">) {
+export default async function StudyPage(
+  props: PageProps<"/decks/[deckId]/study">,
+) {
   const { deckId } = await props.params;
   const { all, mode } = await props.searchParams;
   const user = await requireUser();
@@ -35,7 +36,7 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
   const writeMode = mode === "write";
   // Par défaut on ne repasse que ce qui n'est pas encore acquis ; `?all=1`
   // rejoue le paquet entier.
-    // Par défaut on ne présente que ce qui est arrivé à échéance ; `?all=1`
+  // Par défaut on ne présente que ce qui est arrivé à échéance ; `?all=1`
   // rejoue tout, quelle que soit la planification.
   const pool = reviewAll ? cards : cards.filter((card) => isDue(card.dueAt));
 
@@ -63,21 +64,18 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
     );
   }
 
+  // Seul réglage propre à cette page : le choix du mode. Le reste du bandeau
+  // — sortie, avancement, options — est construit par le client de révision.
+  const modeSwitch = (
+    <ModeSwitch
+      base={`/decks/${deckId}/study`}
+      all={reviewAll}
+      write={writeMode}
+    />
+  );
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-2">
-        <Link
-          href={`/decks/${deckId}`}
-          className="-ml-2 inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 m3-label-large text-on-surface-variant transition-colors hover:text-on-surface"
-        >
-          <ArrowLeft className="size-4" />
-          {deck.title}
-        </Link>
-        <FullscreenToggle />
-      </div>
-
-      <ModeSwitch base={`/decks/${deckId}/study`} all={reviewAll} write={writeMode} />
-
+    <>
       {writeMode ? (
         <WriteClient
           deckId={deckId}
@@ -88,6 +86,7 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
           deckOrder={pool.map((card) => card.id)}
           order={order}
           side={side}
+          extraOptions={modeSwitch}
         />
       ) : (
         <StudyClient
@@ -99,8 +98,9 @@ export default async function StudyPage(props: PageProps<"/decks/[deckId]/study"
           deckOrder={pool.map((card) => card.id)}
           order={order}
           side={side}
+          extraOptions={modeSwitch}
         />
       )}
-    </div>
+    </>
   );
 }

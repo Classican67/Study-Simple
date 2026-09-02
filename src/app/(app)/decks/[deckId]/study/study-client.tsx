@@ -2,17 +2,21 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AnimatePresence, motion, useMotionValue, useTransform } from "motion/react";
+import {
+  AnimatePresence,
+  motion,
+  useMotionValue,
+  useTransform,
+} from "motion/react";
 import { Check, Expand, RotateCcw, Trophy, Undo2, X } from "lucide-react";
 
 import { AnswerView } from "@/components/answer-view";
 import { Confetti } from "@/components/confetti";
-import { StudyOrderSwitch } from "@/components/study-order-switch";
-import { StudySideSwitch } from "@/components/study-side-switch";
+import { StudyHeader } from "@/components/study-header";
+import { StudyOptions } from "@/components/study-options";
 import { RichText, toPlainText } from "@/components/rich-text";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { ProgressBar } from "@/components/ui/panel";
 import { reorderQueue, type StudyOrder } from "@/lib/study-order";
 import { facesOf, type CardFaces, type StudySide } from "@/lib/study-side";
 import { cn } from "@/lib/utils";
@@ -37,6 +41,7 @@ const LONG_ANSWER = 260;
 
 export function StudyClient({
   deckId,
+  extraOptions,
   title,
   backHref,
   replayHref,
@@ -48,6 +53,13 @@ export function StudyClient({
   // Nul pour la révision d'un dossier entier : les cartes viennent alors de
   // plusieurs paquets, et aucune session ne se rattache à l'un d'eux.
   deckId: string | null;
+  /**
+   * Réglages propres à la page appelante — le choix du mode, par exemple.
+   * Rendus par le serveur puis placés dans la feuille d'options : la surface
+   * de révision occupe tout l'écran, ce qui resterait au-dessus d'elle serait
+   * simplement recouvert.
+   */
+  extraOptions?: React.ReactNode;
   title: string;
   backHref: string;
   replayHref: string;
@@ -69,12 +81,15 @@ export function StudyClient({
   // sans ça, zoomer sur un schéma répondrait à la carte en arrière-plan.
   const [lightboxOpen, setLightboxOpen] = React.useState(false);
   // Pile des cartes déjà jouées, pour pouvoir revenir sur la dernière.
-  const [history, setHistory] = React.useState<{ card: StudyCard; knew: boolean }[]>([]);
+  const [history, setHistory] = React.useState<
+    { card: StudyCard; knew: boolean }[]
+  >([]);
 
   const current = queue[0];
   const done = stats.correct + stats.miss;
   const answeredRight = stats.correct;
-  const progress = cards.length === 0 ? 0 : (answeredRight / cards.length) * 100;
+  const progress =
+    cards.length === 0 ? 0 : (answeredRight / cards.length) * 100;
 
   // Direction de sortie de la carte qui part, et d'entrée de celle qui arrive.
   // L'annulation a besoin des deux : la carte rappelée doit revenir par le côté
@@ -124,7 +139,10 @@ export function StudyClient({
     }));
     // La carte ratée avait été renvoyée en fin de file : on l'en retire avant
     // de la remettre en tête, sinon elle apparaîtrait deux fois.
-    setQueue((q) => [last.card, ...(last.knew ? q : q.filter((c) => c.id !== last.card.id))]);
+    setQueue((q) => [
+      last.card,
+      ...(last.knew ? q : q.filter((c) => c.id !== last.card.id)),
+    ]);
     setFlipped(false);
   }, [history]);
 
@@ -193,61 +211,93 @@ export function StudyClient({
 
   const faces = facesOf(current, side);
   const isLong = faces.answer.length > LONG_ANSWER;
+  // Une carte ratée retourne en fin de file : compter les réponses données
+  // dépasserait le total. On compte donc ce qui est réellement sorti de la file.
+  const position = Math.min(cards.length - queue.length + 1, cards.length);
 
   return (
-    <div className="mx-auto flex min-h-[calc(100dvh-9rem)] w-full max-w-xl flex-col gap-4 sm:max-w-2xl sm:gap-5">
-      <div className="space-y-2">
-        <div className="flex items-baseline justify-between">
-          <span className="text-2xl font-semibold tabular-nums">
-            {answeredRight}
-            <span className="text-base font-normal text-on-surface-variant">/{cards.length}</span>
-          </span>
-          <span className="text-sm tabular-nums text-on-surface-variant">
-            {queue.length} restante{queue.length > 1 ? "s" : ""}
-          </span>
-        </div>
-        <ProgressBar value={progress} />
+    /*
+     * Surface plein écran, et non un bloc dans le flux de la page.
+     *
+     * La carte avait une hauteur fixe qui ignorait tout ce qui l'entourait :
+     * mesuré, le contenu dépassait de 70 à 227 px selon l'appareil, et il
+     * fallait faire défiler pour atteindre les réglages. Ici la hauteur est
+     * bornée par l'écran et c'est la carte qui absorbe la place restante :
+     * le débordement devient impossible, quel que soit le bandeau au-dessus.
+     *
+     * Les encoches sont prises en compte en ajoutant la zone sûre à la marge
+     * plutôt qu'en la remplaçant, sinon la marge disparaît sur les écrans qui
+     * n'en déclarent pas.
+     */
+    <div
+      className={cn(
+        "fixed inset-0 z-20 flex flex-col gap-3 bg-surface px-4 sm:gap-4 sm:px-6",
+        "pt-[calc(env(safe-area-inset-top)+0.75rem)] pb-[calc(env(safe-area-inset-bottom)+1rem)]",
+      )}
+    >
+      <div className="mx-auto w-full max-w-xl shrink-0 sm:max-w-2xl">
+        <StudyHeader
+          backHref={backHref}
+          position={position}
+          total={cards.length}
+          known={answeredRight}
+          progress={progress}
+          options={
+            <StudyOptions
+              side={side}
+              order={order}
+              onSideChange={changeSide}
+              onOrderChange={changeOrder}
+              replayHref={replayHref}
+              extra={extraOptions}
+            />
+          }
+        />
       </div>
 
-      {/* Hauteur relative au viewport : la carte remplit l'écran d'un téléphone
-          sans déborder, et reste confortable sur iPad. Les bornes évitent
-          l'aplatissement en paysage et l'étirement sur grand écran. */}
-      <div className="perspective relative my-auto h-[clamp(22rem,64dvh,36rem)] select-none sm:h-[clamp(26rem,68dvh,44rem)]">
-        {/* Deux cartes fantômes derrière, pour montrer qu'il reste une pile. */}
-        {queue.slice(1, 3).map((card, index) => (
-          <div
-            key={card.id}
-            aria-hidden
-            className="absolute inset-x-0 top-0 h-full rounded-2xl border border-outline-variant bg-surface-container elevation-1"
-            style={{
-              transform: `translateY(${(index + 1) * 10}px) scale(${1 - (index + 1) * 0.03})`,
-              opacity: 1 - (index + 1) * 0.35,
-            }}
-          />
-        ))}
+      {/* `min-h-0` est indispensable : sans lui, un enfant de colonne flexible
+          refuse de descendre sous sa hauteur de contenu et déborde à nouveau.
+          Le plafond évite qu'une carte de trois mots ne s'étire en colonne sur
+          un écran très haut ; c'est un maximum, jamais une hauteur imposée, la
+          garantie de tenir dans l'écran reste donc entière. */}
+      <div className="flex min-h-0 w-full flex-1 items-center justify-center">
+        <div className="perspective relative h-full max-h-[44rem] w-full max-w-xl select-none sm:max-w-2xl">
+          {/* Deux cartes fantômes derrière, pour montrer qu'il reste une pile. */}
+          {queue.slice(1, 3).map((card, index) => (
+            <div
+              key={card.id}
+              aria-hidden
+              className="absolute inset-x-0 top-0 h-full rounded-2xl border border-outline-variant bg-surface-container elevation-1"
+              style={{
+                transform: `translateY(${(index + 1) * 10}px) scale(${1 - (index + 1) * 0.03})`,
+                opacity: 1 - (index + 1) * 0.35,
+              }}
+            />
+          ))}
 
-        <AnimatePresence initial={false}>
-          {/* La clé change à chaque réponse ET à chaque annulation : Motion
+          <AnimatePresence initial={false}>
+            {/* La clé change à chaque réponse ET à chaque annulation : Motion
               démonte l'ancienne carte et en monte une neuve, qui possède donc
               ses propres valeurs de mouvement. */}
-          <SwipeCard
-            // Le sens fait partie de la clé : changer de face doit remonter
-            // une carte neuve, sinon l'ancienne garderait son animation de
-            // retournement en cours.
-            key={`${current.id}-${history.length}-${side}`}
-            faces={faces}
-            flipped={flipped}
-            isLong={isLong}
-            exitDirection={exitDirection}
-            enterDirection={enterDirection}
-            onFlip={() => setFlipped((f) => !f)}
-            onAnswer={answer}
-            onLightboxChange={setLightboxOpen}
-          />
-        </AnimatePresence>
+            <SwipeCard
+              // Le sens fait partie de la clé : changer de face doit remonter
+              // une carte neuve, sinon l'ancienne garderait son animation de
+              // retournement en cours.
+              key={`${current.id}-${history.length}-${side}`}
+              faces={faces}
+              flipped={flipped}
+              isLong={isLong}
+              exitDirection={exitDirection}
+              enterDirection={enterDirection}
+              onFlip={() => setFlipped((f) => !f)}
+              onAnswer={answer}
+              onLightboxChange={setLightboxOpen}
+            />
+          </AnimatePresence>
+        </div>
       </div>
 
-      <div className="pb-safe flex items-center gap-2 sm:gap-3">
+      <div className="mx-auto flex w-full max-w-xl shrink-0 items-center gap-2 sm:max-w-2xl sm:gap-3">
         <Button
           variant="outlined"
           size="icon"
@@ -260,27 +310,26 @@ export function StudyClient({
           <Undo2 />
         </Button>
 
-        <Button variant="error" size="lg" className="flex-1" onClick={() => answer(false)}>
-          <X />
-          À revoir
+        <Button
+          variant="error"
+          size="lg"
+          className="flex-1"
+          title="À revoir (←)"
+          onClick={() => answer(false)}
+        >
+          <X />À revoir
         </Button>
-        <Button variant="success" size="lg" className="flex-1" onClick={() => answer(true)}>
+        <Button
+          variant="success"
+          size="lg"
+          className="flex-1"
+          title="Je savais (→)"
+          onClick={() => answer(true)}
+        >
           <Check />
           Je savais
         </Button>
       </div>
-
-      {/* Les raccourcis n'existent qu'au clavier : inutile de les afficher sur
-          un appareil tactile, où ils n'occuperaient que de la place. */}
-      <div className="flex flex-wrap items-center justify-center gap-2">
-        <StudySideSwitch value={side} onChange={changeSide} />
-        <StudyOrderSwitch value={order} onChange={changeOrder} />
-      </div>
-
-      <p className="hidden text-center m3-body-small text-on-surface-variant lg:block">
-        Glisse la carte, ou <Kbd>←</Kbd> <Kbd>→</Kbd> pour répondre, <Kbd>Espace</Kbd> pour
-        retourner, <Kbd>Z</Kbd> pour annuler.
-      </p>
     </div>
   );
 }
@@ -332,12 +381,17 @@ function SwipeCard({
       onDragEnd={(_, info) => {
         setDragging(false);
         const passed =
-          Math.abs(info.offset.x) > SWIPE_DISTANCE || Math.abs(info.velocity.x) > SWIPE_VELOCITY;
+          Math.abs(info.offset.x) > SWIPE_DISTANCE ||
+          Math.abs(info.velocity.x) > SWIPE_VELOCITY;
         if (passed) onAnswer(info.offset.x > 0);
       }}
       initial={
         enterDirection
-          ? { x: enterDirection * away, rotate: enterDirection * 18, opacity: 0 }
+          ? {
+              x: enterDirection * away,
+              rotate: enterDirection * 18,
+              opacity: 0,
+            }
           : { x: 0, scale: 0.96, opacity: 0 }
       }
       animate={{ x: 0, rotate: 0, scale: 1, opacity: 1 }}
@@ -382,14 +436,6 @@ function SwipeCard({
   );
 }
 
-function Kbd({ children }: { children: React.ReactNode }) {
-  return (
-    <kbd className="rounded-md border border-outline-variant bg-surface-container px-1.5 py-0.5 font-mono text-[0.7rem] text-on-surface-variant elevation-1">
-      {children}
-    </kbd>
-  );
-}
-
 function FlipCard({
   faces,
   flipped,
@@ -427,11 +473,17 @@ function FlipCard({
             {faces.question}
           </RichText>
         )}
-        <p className="mt-7 m3-body-small text-on-surface-variant">Touche la carte pour voir la réponse</p>
+        <p className="mt-7 m3-body-small text-on-surface-variant">
+          Touche la carte pour voir la réponse
+        </p>
       </Face>
 
       {/* Verso : la réponse, tournée à 180° et masquée tant qu'on est de face. */}
-      <Face onClick={onFlip} label="Réponse" className="[transform:rotateY(180deg)]">
+      <Face
+        onClick={onFlip}
+        label="Réponse"
+        className="[transform:rotateY(180deg)]"
+      >
         <div
           className={cn(
             "scroll-slim w-full overflow-y-auto overscroll-contain",
@@ -462,7 +514,10 @@ function FlipCard({
               </Button>
             </DialogTrigger>
             <DialogContent title={toPlainText(faces.question)}>
-              <AnswerView definition={faces.answer} imagePath={faces.answerImage} />
+              <AnswerView
+                definition={faces.answer}
+                imagePath={faces.answerImage}
+              />
             </DialogContent>
           </Dialog>
         ) : null}
@@ -517,7 +572,8 @@ function Summary({
   total: number;
 }) {
   const attempts = stats.correct + stats.miss;
-  const accuracy = attempts === 0 ? 0 : Math.round((stats.correct / attempts) * 100);
+  const accuracy =
+    attempts === 0 ? 0 : Math.round((stats.correct / attempts) * 100);
 
   return (
     <div className="mx-auto max-w-md animate-slide-up text-center">
@@ -554,11 +610,21 @@ function Summary({
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: React.ReactNode; tone?: string }) {
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: React.ReactNode;
+  tone?: string;
+}) {
   return (
     <div className="rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1">
       <dt className="m3-body-small text-on-surface-variant">{label}</dt>
-      <dd className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>{value}</dd>
+      <dd className={cn("mt-1 text-2xl font-semibold tabular-nums", tone)}>
+        {value}
+      </dd>
     </div>
   );
 }
