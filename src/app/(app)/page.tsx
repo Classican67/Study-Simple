@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 
 import { requireUser } from "@/lib/auth";
+import { getLastStudied } from "@/lib/decks";
 import { getFolderView, listFolderOptions } from "@/lib/folders";
 import { FolderBrowser } from "./browser";
 
@@ -15,6 +16,9 @@ export default async function HomePage() {
   const view = await getFolderView(user.id, null);
   if (!view) notFound();
 
-  const options = await listFolderOptions(user.id);
-  return <FolderBrowser view={view} folderOptions={options} />;
+  const [options, lastStudied] = await Promise.all([
+    listFolderOptions(user.id),
+    getLastStudied(user.id),
+  ]);
+  return <FolderBrowser view={view} folderOptions={options} lastStudied={lastStudied} />;
 }

@@ -298,6 +298,50 @@ export async function addEmptyCard(deckId: string) {
   });
 }
 
+/**
+ * Insère une carte vide juste après une autre, et la renvoie.
+ *
+ * Écrire ses cartes dans l'ordre ne suffit pas : on s'aperçoit souvent qu'il
+ * manque une notion entre deux autres, et la reléguer en fin de liste puis la
+ * remonter à la main est pénible sur un paquet fourni.
+ *
+ * Les positions suivantes sont décalées d'un cran plutôt que toutes réécrites :
+ * elles sont uniques par construction — `addEmptyCard` prend la dernière plus
+ * un, `reorderCards` renumérote de 0 à n, l'import incrémente — donc décaler
+ * suffit, et c'est une seule requête au lieu d'une par carte.
+ */
+export async function insertCardAfter(deckId: string, afterCardId: string) {
+  const user = await requireUser();
+  if (!(await assertOwnsDeck(deckId, user.id))) return null;
+
+  return prisma.$transaction(async (tx) => {
+    const after = await tx.card.findFirst({
+      where: { id: afterCardId, deckId },
+      select: { position: true },
+    });
+    // Carte absente, ou appartenant à un autre paquet.
+    if (!after) return null;
+
+    await tx.card.updateMany({
+      where: { deckId, position: { gt: after.position } },
+      data: { position: { increment: 1 } },
+    });
+
+    // Voir addEmptyCard : un espace, et non une chaîne vide, que la validation
+    // rejetterait au premier enregistrement automatique.
+    return tx.card.create({
+      data: {
+        deckId,
+        term: " ",
+        definition: " ",
+        searchText: "",
+        position: after.position + 1,
+      },
+      select: { id: true, term: true, definition: true, imagePath: true },
+    });
+  });
+}
+
 export async function reorderCards(deckId: string, orderedIds: string[]): Promise<SaveResult> {
   const user = await requireUser();
   if (!(await assertOwnsDeck(deckId, user.id))) return { ok: false, error: "Paquet introuvable." };

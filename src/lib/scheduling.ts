@@ -55,3 +55,45 @@ export function describeDue(dueAt: Date | null, now: Date = new Date()): string 
   if (days < 45) return `dans ${Math.round(days / 7)} semaines`;
   return `dans ${Math.round(days / 30)} mois`;
 }
+
+/**
+ * Ancienneté d'un instant, en français courant : « à l'instant », « il y a
+ * 3 h », « hier », « il y a 4 jours ».
+ *
+ * Sert à situer la dernière révision sans afficher une date complète, qui
+ * demanderait un effort de lecture pour une information d'un coup d'œil.
+ */
+export function describeAgo(date: Date, now: Date = new Date()): string {
+  const minutes = Math.floor((now.getTime() - date.getTime()) / 60000);
+
+  // Une date dans le futur n'a pas de sens ici : horloge décalée, ou reprise
+  // immédiate. On la traite comme l'instant présent plutôt que d'écrire
+  // « il y a -2 minutes ».
+  if (minutes < 1) return "à l'instant";
+
+  /*
+   * Les jours se comptent en dates calendaires, pas en tranches de 24 h :
+   * révisé hier à 23 h puis consulté ce matin à 8 h, « hier » est plus juste
+   * que « il y a 9 h ».
+   *
+   * Ce calcul vient donc AVANT celui des heures. Placé après, la branche des
+   * heures l'aurait toujours devancé sous les 24 h, et « hier » n'aurait
+   * jamais pu s'afficher.
+   */
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfThat = new Date(date);
+  startOfThat.setHours(0, 0, 0, 0);
+  const days = Math.round((startOfToday.getTime() - startOfThat.getTime()) / 86400000);
+
+  if (days < 1) {
+    if (minutes < 60) return `il y a ${minutes} min`;
+    return `il y a ${Math.floor(minutes / 60)} h`;
+  }
+
+  if (days === 1) return "hier";
+  if (days < 7) return `il y a ${days} jours`;
+  if (days < 14) return "il y a une semaine";
+  if (days < 60) return `il y a ${Math.round(days / 7)} semaines`;
+  return `il y a ${Math.round(days / 30)} mois`;
+}

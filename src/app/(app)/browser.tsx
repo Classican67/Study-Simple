@@ -4,6 +4,7 @@ import {
   CalendarClock,
   ChevronRight,
   Folder as FolderIcon,
+  History,
   Home,
   Layers,
   Shuffle,
@@ -12,8 +13,11 @@ import {
 
 import { Badge, EmptyState, ProgressBar } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
+import { toPlainText } from "@/components/rich-text";
 import { deckColor } from "@/lib/decks";
+import type { LastStudied } from "@/lib/decks";
 import type { FolderOption, FolderView } from "@/lib/folders";
+import { describeAgo } from "@/lib/scheduling";
 import { NewDeckButton } from "./new-deck-button";
 import { NewFolderButton } from "./new-folder-button";
 import { FolderSettings } from "./folder-settings";
@@ -24,9 +28,12 @@ import { DraggableDeck, DropTarget } from "./drag-drop";
 export function FolderBrowser({
   view,
   folderOptions,
+  lastStudied,
 }: {
   view: FolderView;
   folderOptions: FolderOption[];
+  /** Dernier paquet révisé. Absent hors de la racine, et tant qu'on n'a rien révisé. */
+  lastStudied?: LastStudied | null;
 }) {
   const { current, breadcrumb, folders, decks, subtreeCards, dueHere, dueTotal } = view;
   const totalCards = decks.reduce((sum, deck) => sum + deck.cardCount, 0);
@@ -40,6 +47,10 @@ export function FolderBrowser({
       {/* À la racine seulement : c'est l'écran d'entrée quotidien. Dans un
           dossier, le bouton « Réviser le dossier » joue déjà ce rôle. */}
       {!current && dueTotal > 0 ? <TodayBanner count={dueTotal} /> : null}
+
+      {/* Reprendre où l'on s'était arrêté : après la révision du jour, qui
+          reste la porte d'entrée principale. */}
+      {!current && lastStudied ? <ResumeBanner last={lastStudied} /> : null}
 
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="flex min-w-0 items-start gap-3">
@@ -241,6 +252,32 @@ function TodayBanner({ count }: { count: number }) {
         </span>
       </span>
       <ArrowRight className="size-5 shrink-0 text-primary transition-transform group-hover:translate-x-0.5" />
+    </Link>
+  );
+}
+
+function ResumeBanner({ last }: { last: LastStudied }) {
+  return (
+    <Link
+      href={`/decks/${last.deckId}`}
+      className="group flex items-center gap-4 rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
+    >
+      <span
+        className="grid size-11 shrink-0 place-items-center rounded-2xl text-white elevation-1"
+        style={{ backgroundColor: deckColor(last.color) }}
+      >
+        <History className="size-5" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate m3-title-small text-on-surface">
+          Reprendre « {toPlainText(last.title)} »
+        </span>
+        <span className="block m3-body-small text-on-surface-variant">
+          Révisé {describeAgo(last.at)}
+          {last.due > 0 ? ` · ${last.due} à revoir` : " · rien à revoir pour l'instant"}
+        </span>
+      </span>
+      <ArrowRight className="size-5 shrink-0 text-on-surface-variant transition-transform group-hover:translate-x-0.5" />
     </Link>
   );
 }

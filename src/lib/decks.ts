@@ -42,6 +42,41 @@ export type DeckSummary = {
 // Renvoie null si le paquet n'existe pas OU n'appartient pas à l'utilisateur :
 // l'appelant traite les deux cas en 404, ce qui évite de révéler l'existence
 // du paquet de quelqu'un d'autre.
+export type LastStudied = {
+  deckId: string;
+  title: string;
+  color: string;
+  at: Date;
+  /** Cartes du paquet arrivées à échéance, pour proposer une reprise utile. */
+  due: number;
+};
+
+/**
+ * Dernier paquet réellement révisé, pour pouvoir y revenir d'un geste.
+ *
+ * On se fonde sur la dernière carte répondue, et non sur `StudySession` : une
+ * session n'est enregistrée qu'une fois la série terminée, alors qu'on quitte
+ * souvent en cours de route — et c'est précisément là qu'on veut reprendre.
+ */
+export async function getLastStudied(userId: string): Promise<LastStudied | null> {
+  const last = await prisma.cardProgress.findFirst({
+    where: { userId, lastSeenAt: { not: null }, card: { deck: { ownerId: userId } } },
+    orderBy: { lastSeenAt: "desc" },
+    select: {
+      lastSeenAt: true,
+      card: { select: { deck: { select: { id: true, title: true, color: true } } } },
+    },
+  });
+  if (!last?.lastSeenAt) return null;
+
+  const deck = last.card.deck;
+  const due = await prisma.card.count({
+    where: { deckId: deck.id, ...dueCardWhere(userId) },
+  });
+
+  return { deckId: deck.id, title: deck.title, color: deck.color, at: last.lastSeenAt, due };
+}
+
 export async function getDeckForUser(deckId: string, userId: string) {
   return prisma.deck.findFirst({
     where: { id: deckId, ownerId: userId },

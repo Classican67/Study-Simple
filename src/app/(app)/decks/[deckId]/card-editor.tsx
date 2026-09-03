@@ -20,6 +20,7 @@ import { RichEditor } from "@/components/rich-editor";
 import { PhotoPicker } from "@/components/photo-picker";
 import {
   addEmptyCard,
+  insertCardAfter,
   deleteCard,
   reorderCards,
   saveCardText,
@@ -53,6 +54,8 @@ export function CardEditor({
 }) {
   const [cards, setCards] = React.useState(initialCards);
   const [pendingAdd, setPendingAdd] = React.useState(false);
+  // Id de la carte après laquelle une insertion est en cours.
+  const [insertingAfter, setInsertingAfter] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   // Id de la carte à laquelle donner le focus une fois rendue.
   const [focusId, setFocusId] = React.useState<string | null>(null);
@@ -94,6 +97,30 @@ export function CardEditor({
     setFocusId(created.id);
   }
 
+  // Insère une carte vide entre celle-ci et la suivante. Écrire ses cartes
+  // dans l'ordre ne suffit pas : il manque souvent une notion entre deux
+  // autres, et la créer en fin de liste pour la remonter à la main est pénible.
+  async function insertAfter(index: number) {
+    const card = cards[index];
+    if (!card) return;
+    setInsertingAfter(card.id);
+    setError(null);
+    const created = await insertCardAfter(deckId, card.id);
+    setInsertingAfter(null);
+    if (!created) {
+      setError("Impossible d'insérer une carte.");
+      return;
+    }
+    setCards((current) => {
+      // La position vient d'être recalculée en base ; on se cale dessus plutôt
+      // que sur l'index de rendu, qui a pu bouger entre-temps.
+      const at = current.findIndex((c) => c.id === card.id);
+      if (at === -1) return [...current, created];
+      return [...current.slice(0, at + 1), created, ...current.slice(at + 1)];
+    });
+    setFocusId(created.id);
+  }
+
   async function remove(id: string) {
     await deleteCard(id);
     setCards((current) => current.filter((card) => card.id !== id));
@@ -120,6 +147,8 @@ export function CardEditor({
             onDragEnd={() => persistOrder(cards)}
             onMove={(direction) => move(index, direction)}
             onDelete={() => remove(card.id)}
+            onInsertAfter={index < cards.length - 1 ? () => insertAfter(index) : null}
+            inserting={insertingAfter === card.id}
           />
         ))}
       </Reorder.Group>
@@ -149,6 +178,8 @@ function CardRow({
   onDragEnd,
   onMove,
   onDelete,
+  onInsertAfter,
+  inserting,
 }: {
   card: EditableCard;
   index: number;
@@ -158,6 +189,9 @@ function CardRow({
   onDragEnd: () => void;
   onMove: (direction: -1 | 1) => void;
   onDelete: () => void;
+  /** Nul sur la dernière carte : « Ajouter une carte » y répond déjà. */
+  onInsertAfter: (() => void) | null;
+  inserting: boolean;
 }) {
   const controls = useDragControls();
   const [imagePath, setImagePath] = React.useState(card.imagePath);
@@ -364,6 +398,27 @@ function CardRow({
             )}
           </div>
         </div>
+
+        {onInsertAfter ? (
+          <button
+            type="button"
+            onClick={onInsertAfter}
+            disabled={inserting}
+            aria-label={`Insérer une carte après la carte ${index + 1}`}
+            // Placé au pied de la carte plutôt que dans la barre d'outils :
+            // c'est l'espace entre deux cartes que l'on vise, et le geste se
+            // lit à l'endroit où la nouvelle carte va apparaître.
+            // `min-h-11` : la cible tactile, que le seul contenu n'atteignait pas.
+            className="group/insert flex min-h-11 w-full items-center gap-3 border-t border-outline-variant px-3 py-2 text-on-surface-variant transition-colors hover:text-primary disabled:opacity-60"
+          >
+            <span className="h-px flex-1 bg-outline-variant transition-colors group-hover/insert:bg-primary" />
+            <span className="flex items-center gap-1.5 m3-label-medium">
+              {inserting ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+              Insérer ici
+            </span>
+            <span className="h-px flex-1 bg-outline-variant transition-colors group-hover/insert:bg-primary" />
+          </button>
+        ) : null}
       </div>
     </Reorder.Item>
   );

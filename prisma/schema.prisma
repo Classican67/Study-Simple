@@ -155,6 +155,9 @@ model CardProgress {
   @@index([userId, status])
   // Requête la plus fréquente de l'app : « qu'ai-je à réviser maintenant ? »
   @@index([userId, dueAt])
+  // Sert à retrouver le dernier paquet révisé, lu à chaque affichage de
+  // l'accueil : sans index, c'est un parcours de toute la progression.
+  @@index([userId, lastSeenAt])
 }
 
 // Une passe de révision terminée, pour afficher un historique et des stats.

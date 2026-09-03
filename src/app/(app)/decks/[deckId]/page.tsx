@@ -4,7 +4,8 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, GraduationCap, Layers } from "lucide-react";
 
 import { Badge, ProgressBar } from "@/components/ui/panel";
-import { Button } from "@/components/ui/button";
+import { Button, Fab } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { requireUser } from "@/lib/auth";
 import { deckColor, getDeckCards, getDeckForUser } from "@/lib/decks";
 import { listFolderOptions } from "@/lib/folders";
@@ -47,7 +48,9 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
     .sort((a, b) => a.getTime() - b.getTime())[0];
 
   return (
-    <div className="space-y-8">
+    // Marge basse quand le bouton flottant est là : sans elle il se pose sur
+    // « Ajouter une carte », qui est précisément le dernier élément de la liste.
+    <div className={cn("space-y-8", cards.length > 0 && "pb-20 md:pb-24")}>
       <div>
         {/* Remonte d'un cran dans la hiérarchie, et non à la racine : un
             paquet rangé dans un dossier renvoyait jusqu'ici vers « tous les
@@ -130,6 +133,25 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
           imagePath: card.imagePath,
         }))}
       />
+
+      {/* Raccourci de révision, toujours à portée.
+          Le bouton du haut disparaît dès qu'on descend dans la liste, et un
+          paquet fourni fait plusieurs écrans de haut.
+          `bottom` dégage la barre de navigation, haute de 6 rem et masquée à
+          partir de `md` — sans quoi le bouton se poserait dessus. */}
+      {cards.length > 0 ? (
+        <Fab
+          asChild
+          extended
+          aria-label={due > 0 ? `Réviser ${due} cartes` : "Réviser le paquet"}
+          className="fixed right-4 z-30 bottom-[calc(env(safe-area-inset-bottom)+7rem)] sm:right-6 md:bottom-[calc(env(safe-area-inset-bottom)+1.5rem)]"
+        >
+          <Link href={`/decks/${deck.id}/study`}>
+            <GraduationCap />
+            {due > 0 ? `Réviser (${due})` : "Réviser"}
+          </Link>
+        </Fab>
+      ) : null}
     </div>
   );
 }
