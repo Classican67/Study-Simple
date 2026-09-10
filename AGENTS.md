@@ -17,8 +17,9 @@ attendue. Trois défauts livrés l'ont été parce que le code se lisait bien.
 
 ## Vérifier, pas relire
 
-Après toute modification visuelle, depuis `scratchpad/` :
+Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) :
 
+- `./bootstrap.sh` — installe Playwright si besoin, régénère le jeton de session
 - `node shoot.mjs` — captures, débordements horizontaux, erreurs console
 - `node audit.mjs` — contraste WCAG (4.5:1), cibles tactiles (44 px), et
   cohérence des positions : chaque classe `absolute` / `fixed` / `sticky` est
@@ -26,15 +27,22 @@ Après toute modification visuelle, depuis `scratchpad/` :
 - `node hauteur.mjs` — la révision doit tenir dans l'écran, sur iPhone, iPad
   portrait et paysage, iPad mini et portable. `shoot.mjs` ne mesure que le
   débordement **horizontal** : c'est ce qui a laissé passer 70 à 227 px de
-  dépassement vertical selon l'appareil, et obligé à faire défiler la page
-  pour atteindre les réglages
+  dépassement vertical selon l'appareil
+- `node notes-e2e.mjs` — notes : texte, tableau calculé, croquis au stylet,
+  et persistance de tout cela
 
 Puis **ouvrir les captures**. Une mesure qui passe ne dit pas que c'est joli.
 
+Ces scripts vivaient dans le dossier temporaire de session ; le système l'efface
+sans prévenir, et l'outillage disparaissait en pleine tâche. Ils sont donc dans
+le dépôt. Playwright reste installé dans `verify/` seul : l'application n'a pas
+à le porter dans ses dépendances.
+
 L'audit ne voit que les états qu'il visite. Un élément qui n'apparaît que sous
 condition — une croix d'effacement présente seulement si le champ contient du
-texte — doit recevoir son propre scénario, sinon il n'est jamais examiné. Un
-défaut y est resté caché exactement pour cette raison.
+texte, une barre de mise en forme masquée hors focus — doit recevoir son propre
+scénario, sinon il n'est jamais examiné. Deux défauts y sont restés cachés
+exactement pour cette raison.
 
 ## Prouver le garde-fou
 

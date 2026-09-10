@@ -1,0 +1,7 @@
+# Playwright n'a rien à faire dans les dépendances de l'app : on l'installe ici,
+# à part, et on ne le versionne pas.
+node_modules/
+package-lock.json
+ctx.json
+shots/
+*.db

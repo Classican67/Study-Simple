@@ -30,6 +30,7 @@ model User {
   folders  Folder[]
   progress CardProgress[]
   sessions StudySession[]
+  notes    Note[]
 }
 
 // Arborescence de classement. `parentId` nul = dossier à la racine.
@@ -174,4 +175,45 @@ model StudySession {
   deck Deck @relation(fields: [deckId], references: [id], onDelete: Cascade)
 
   @@index([userId, startedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Notes
+// ---------------------------------------------------------------------------
+
+// Un carnet à côté des cartes : ce qu'on prend en cours, et dont on tirera les
+// cartes ensuite. Les notes ne sont pas rangées dans les dossiers de paquets —
+// elles ont leur propre espace, pour ne pas mêler deux arborescences.
+model Note {
+  id        String   @id @default(cuid())
+  ownerId   String
+  title     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner  User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  blocks NoteBlock[]
+
+  // La liste des notes est triée par date de modification : c'est la note
+  // qu'on vient de quitter qu'on rouvre le plus souvent.
+  @@index([ownerId, updatedAt])
+}
+
+// Une note est une suite de blocs typés, à la façon d'un document moderne,
+// plutôt qu'un seul champ de texte. C'est ce qui permet de mêler un paragraphe,
+// un tableau et un croquis dans la même page sans trois éditeurs séparés.
+model NoteBlock {
+  id       String @id @default(cuid())
+  noteId   String
+  // "text" | "table" | "drawing"
+  kind     String
+  position Int    @default(0)
+  // Contenu sérialisé en JSON, sa forme dépendant du type de bloc. Du texte
+  // pour la base : SQLite comme Postgres le stockent sans extension, et le
+  // schéma de chaque bloc reste décrit et validé côté application.
+  content  String @default("")
+
+  note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
+
+  @@index([noteId, position])
 }

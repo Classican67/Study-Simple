@@ -139,6 +139,17 @@
   --m3-elevation-1: 0 1px 2px oklch(20% 0.03 292 / 12%), 0 1px 3px 1px oklch(20% 0.03 292 / 6%);
   --m3-elevation-2: 0 1px 2px oklch(20% 0.03 292 / 12%), 0 2px 6px 2px oklch(20% 0.03 292 / 8%);
   --m3-elevation-3: 0 4px 8px 3px oklch(20% 0.03 292 / 8%), 0 1px 3px oklch(20% 0.03 292 / 12%);
+  /* --- Encres du bloc dessin ---------------------------------------------
+     Le trait est stocké par son nom, pas par sa couleur : un croquis tracé en
+     thème clair doit rester lisible en thème sombre. La correspondance vit
+     donc ici, et le canevas la relit à chaque rendu. */
+  --ink-default: oklch(20% 0.01 292);
+  --ink-rose: oklch(52% 0.20 15);
+  --ink-amber: oklch(52% 0.13 70);
+  --ink-emerald: oklch(48% 0.14 160);
+  --ink-blue: oklch(50% 0.16 250);
+  --ink-violet: oklch(50% 0.20 292);
+
 }
 
 .dark {
@@ -186,6 +197,15 @@
   --m3-elevation-1: 0 1px 3px oklch(0% 0 0 / 40%);
   --m3-elevation-2: 0 2px 6px 2px oklch(0% 0 0 / 40%);
   --m3-elevation-3: 0 4px 10px 4px oklch(0% 0 0 / 45%);
+  /* Encres du bloc dessin : les mêmes teintes, éclaircies pour tenir sur un
+     fond sombre. Voir le bloc clair pour l'explication. */
+  --ink-default: oklch(94% 0.01 292);
+  --ink-rose: oklch(80% 0.13 15);
+  --ink-amber: oklch(85% 0.13 75);
+  --ink-emerald: oklch(82% 0.14 160);
+  --ink-blue: oklch(82% 0.11 250);
+  --ink-violet: oklch(82% 0.13 292);
+
 }
 
 @layer base {

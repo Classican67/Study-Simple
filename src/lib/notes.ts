@@ -1,0 +1,154 @@
+/**
+ * Blocs de note — formes, valeurs par défaut et bornes. Sans base ni DOM.
+ *
+ * Le contenu d'un bloc est stocké en JSON dans une colonne de texte : sa forme
+ * dépend du type, et c'est ici qu'elle est décrite. Toutes les lectures sont
+ * **tolérantes** — un JSON tronqué, un champ manquant ou d'un autre type
+ * renvoie un bloc vide plutôt qu'une exception. Une note ne doit pas devenir
+ * illisible en entier parce qu'un bloc l'est.
+ */
+
+export const BLOCK_KINDS = ["text", "table", "drawing"] as const;
+export type BlockKind = (typeof BLOCK_KINDS)[number];
+
+export function isBlockKind(value: unknown): value is BlockKind {
+  return typeof value === "string" && (BLOCK_KINDS as readonly string[]).includes(value);
+}
+
+// --- Texte ------------------------------------------------------------------
+
+/**
+ * Le style est porté par le bloc, pas par le balisage.
+ *
+ * Le moteur de texte enrichi de l'app est **en ligne** : gras, italique,
+ * couleur. Y ajouter titres et listes demanderait un analyseur de blocs. Les
+ * traiter comme un attribut du bloc donne la même structure qu'un traitement
+ * de texte — un titre, un paragraphe, une puce — sans réécrire le parseur.
+ */
+export const TEXT_STYLES = ["h1", "h2", "p", "quote", "bullet"] as const;
+export type TextStyle = (typeof TEXT_STYLES)[number];
+
+export type TextContent = { style: TextStyle; markup: string };
+
+export const MAX_TEXT_LENGTH = 20000;
+
+export function parseText(raw: string): TextContent {
+  const data = safeParse(raw);
+  const style = data?.style;
+  return {
+    style: (TEXT_STYLES as readonly unknown[]).includes(style) ? (style as TextStyle) : "p",
+    markup: typeof data?.markup === "string" ? data.markup.slice(0, MAX_TEXT_LENGTH) : "",
+  };
+}
+
+// --- Tableau ----------------------------------------------------------------
+
+export type TableContent = { rows: string[][] };
+
+// Bornes : au-delà, un tableau ne se lit plus dans une note et le rendu se
+// paie en performance. Ce n'est pas un tableur complet, c'est un tableau.
+export const MAX_TABLE_ROWS = 60;
+export const MAX_TABLE_COLS = 12;
+export const MAX_CELL_LENGTH = 500;
+
+export function parseTable(raw: string): TableContent {
+  const data = safeParse(raw);
+  const rows = Array.isArray(data?.rows) ? data.rows : null;
+  if (!rows) return emptyTable();
+
+  const cleaned = rows
+    .slice(0, MAX_TABLE_ROWS)
+    .map((row: unknown) =>
+      (Array.isArray(row) ? row : [])
+        .slice(0, MAX_TABLE_COLS)
+        .map((cell: unknown) => (typeof cell === "string" ? cell.slice(0, MAX_CELL_LENGTH) : "")),
+    );
+  if (cleaned.length === 0) return emptyTable();
+
+  // Une grille irrégulière viendrait d'un ajout de colonne interrompu : on la
+  // complète plutôt que de laisser le rendu deviner.
+  const width = Math.max(1, ...cleaned.map((row) => row.length));
+  return { rows: cleaned.map((row) => [...row, ...Array(width - row.length).fill("")]) };
+}
+
+export function emptyTable(): TableContent {
+  // Trois colonnes et trois lignes : de quoi voir tout de suite que c'est un
+  // tableau, sans imposer de tout supprimer si l'on en voulait moins.
+  return { rows: Array.from({ length: 3 }, () => ["", "", ""]) };
+}
+
+// --- Dessin -----------------------------------------------------------------
+
+/**
+ * Un trait : une couleur, une épaisseur, et des points aplatis en
+ * `[x, y, pression, x, y, pression, …]`.
+ *
+ * Aplatis plutôt qu'en objets : une page de notes au stylet fait vite quelques
+ * milliers de points, et `{"x":12.3,"y":45.6,"p":0.5}` pèse six fois plus que
+ * `12.3,45.6,0.5`.
+ *
+ * Les coordonnées sont **relatives** à la largeur du bloc (0 à 1) : le même
+ * croquis se relit sur un téléphone comme sur un iPad, sans être tronqué.
+ */
+export type Stroke = { color: string; size: number; points: number[] };
+export type DrawingContent = { strokes: Stroke[]; ratio: number };
+
+export const MAX_STROKES = 4000;
+export const MAX_POINTS_PER_STROKE = 30000;
+/** Hauteur du bloc, en proportion de sa largeur. */
+export const DEFAULT_RATIO = 0.6;
+
+export function parseDrawing(raw: string): DrawingContent {
+  const data = safeParse(raw);
+  const strokes = Array.isArray(data?.strokes) ? data.strokes : [];
+  const ratio = typeof data?.ratio === "number" && data.ratio > 0.1 && data.ratio <= 3 ? data.ratio : DEFAULT_RATIO;
+
+  return {
+    ratio,
+    strokes: strokes
+      .slice(0, MAX_STROKES)
+      .map((stroke: unknown) => {
+        const s = stroke as Partial<Stroke> | null;
+        const points = Array.isArray(s?.points) ? s.points : [];
+        return {
+          color: typeof s?.color === "string" ? s.color.slice(0, 32) : "ink",
+          size: typeof s?.size === "number" && s.size > 0 ? Math.min(s.size, 40) : 2,
+          // Un multiple de trois : un point tronqué décalerait tout le trait.
+          points: points
+            .slice(0, MAX_POINTS_PER_STROKE)
+            .filter((n: unknown): n is number => typeof n === "number" && Number.isFinite(n)),
+        };
+      })
+      .map((stroke) => ({ ...stroke, points: stroke.points.slice(0, stroke.points.length - (stroke.points.length % 3)) }))
+      .filter((stroke) => stroke.points.length >= 3),
+  };
+}
+
+// --- Commun -----------------------------------------------------------------
+
+export function defaultContent(kind: BlockKind): string {
+  if (kind === "text") return JSON.stringify({ style: "p", markup: "" } satisfies TextContent);
+  if (kind === "table") return JSON.stringify(emptyTable());
+  return JSON.stringify({ strokes: [], ratio: DEFAULT_RATIO } satisfies DrawingContent);
+}
+
+/**
+ * Taille maximale d'un bloc enregistré. Une page dense au stylet approche les
+ * 300 Ko ; la borne laisse de la marge sans permettre qu'une note fasse tomber
+ * la base.
+ */
+export const MAX_BLOCK_BYTES = 2_000_000;
+
+/** Titre affiché pour une note sans titre saisi. */
+export const UNTITLED = "Note sans titre";
+
+function safeParse(raw: string): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    // JSON tronqué ou corrompu : le bloc repart vide, la note reste lisible.
+    return null;
+  }
+}

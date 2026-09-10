@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, Layers, ShieldUser } from "lucide-react";
+import { CalendarClock, Layers, NotebookPen, ShieldUser } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -22,6 +22,7 @@ type Destination = { href: string; label: string; icon: React.ElementType };
 const DESTINATIONS: Destination[] = [
   { href: "/", label: "Paquets", icon: Layers },
   { href: "/study", label: "Réviser", icon: CalendarClock },
+  { href: "/notes", label: "Notes", icon: NotebookPen },
 ];
 
 const ADMIN: Destination = { href: "/admin", label: "Comptes", icon: ShieldUser };

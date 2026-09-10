@@ -266,9 +266,13 @@ export function RichEditor({
                           event.preventDefault();
                           applyColor(name);
                         }}
-                        className="size-7 rounded-full transition-transform hover:scale-110"
-                        style={{ backgroundColor: TEXT_COLORS[name].css }}
-                      />
+                        className="grid size-11 place-items-center rounded-full"
+                      >
+                        <span
+                          className="block size-6 rounded-full transition-transform group-hover:scale-110"
+                          style={{ backgroundColor: TEXT_COLORS[name].css }}
+                        />
+                      </button>
                     ))}
                     <button
                       type="button"
@@ -278,9 +282,11 @@ export function RichEditor({
                         event.preventDefault();
                         applyColor(null);
                       }}
-                      className="grid size-7 place-items-center rounded-full border border-outline-variant m3-body-small text-on-surface-variant transition-colors hover:text-on-surface"
+                      className="grid size-11 place-items-center rounded-full text-on-surface-variant transition-colors hover:text-on-surface"
                     >
-                      ✕
+                      <span className="grid size-6 place-items-center rounded-full border border-outline-variant m3-body-small">
+                        ✕
+                      </span>
                     </button>
                   </div>
                 ) : null}
@@ -352,12 +358,19 @@ function ToolButton({
         event.preventDefault();
         onRun();
       }}
-      className={cn(
-        "rounded-lg p-1.5 text-on-surface-variant transition-colors hover:bg-outline-variant/60 hover:text-on-surface",
-        pressed && "bg-outline-variant/60 text-on-surface",
-      )}
+      // La zone d'appui fait 44 px, l'aplat visible 28 : la cible tactile est
+      // atteinte sans transformer la barre en rangée de gros boutons.
+      className="group/tool grid size-11 place-items-center rounded-lg"
     >
-      <Icon className="size-4" />
+      <span
+        className={cn(
+          "grid size-7 place-items-center rounded-lg text-on-surface-variant transition-colors",
+          "group-hover/tool:bg-outline-variant/60 group-hover/tool:text-on-surface",
+          pressed && "bg-outline-variant/60 text-on-surface",
+        )}
+      >
+        <Icon className="size-4" />
+      </span>
     </button>
   );
 }
