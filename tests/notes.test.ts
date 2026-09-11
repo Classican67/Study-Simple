@@ -9,6 +9,7 @@ import {
   parseDrawing,
   parseTable,
   parseText,
+  noteSearchText,
 } from "@/lib/notes";
 
 describe("isBlockKind", () => {
@@ -119,5 +120,73 @@ describe("defaultContent", () => {
     assert.equal(parseText(defaultContent("text")).style, "p");
     assert.ok(parseTable(defaultContent("table")).rows.length >= 1);
     assert.deepEqual(parseDrawing(defaultContent("drawing")).strokes, []);
+  });
+});
+
+describe("parseDrawing — outils et papier", () => {
+  it("garde l'outil et le fond de page", () => {
+    const raw = JSON.stringify({
+      ratio: 2,
+      paper: "ruled",
+      strokes: [{ color: "amber", size: 8, tool: "highlighter", points: [0, 0, 1, 1, 1, 1] }],
+    });
+    const bloc = parseDrawing(raw);
+    assert.equal(bloc.paper, "ruled");
+    assert.equal(bloc.ratio, 2);
+    assert.equal(bloc.strokes[0].tool, "highlighter");
+  });
+
+  it("traite un trait d'avant le surligneur comme un stylo", () => {
+    // Les pages écrites avant l'arrivée de l'outil n'ont pas le champ.
+    const raw = JSON.stringify({ strokes: [{ color: "ink", size: 2, points: [0, 0, 1, 1, 1, 1] }] });
+    assert.equal(parseDrawing(raw).strokes[0].tool, "pen");
+  });
+
+  it("ramène un papier ou un outil inconnu au défaut", () => {
+    const raw = JSON.stringify({
+      paper: "papyrus",
+      strokes: [{ color: "ink", size: 2, tool: "aérographe", points: [0, 0, 1, 1, 1, 1] }],
+    });
+    const bloc = parseDrawing(raw);
+    assert.equal(bloc.paper, "blank");
+    assert.equal(bloc.strokes[0].tool, "pen");
+  });
+
+  it("accepte une page longue, mais pas infinie", () => {
+    // La page s'allonge à mesure qu'on écrit ; elle reste bornée.
+    assert.equal(parseDrawing(JSON.stringify({ ratio: 6, strokes: [] })).ratio, 6);
+    assert.equal(parseDrawing(JSON.stringify({ ratio: 99, strokes: [] })).ratio, 0.75);
+  });
+});
+
+describe("noteSearchText", () => {
+  const brut = (markup: string) => markup.replace(/\*\*|\*|~~|`/g, "");
+
+  it("réunit le titre, le texte et les cellules", () => {
+    const texte = noteSearchText(
+      "Thermodynamique",
+      [
+        { kind: "text", content: JSON.stringify({ style: "p", markup: "**Premier** principe" }) },
+        { kind: "table", content: JSON.stringify({ rows: [["Note", "12"], ["Moyenne", "15"]] }) },
+      ],
+      brut,
+    );
+    for (const mot of ["Thermodynamique", "Premier", "principe", "Note", "Moyenne", "15"]) {
+      assert.ok(texte.includes(mot), `« ${mot} » devrait être indexé — ${texte}`);
+    }
+  });
+
+  it("ignore les croquis : on ne sait pas lire une écriture manuscrite", () => {
+    const texte = noteSearchText(
+      "Croquis",
+      [{ kind: "drawing", content: JSON.stringify({ strokes: [{ color: "ink", size: 2, points: [0, 0, 1] }] }) }],
+      brut,
+    );
+    assert.equal(texte.trim(), "Croquis");
+  });
+
+  it("survit à un bloc abîmé", () => {
+    const texte = noteSearchText("Titre", [{ kind: "text", content: "{tronqué" }], brut);
+    assert.ok(texte.includes("Titre"));
   });
 });

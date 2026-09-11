@@ -258,6 +258,46 @@
    dans l'app native.
    ========================================================================== */
 @layer components {
+  /* --- Fonds de page manuscrite -------------------------------------------
+     Dessinés en CSS et non au canevas : ils ne font pas partie du contenu,
+     n'ont pas à être enregistrés, et suivent le thème tout seuls. */
+  .paper-ruled {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent calc(var(--paper-step) - 1px),
+      var(--color-outline-variant) calc(var(--paper-step) - 1px),
+      var(--color-outline-variant) var(--paper-step)
+    );
+  }
+  .paper-grid {
+    background-image:
+      repeating-linear-gradient(
+        to bottom,
+        transparent 0,
+        transparent calc(var(--paper-step) - 1px),
+        var(--color-outline-variant) calc(var(--paper-step) - 1px),
+        var(--color-outline-variant) var(--paper-step)
+      ),
+      repeating-linear-gradient(
+        to right,
+        transparent 0,
+        transparent calc(var(--paper-step) - 1px),
+        var(--color-outline-variant) calc(var(--paper-step) - 1px),
+        var(--color-outline-variant) var(--paper-step)
+      );
+  }
+  .paper-dots {
+    background-image: radial-gradient(var(--color-outline-variant) 1px, transparent 1px);
+    background-size: var(--paper-step) var(--paper-step);
+  }
+  .paper-ruled,
+  .paper-grid,
+  .paper-dots {
+    /* Interligne d'un cahier, ramené à l'écran. */
+    --paper-step: 1.75rem;
+  }
+
   /* Couches d'état de Material 3 : au survol et à l'appui, un voile de la
      couleur de premier plan se pose sur l'élément. C'est le mécanisme de
      retour visuel du système, à la place d'un changement de teinte codé en dur.

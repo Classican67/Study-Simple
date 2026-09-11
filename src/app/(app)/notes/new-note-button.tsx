@@ -14,7 +14,7 @@ import { createNote } from "./actions";
  * parlera la note au moment où l'on décide de la prendre. Le titre se saisit
  * dans la page, où le curseur attend déjà.
  */
-export function NewNoteButton() {
+export function NewNoteButton({ folderId = null }: { folderId?: string | null }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
 
@@ -24,7 +24,7 @@ export function NewNoteButton() {
       disabled={pending}
       onClick={async () => {
         setPending(true);
-        const id = await createNote();
+        const id = await createNote(folderId);
         if (id) router.push(`/notes/${id}`);
         else setPending(false);
       }}

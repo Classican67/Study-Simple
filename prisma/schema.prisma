@@ -51,6 +51,7 @@ model Folder {
   parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
   children Folder[] @relation("FolderTree")
   decks    Deck[]
+  notes    Note[]
 
   @@index([ownerId, parentId])
 }
@@ -207,16 +208,25 @@ model StudySession {
 model Note {
   id        String   @id @default(cuid())
   ownerId   String
+  // Les notes se rangent dans la MÊME arborescence que les paquets : un cours
+  // a ses cartes et ses notes, deux arbres séparés obligeraient à ranger deux
+  // fois. `SetNull` : supprimer un dossier ne doit jamais effacer des notes.
+  folderId  String?
   title     String   @default("")
+  // Copie normalisée du titre et du texte des blocs, pour la recherche. Même
+  // mécanique que `Card.searchText` : SQLite ne sait pas retirer les accents.
+  searchText String  @default("")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   owner  User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  folder Folder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
   blocks NoteBlock[]
 
   // La liste des notes est triée par date de modification : c'est la note
   // qu'on vient de quitter qu'on rouvre le plus souvent.
   @@index([ownerId, updatedAt])
+  @@index([folderId])
 }
 
 // Une note est une suite de blocs typés, à la façon d'un document moderne,

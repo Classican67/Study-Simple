@@ -30,6 +30,8 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   dépassement vertical selon l'appareil
 - `node notes-e2e.mjs` — notes : texte, tableau calculé, croquis au stylet,
   et persistance de tout cela
+- `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
+  par mots-clés et filtres de contenu, page manuscrite en plein écran
 - `node copies-e2e.mjs` — regroupement de cartes : la copie et l'originale
   restent indépendantes dans les deux sens, et supprimer l'une ne prive jamais
   l'autre de son image
@@ -77,6 +79,11 @@ couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`.
   `flex-1` ne borne rien et le débordement revient. Et une hauteur fixe en
   `clamp()` ignore par construction ce qui l'entoure — c'est au conteneur
   d'être borné et à l'élément d'absorber la place restante.
+- **Isolation des essais.** La base de vérification accumule ce que les essais
+  précédents y ont laissé. Un test qui rouvre « la première note » ou cherche
+  un texte fixe finit par viser au hasard et accuser l'application à tort.
+  Repartir de `cp data/dev.db verify/verif.db`, créer ses propres données avec
+  un nom horodaté, et comparer un avant/après plutôt qu'un texte attendu.
 - **Client Prisma périmé.** Modifier `schema.prisma` ne suffit pas : le client
   généré vit dans `node_modules/.prisma/client`, et un serveur déjà lancé garde
   l'ancien en mémoire. L'échec arrive à l'exécution, avec un message obscur

@@ -90,21 +90,44 @@ export function emptyTable(): TableContent {
  * Les coordonnées sont **relatives** à la largeur du bloc (0 à 1) : le même
  * croquis se relit sur un téléphone comme sur un iPad, sans être tronqué.
  */
-export type Stroke = { color: string; size: number; points: number[] };
-export type DrawingContent = { strokes: Stroke[]; ratio: number };
+export const TOOLS = ["pen", "highlighter"] as const;
+export type Tool = (typeof TOOLS)[number];
+
+export type Stroke = {
+  color: string;
+  size: number;
+  /** Absent sur les traits d'avant l'arrivée du surligneur : c'était un stylo. */
+  tool?: Tool;
+  points: number[];
+};
+
+/** Fond de page, comme on choisit un cahier. */
+export const PAPERS = ["blank", "ruled", "grid", "dots"] as const;
+export type Paper = (typeof PAPERS)[number];
+
+export type DrawingContent = { strokes: Stroke[]; ratio: number; paper: Paper };
 
 export const MAX_STROKES = 4000;
 export const MAX_POINTS_PER_STROKE = 30000;
-/** Hauteur du bloc, en proportion de sa largeur. */
-export const DEFAULT_RATIO = 0.6;
+/**
+ * Hauteur du bloc, en proportion de sa largeur.
+ *
+ * La page s'allonge à mesure qu'on écrit près du bas, comme un cahier qu'on
+ * déroule : le ratio peut donc monter bien au-delà d'un écran.
+ */
+export const DEFAULT_RATIO = 0.75;
+export const MAX_RATIO = 12;
 
 export function parseDrawing(raw: string): DrawingContent {
   const data = safeParse(raw);
   const strokes = Array.isArray(data?.strokes) ? data.strokes : [];
-  const ratio = typeof data?.ratio === "number" && data.ratio > 0.1 && data.ratio <= 3 ? data.ratio : DEFAULT_RATIO;
+  const ratio =
+    typeof data?.ratio === "number" && data.ratio > 0.1 && data.ratio <= MAX_RATIO ? data.ratio : DEFAULT_RATIO;
+  const paper = (PAPERS as readonly unknown[]).includes(data?.paper) ? (data!.paper as Paper) : "blank";
 
   return {
     ratio,
+    paper,
     strokes: strokes
       .slice(0, MAX_STROKES)
       .map((stroke: unknown) => {
@@ -112,14 +135,18 @@ export function parseDrawing(raw: string): DrawingContent {
         const points = Array.isArray(s?.points) ? s.points : [];
         return {
           color: typeof s?.color === "string" ? s.color.slice(0, 32) : "ink",
-          size: typeof s?.size === "number" && s.size > 0 ? Math.min(s.size, 40) : 2,
+          size: typeof s?.size === "number" && s.size > 0 ? Math.min(s.size, 60) : 2,
+          tool: (TOOLS as readonly unknown[]).includes(s?.tool) ? (s!.tool as Tool) : "pen",
           // Un multiple de trois : un point tronqué décalerait tout le trait.
           points: points
             .slice(0, MAX_POINTS_PER_STROKE)
             .filter((n: unknown): n is number => typeof n === "number" && Number.isFinite(n)),
         };
       })
-      .map((stroke) => ({ ...stroke, points: stroke.points.slice(0, stroke.points.length - (stroke.points.length % 3)) }))
+      .map((stroke) => ({
+        ...stroke,
+        points: stroke.points.slice(0, stroke.points.length - (stroke.points.length % 3)),
+      }))
       .filter((stroke) => stroke.points.length >= 3),
   };
 }
@@ -129,7 +156,7 @@ export function parseDrawing(raw: string): DrawingContent {
 export function defaultContent(kind: BlockKind): string {
   if (kind === "text") return JSON.stringify({ style: "p", markup: "" } satisfies TextContent);
   if (kind === "table") return JSON.stringify(emptyTable());
-  return JSON.stringify({ strokes: [], ratio: DEFAULT_RATIO } satisfies DrawingContent);
+  return JSON.stringify({ strokes: [], ratio: DEFAULT_RATIO, paper: "blank" } satisfies DrawingContent);
 }
 
 /**
@@ -151,4 +178,25 @@ function safeParse(raw: string): Record<string, unknown> | null {
     // JSON tronqué ou corrompu : le bloc repart vide, la note reste lisible.
     return null;
   }
+}
+
+/**
+ * Texte indexé d'une note : son titre et ce qu'on peut en lire.
+ *
+ * Les croquis n'y contribuent pas — on ne sait pas lire une écriture
+ * manuscrite — et surtout ils ne sont **pas relus** pour construire l'index :
+ * une page dense pèse des centaines de kilooctets, la recharger à chaque
+ * enregistrement automatique coûterait plus que tout le reste.
+ */
+export function noteSearchText(
+  title: string,
+  blocks: { kind: string; content: string }[],
+  toPlainText: (markup: string) => string,
+): string {
+  const morceaux = [title];
+  for (const bloc of blocks) {
+    if (bloc.kind === "text") morceaux.push(toPlainText(parseText(bloc.content).markup));
+    else if (bloc.kind === "table") morceaux.push(parseTable(bloc.content).rows.flat().join(" "));
+  }
+  return morceaux.join(" ");
 }

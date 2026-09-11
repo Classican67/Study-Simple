@@ -4,10 +4,13 @@ import { revalidatePath } from "next/cache";
 
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { toPlainText } from "@/components/rich-text";
+import { normalizeForSearch } from "@/lib/search";
 import {
   defaultContent,
   isBlockKind,
   MAX_BLOCK_BYTES,
+  noteSearchText,
   type BlockKind,
 } from "@/lib/notes";
 
@@ -23,19 +26,47 @@ async function ownsNote(noteId: string, userId: string): Promise<boolean> {
   return note !== null;
 }
 
-/** Marque la note comme modifiée : c'est ce qui la fait remonter dans la liste. */
+/**
+ * Marque la note comme modifiée et reconstruit son texte de recherche.
+ *
+ * Les blocs de croquis sont volontairement exclus de la relecture : une page
+ * dense au stylet pèse des centaines de kilooctets, et la recharger à chaque
+ * enregistrement automatique coûterait plus que l'écriture elle-même.
+ */
 async function touch(noteId: string) {
-  await prisma.note.update({ where: { id: noteId }, data: { updatedAt: new Date() } });
+  const note = await prisma.note.findUnique({
+    where: { id: noteId },
+    select: {
+      title: true,
+      blocks: { where: { kind: { in: ["text", "table"] } }, select: { kind: true, content: true } },
+    },
+  });
+  if (!note) return;
+
+  await prisma.note.update({
+    where: { id: noteId },
+    data: {
+      updatedAt: new Date(),
+      searchText: normalizeForSearch(noteSearchText(note.title, note.blocks, toPlainText)),
+    },
+  });
+  revalidatePath("/notes");
 }
 
-export async function createNote(): Promise<string | null> {
+export async function createNote(folderId?: string | null): Promise<string | null> {
   const user = await requireUser();
+
+  // Un dossier d'un autre compte ne doit pas pouvoir servir de rangement.
+  const dossier = folderId
+    ? await prisma.folder.findFirst({ where: { id: folderId, ownerId: user.id }, select: { id: true } })
+    : null;
 
   // Une note neuve n'est pas vide : elle commence par un bloc de texte, prêt à
   // recevoir le curseur. Une page entièrement blanche laisse sans prise.
   const note = await prisma.note.create({
     data: {
       ownerId: user.id,
+      folderId: dossier?.id ?? null,
       title: "",
       blocks: { create: [{ kind: "text", position: 0, content: defaultContent("text") }] },
     },
@@ -50,10 +81,11 @@ export async function renameNote(noteId: string, title: string): Promise<NoteRes
   const user = await requireUser();
   const { count } = await prisma.note.updateMany({
     where: { id: noteId, ownerId: user.id },
-    data: { title: title.slice(0, 200), updatedAt: new Date() },
+    data: { title: title.slice(0, 200) },
   });
   if (count !== 1) return { ok: false, error: "Note introuvable." };
-  revalidatePath("/notes");
+  // Le titre compte dans la recherche : `touch` le réindexe.
+  await touch(noteId);
   return { ok: true };
 }
 
@@ -165,5 +197,27 @@ export async function reorderBlocks(noteId: string, orderedIds: string[]): Promi
     ),
   );
   await touch(noteId);
+  return { ok: true };
+}
+
+/** Range une note dans un dossier, ou la remet à la racine. */
+export async function moveNote(noteId: string, folderId: string | null): Promise<NoteResult> {
+  const user = await requireUser();
+
+  if (folderId) {
+    const dossier = await prisma.folder.findFirst({
+      where: { id: folderId, ownerId: user.id },
+      select: { id: true },
+    });
+    if (!dossier) return { ok: false, error: "Dossier introuvable." };
+  }
+
+  const { count } = await prisma.note.updateMany({
+    where: { id: noteId, ownerId: user.id },
+    data: { folderId },
+  });
+  if (count !== 1) return { ok: false, error: "Note introuvable." };
+
+  revalidatePath("/notes");
   return { ok: true };
 }

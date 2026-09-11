@@ -75,12 +75,12 @@ export function TableBlock({
         <table className="w-full border-collapse m3-body-medium">
           <thead>
             <tr>
-              <th scope="col" className="w-8 bg-surface-container" />
+              <th scope="col" className="w-11 bg-surface-container" />
               {Array.from({ length: width }, (_, col) => (
                 <th
                   key={col}
                   scope="col"
-                  className="border-l border-outline-variant bg-surface-container px-2 py-1 m3-label-small font-normal text-on-surface-variant"
+                  className="h-11 border-l border-outline-variant bg-surface-container px-1 m3-label-small font-normal text-on-surface-variant"
                 >
                   <span className="flex items-center justify-between gap-1">
                     {columnName(col)}
@@ -89,9 +89,13 @@ export function TableBlock({
                         type="button"
                         onClick={() => removeColumn(col)}
                         aria-label={`Supprimer la colonne ${columnName(col)}`}
-                        className="opacity-0 transition-opacity hover:text-error focus-visible:opacity-100 group-hover:opacity-100"
+                        // Toujours présent, simplement estompé : masquer au
+                        // survol rendait la suppression impossible sur une
+                        // tablette, où il n'y a pas de survol. La cible fait
+                        // 44 px, l'icône reste petite.
+                        className="grid size-11 shrink-0 place-items-center rounded-full opacity-45 transition-opacity hover:text-error hover:opacity-100 focus-visible:opacity-100"
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 className="size-3.5" />
                       </button>
                     ) : null}
                   </span>
@@ -104,18 +108,18 @@ export function TableBlock({
               <tr key={ri} className="group">
                 <th
                   scope="row"
-                  className="border-t border-outline-variant bg-surface-container px-1 text-center m3-label-small font-normal text-on-surface-variant"
+                  className="w-11 border-t border-outline-variant bg-surface-container text-center m3-label-small font-normal text-on-surface-variant"
                 >
-                  <span className="flex items-center justify-center gap-1">
+                  <span className="flex flex-col items-center justify-center">
                     {ri + 1}
                     {!readOnly && rows.length > 1 ? (
                       <button
                         type="button"
                         onClick={() => removeRow(ri)}
                         aria-label={`Supprimer la ligne ${ri + 1}`}
-                        className="opacity-0 transition-opacity hover:text-error focus-visible:opacity-100 group-hover:opacity-100"
+                        className="grid size-11 shrink-0 place-items-center rounded-full opacity-45 transition-opacity hover:text-error hover:opacity-100 focus-visible:opacity-100"
                       >
-                        <Trash2 className="size-3" />
+                        <Trash2 className="size-3.5" />
                       </button>
                     ) : null}
                   </span>
@@ -139,7 +143,7 @@ export function TableBlock({
                         onChange={(event) => setCell(ri, ci, event.target.value)}
                         aria-label={`${columnName(ci)}${ri + 1}`}
                         className={cn(
-                          "h-10 w-full min-w-24 bg-transparent px-2 text-on-surface outline-none",
+                          "h-11 w-full min-w-24 bg-transparent px-2 text-on-surface outline-none",
                           "focus:bg-primary-container/30 focus:ring-2 focus:ring-inset focus:ring-primary",
                           ri === 0 && "font-medium",
                           // Les nombres se lisent alignés à droite ; les
