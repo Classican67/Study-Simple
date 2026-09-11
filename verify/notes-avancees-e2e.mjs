@@ -102,7 +102,7 @@ check(!page.url().includes("folder="), "chercher sort du dossier courant", page.
 // --- Filtres par type de bloc ------------------------------------------------
 section("filtres");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
-await page.getByRole("button", { name: "Manuscrit" }).click();
+await page.getByRole("button", { name: "Manuscrit", exact: true }).click();
 await page.waitForTimeout(900);
 check(page.url().includes("has=drawing"), "le filtre vit dans l'adresse", page.url());
 
@@ -138,7 +138,7 @@ section("page manuscrite");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
-await page.getByLabel("Titre de la note").fill(`Manuscrite ${Date.now()}`);
+await page.getByLabel("Titre de la note").fill(`Page stylet ${Date.now()}`);
 await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.waitForTimeout(600);

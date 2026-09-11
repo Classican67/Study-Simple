@@ -79,6 +79,8 @@ export function InkCanvas({
   onSelect,
   ruler = null,
   onRuler,
+  eraseHighlightsOnly = false,
+  penOnly = false,
 }: {
   content: DrawingContent;
   onChange: (next: DrawingContent) => void;
@@ -125,6 +127,10 @@ export function InkCanvas({
    */
   ruler?: Ruler | null;
   onRuler?: (ruler: Ruler) => void;
+  /** La gomme ne retire que les surlignages, en laissant l'écriture. */
+  eraseHighlightsOnly?: boolean;
+  /** Le doigt n'écrit jamais, même avant qu'un stylet ait servi. */
+  penOnly?: boolean;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -320,8 +326,9 @@ export function InkCanvas({
   function accepts(event: React.PointerEvent): boolean {
     if (readOnly) return false;
     if (event.pointerType === "pen") return true;
-    // Le doigt ne dessine plus dès qu'un stylet a servi : il fait défiler.
-    if (event.pointerType === "touch") return !penSeen.current;
+    // Le doigt ne dessine plus dès qu'un stylet a servi — ou dès que le verrou
+    // est posé, pour pouvoir appuyer la main avant même d'approcher le stylet.
+    if (event.pointerType === "touch") return !penSeen.current && !penOnly;
     return true;
   }
 
@@ -572,6 +579,9 @@ export function InkCanvas({
   function eraseAt(point: number[]) {
     const seuil = 0.018;
     const kept = strokes.current.filter((stroke) => {
+      // Gomme sélective : on surligne beaucoup et on se trompe souvent ;
+      // effacer l'écriture par la même occasion est rageant.
+      if (eraseHighlightsOnly && stroke.tool !== "highlighter") return true;
       for (let i = 0; i < stroke.points.length; i += 3) {
         const dx = stroke.points[i] - point[0];
         const dy = stroke.points[i + 1] - point[1];

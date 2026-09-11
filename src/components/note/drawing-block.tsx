@@ -1,31 +1,11 @@
 "use client";
 
 import * as React from "react";
-import {
-  Circle,
-  Crosshair,
-  Eraser,
-  Lasso,
-  Minus as LineIcon,
-  Ruler as RulerIcon,
-  Shapes,
-  Square as RectIcon,
-  Grid3x3,
-  Highlighter,
-  Maximize2,
-  Minus,
-  Pen,
-  Redo2,
-  Square,
-  Trash2,
-  Undo2,
-  X,
-} from "lucide-react";
 
 import { InkCanvas, type InkTool } from "@/components/note/ink-canvas";
-import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
-import { MAX_RATIO, PAPERS, type DrawingContent, type Paper, type Stroke } from "@/lib/notes";
-import { cn } from "@/lib/utils";
+import { InkPalette, type InkSettings } from "@/components/note/ink-palette";
+import type { Ruler, Shape } from "@/lib/ink";
+import { MAX_RATIO, type DrawingContent, type Stroke } from "@/lib/notes";
 
 /**
  * Page manuscrite : le canevas, ses outils, et le plein écran.
@@ -35,34 +15,6 @@ import { cn } from "@/lib/utils";
  * donc tout l'écran, la palette flotte par-dessus, et l'application disparaît —
  * on est devant une feuille.
  */
-
-const INKS = [
-  { name: "default", label: "Encre" },
-  { name: "rose", label: "Rouge" },
-  { name: "amber", label: "Orange" },
-  { name: "emerald", label: "Vert" },
-  { name: "blue", label: "Bleu" },
-  { name: "violet", label: "Violet" },
-] as const;
-
-const SIZES = [
-  { size: 1.2, label: "Fin" },
-  { size: 2.5, label: "Moyen" },
-  { size: 5, label: "Épais" },
-];
-
-const SHAPE_ICONS: Record<Shape, { label: string; icon: React.ElementType }> = {
-  line: { label: "Ligne", icon: LineIcon },
-  rect: { label: "Rectangle", icon: RectIcon },
-  ellipse: { label: "Ellipse", icon: Circle },
-};
-
-const PAPER_LABELS: Record<Paper, { label: string; icon: React.ElementType }> = {
-  blank: { label: "Uni", icon: Square },
-  ruled: { label: "Lignes", icon: Minus },
-  grid: { label: "Carreaux", icon: Grid3x3 },
-  dots: { label: "Points", icon: Grid3x3 },
-};
 
 export function DrawingBlock({
   content,
@@ -74,10 +26,23 @@ export function DrawingBlock({
   readOnly?: boolean;
 }) {
   const [tool, setTool] = React.useState<InkTool>("pen");
-  const [ink, setInk] = React.useState("default");
-  const [size, setSize] = React.useState(2.5);
+  /*
+   * Le stylo et le surligneur retiennent chacun leur couleur et leur épaisseur.
+   *
+   * Un réglage commun oblige à tout refaire à chaque changement d'outil : on
+   * surligne en jaune épais, on reprend le stylo, et il écrit en jaune épais.
+   * C'est ce que font les applications de référence, et c'est ce qui rend
+   * l'aller-retour entre les deux supportable.
+   */
+  const [pen, setPen] = React.useState<InkSettings>({ color: "default", size: 2.5 });
+  const [highlighter, setHighlighter] = React.useState<InkSettings>({ color: "amber", size: 4 });
+  // La gomme peut ne retirer que les surlignages : on surligne beaucoup, on se
+  // trompe souvent, et effacer l'écriture par la même occasion est rageant.
+  const [eraseHighlightsOnly, setEraseHighlightsOnly] = React.useState(false);
+  // Verrou : le doigt n'écrit pas, même avant qu'un stylet ait servi. Utile
+  // quand on pose la main sur l'écran avant d'approcher le stylet.
+  const [penOnly, setPenOnly] = React.useState(false);
   const [full, setFull] = React.useState(false);
-  const [strokeCount, setStrokeCount] = React.useState(content.strokes.length);
   // Le rejet de la paume est invisible : le doigt cesse d'écrire sans rien dire.
   // On l'annonce, sinon on croit à une panne.
   const [penMode, setPenMode] = React.useState(false);
@@ -170,39 +135,41 @@ export function DrawingBlock({
     };
   }, [full]);
 
+  const reglages = tool === "highlighter" ? highlighter : pen;
+
   const palette = (
-    <Palette
+    <InkPalette
       tool={tool}
-      ink={ink}
-      size={size}
-      paper={content.paper}
-      strokes={strokeCount}
-      penMode={penMode}
-      zoom={zoom}
+      pen={pen}
+      highlighter={highlighter}
       shape={shape}
+      paper={content.paper}
+      eraseHighlightsOnly={eraseHighlightsOnly}
+      penOnly={penOnly}
+      penDetected={penMode}
       selection={selection.length}
+      zoom={zoom}
+      full={full}
+      hasBackdrop={Boolean(content.backdrop)}
       ruler={ruler}
-      onToggleRuler={() =>
-        setRuler((current) => (current ? null : { y: (content.ratio || 0.75) / 2, angle: 0 }))
-      }
+      onTool={setTool}
+      onSettings={tool === "highlighter" ? setHighlighter : setPen}
       onShape={setShape}
+      onPaper={(paper) => onChange({ ...content, paper })}
+      onEraseHighlightsOnly={setEraseHighlightsOnly}
+      onPenOnly={setPenOnly}
       onDeleteSelection={deleteSelection}
+      onUndo={undo}
+      onRedo={redo}
+      onClear={clear}
       onResetView={() => {
         setZoom(1);
         setViewKey((k) => k + 1);
       }}
-      full={full}
-      onTool={setTool}
-      onInk={(name) => {
-        setInk(name);
-        if (tool === "eraser") setTool("pen");
-      }}
-      onSize={setSize}
-      onPaper={(paper) => onChange({ ...content, paper })}
-      onUndo={undo}
-      onRedo={redo}
-      onClear={clear}
       onToggleFull={() => setFull((f) => !f)}
+      onToggleRuler={() =>
+        setRuler((current) => (current ? null : { y: (content.ratio || 0.75) / 2, angle: 0 }))
+      }
     />
   );
 
@@ -212,11 +179,12 @@ export function DrawingBlock({
       content={content}
       onChange={onChange}
       tool={tool}
-      color={ink}
-      size={size}
+      color={reglages.color}
+      size={reglages.size}
+      eraseHighlightsOnly={eraseHighlightsOnly}
+      penOnly={penOnly}
       readOnly={readOnly}
       growable={full}
-      onStrokeCount={setStrokeCount}
       onPenMode={setPenMode}
       onView={setZoom}
       shape={shape}
@@ -263,269 +231,5 @@ export function DrawingBlock({
       {readOnly ? null : palette}
       {canvas}
     </div>
-  );
-}
-
-function Palette({
-  tool,
-  ink,
-  size,
-  paper,
-  strokes,
-  penMode,
-  zoom,
-  shape,
-  selection,
-  ruler,
-  full,
-  onTool,
-  onToggleRuler,
-  onShape,
-  onDeleteSelection,
-  onResetView,
-  onInk,
-  onSize,
-  onPaper,
-  onUndo,
-  onRedo,
-  onClear,
-  onToggleFull,
-}: {
-  tool: InkTool;
-  ink: string;
-  size: number;
-  paper: Paper;
-  strokes: number;
-  penMode: boolean;
-  zoom: number;
-  shape: Shape;
-  selection: number;
-  ruler: Ruler | null;
-  full: boolean;
-  onTool: (tool: InkTool) => void;
-  onInk: (name: string) => void;
-  onSize: (size: number) => void;
-  onPaper: (paper: Paper) => void;
-  onUndo: () => void;
-  onRedo: () => void;
-  onClear: () => void;
-  onToggleFull: () => void;
-  onResetView: () => void;
-  onShape: (shape: Shape) => void;
-  onToggleRuler: () => void;
-  onDeleteSelection: () => void;
-}) {
-  return (
-    <div
-      role="toolbar"
-      aria-label="Outils d'écriture"
-      className={cn(
-        "flex flex-wrap items-center gap-1",
-        // En plein écran la palette flotte au-dessus de la feuille, à portée du
-        // pouce, avec la zone sûre des encoches.
-        full &&
-          "pb-safe shrink-0 justify-center border-t border-outline-variant bg-surface-container px-3 py-2 elevation-3",
-      )}
-    >
-      <Group label="Outil">
-        <Tool active={tool === "pen"} onClick={() => onTool("pen")} icon={Pen} label="Stylo" />
-        <Tool
-          active={tool === "highlighter"}
-          onClick={() => onTool("highlighter")}
-          icon={Highlighter}
-          label="Surligneur"
-        />
-        <Tool active={tool === "eraser"} onClick={() => onTool("eraser")} icon={Eraser} label="Gomme" />
-        <Tool active={tool === "lasso"} onClick={() => onTool("lasso")} icon={Lasso} label="Lasso" />
-        <Tool active={tool === "shape"} onClick={() => onTool("shape")} icon={Shapes} label="Formes" />
-        <Tool
-          active={Boolean(ruler)}
-          onClick={onToggleRuler}
-          icon={RulerIcon}
-          label={ruler ? "Ranger la règle" : "Poser la règle"}
-        />
-      </Group>
-
-      {ruler ? (
-        <span
-          className="px-2 m3-label-small tabular-nums text-on-surface-variant"
-          title="Glisse la règle pour la déplacer, saisis-la par un bout pour l'orienter."
-        >
-          {rulerDegrees(ruler)}°
-        </span>
-      ) : null}
-
-      {/* Les réglages de l'outil courant, et rien d'autre : une palette qui
-          montre tout en permanence devient illisible sur un téléphone. */}
-      {tool === "shape" ? (
-        <Group label="Forme">
-          {SHAPES.map((name) => (
-            <Tool
-              key={name}
-              active={shape === name}
-              onClick={() => onShape(name)}
-              icon={SHAPE_ICONS[name].icon}
-              label={SHAPE_ICONS[name].label}
-            />
-          ))}
-        </Group>
-      ) : null}
-
-      {tool === "lasso" && selection > 0 ? (
-        <Group label="Sélection">
-          <span className="px-2 m3-label-small tabular-nums text-on-surface-variant">
-            {selection} trait{selection > 1 ? "s" : ""}
-          </span>
-          <Tool onClick={onDeleteSelection} icon={Trash2} label="Supprimer la sélection" danger />
-        </Group>
-      ) : null}
-
-      <Group label="Couleur">
-        {INKS.map((entry) => (
-          <button
-            key={entry.name}
-            type="button"
-            onClick={() => onInk(entry.name)}
-            aria-label={entry.label}
-            aria-pressed={tool !== "eraser" && ink === entry.name}
-            title={entry.label}
-            className="grid size-11 place-items-center rounded-full"
-          >
-            <span
-              className={cn(
-                "block rounded-full transition-all",
-                tool !== "eraser" && ink === entry.name
-                  ? "size-6 ring-2 ring-primary ring-offset-2 ring-offset-surface"
-                  : "size-5",
-              )}
-              style={{ backgroundColor: `var(--ink-${entry.name})` }}
-            />
-          </button>
-        ))}
-      </Group>
-
-      <Group label="Épaisseur">
-        {SIZES.map((entry) => (
-          <button
-            key={entry.size}
-            type="button"
-            onClick={() => onSize(entry.size)}
-            aria-label={entry.label}
-            aria-pressed={size === entry.size}
-            title={entry.label}
-            className={cn(
-              "grid size-11 place-items-center rounded-full transition-colors",
-              size === entry.size ? "bg-primary-container text-on-primary-container" : "text-on-surface-variant",
-            )}
-          >
-            <span
-              className="block rounded-full bg-current"
-              style={{ width: entry.size * 3, height: entry.size * 3 }}
-            />
-          </button>
-        ))}
-      </Group>
-
-      <Group label="Papier">
-        {PAPERS.map((name) => {
-          const entry = PAPER_LABELS[name];
-          return (
-            <button
-              key={name}
-              type="button"
-              onClick={() => onPaper(name)}
-              aria-label={entry.label}
-              aria-pressed={paper === name}
-              title={`Papier : ${entry.label}`}
-              className={cn(
-                "grid size-11 place-items-center rounded-full transition-colors",
-                paper === name ? "bg-primary-container text-on-primary-container" : "text-on-surface-variant",
-              )}
-            >
-              <entry.icon className={cn("size-4", name === "dots" && "opacity-60")} />
-            </button>
-          );
-        })}
-      </Group>
-
-      <div className="ml-auto flex items-center gap-0.5">
-        {/* Le zoom ne se voit qu'une fois utilisé : afficher « 100 % » en
-            permanence n'apprend rien. */}
-        {Math.abs(zoom - 1) > 0.01 ? (
-          <button
-            type="button"
-            onClick={onResetView}
-            title="Revenir à la taille d'origine"
-            aria-label={`Zoom ${Math.round(zoom * 100)} %. Revenir à la taille d'origine`}
-            className="mr-1 flex min-h-11 items-center gap-1.5 rounded-full bg-surface-container px-3 m3-label-small tabular-nums text-on-surface-variant transition-colors hover:text-on-surface"
-          >
-            <Crosshair className="size-3.5" />
-            {Math.round(zoom * 100)} %
-          </button>
-        ) : null}
-
-        {penMode ? (
-          <span
-            title="Un stylet a été détecté : le doigt ne dessine plus et sert à faire défiler, pour que la paume ne marque pas la page."
-            className="mr-1 flex items-center gap-1.5 rounded-full bg-surface-container px-3 py-1.5 m3-label-small text-on-surface-variant"
-          >
-            <Pen className="size-3.5" />
-            Stylet
-          </span>
-        ) : null}
-        <Tool onClick={onUndo} icon={Undo2} label="Annuler le dernier trait" />
-        <Tool onClick={onRedo} icon={Redo2} label="Rétablir le trait annulé" />
-        <Tool onClick={onClear} icon={Trash2} label="Effacer toute la page" danger />
-        <Tool
-          onClick={onToggleFull}
-          icon={full ? X : Maximize2}
-          label={full ? "Quitter le plein écran" : "Écrire en plein écran"}
-          active={full}
-        />
-        <span className="sr-only" aria-live="polite">
-          {strokes} trait{strokes > 1 ? "s" : ""}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function Group({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div role="group" aria-label={label} className="flex items-center gap-0.5">
-      {children}
-    </div>
-  );
-}
-
-function Tool({
-  active,
-  onClick,
-  icon: Icon,
-  label,
-  danger,
-}: {
-  active?: boolean;
-  onClick: () => void;
-  icon: React.ElementType;
-  label: string;
-  danger?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      aria-label={label}
-      title={label}
-      className={cn(
-        "grid size-11 place-items-center rounded-full transition-colors",
-        active
-          ? "bg-primary-container text-on-primary-container"
-          : cn("text-on-surface-variant", danger ? "hover:text-error" : "hover:text-on-surface"),
-      )}
-    >
-      <Icon className="size-5" />
-    </button>
   );
 }

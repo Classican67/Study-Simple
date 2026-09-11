@@ -6,6 +6,7 @@ import { ChevronDown, ChevronUp, Loader2, Maximize2, PenLine, Table2, Trash2, Ty
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ExportPdf } from "@/components/note/export-pdf";
 import { ImportDocument } from "@/components/note/import-document";
+import { PageNavigator } from "@/components/note/page-navigator";
 import { DrawingBlock } from "@/components/note/drawing-block";
 import { TableBlock } from "@/components/note/table-block";
 import { TextBlock } from "@/components/note/text-block";
@@ -158,6 +159,15 @@ export function NoteEditor({
         />
       </div>
 
+      {/* Repère de page, flottant : un polycopié de quarante pages devient
+          quarante blocs, et retrouver la page 27 demanderait sinon de faire
+          défiler à l'aveugle. */}
+      <div className="pointer-events-none fixed bottom-24 left-1/2 z-30 -translate-x-1/2 md:bottom-6">
+        <div className="pointer-events-auto rounded-full border border-outline-variant bg-surface-container px-1 elevation-2">
+          <PageNavigator pages={blocks.filter((b) => b.kind === "drawing").map((b) => b.id)} />
+        </div>
+      </div>
+
       {/* Discret mais présent : sans retour, on ne sait pas si le croquis
           qu'on vient de tracer est parti. */}
       <p
@@ -270,6 +280,10 @@ function BlockCard({
 
   return (
     <section
+      id={`bloc-${block.id}`}
+      // `scroll-mt` dégage la barre supérieure collante : sans elle, la page
+      // visée arriverait à moitié cachée dessous.
+      style={{ scrollMarginTop: "5rem" }}
       aria-label={`Bloc ${index + 1} sur ${total}`}
       className="group rounded-2xl border border-outline-variant bg-surface-container p-3 transition-colors focus-within:border-primary/40 sm:p-4"
     >

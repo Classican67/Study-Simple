@@ -32,6 +32,9 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   et persistance de tout cela
 - `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
   par mots-clés et filtres de contenu, page manuscrite en plein écran
+- `node palette-e2e.mjs` — barre d'outils de la page manuscrite : les réglages
+  suivent l'outil courant, chaque outil retient les siens, le verrou du stylet
+  et la gomme sélective font ce qu'ils annoncent
 - `node export-pdf-e2e.mjs` — export d'une note annotée : forme aplatie et
   forme à annotations `/Ink` conformes à ISO 32000 (avec leur flux d'apparence),
   document d'origine inchangé, et le PDF produit se réimporte dans l'app
