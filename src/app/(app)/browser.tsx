@@ -19,6 +19,7 @@ import type { LastStudied } from "@/lib/decks";
 import type { FolderOption, FolderView } from "@/lib/folders";
 import { describeAgo } from "@/lib/scheduling";
 import { ExportDialog } from "@/components/export-dialog";
+import { GroupDialog } from "./group-dialog";
 import { NewDeckButton } from "./new-deck-button";
 import { NewFolderButton } from "./new-folder-button";
 import { FolderSettings } from "./folder-settings";
@@ -90,6 +91,20 @@ export function FolderBrowser({
               </Link>
             </Button>
           ) : null}
+          {/* Réunir les figures d'un cours dans un paquet de révision : c'est
+              au niveau où les paquets d'un même cours cohabitent que le geste
+              a un sens, dossier comme racine. */}
+          <GroupDialog
+            decks={decks.map((deck) => ({
+              id: deck.id,
+              title: deck.title,
+              color: deck.color,
+              cardCount: deck.cardCount,
+            }))}
+            folderId={current?.id ?? null}
+            className="flex-1 sm:flex-none"
+          />
+
           {/* À la racine seulement : l'export porte sur tout le compte, pas
               sur le dossier ouvert — le proposer ici induirait en erreur. */}
           {!current && !empty ? <ExportDialog /> : null}

@@ -29,5 +29,6 @@ Le serveur doit tourner sur le port 3100 (`npx next start -p 3100`).
 | `node audit.mjs` | Contraste WCAG 4.5:1, cibles tactiles 44 px, cohérence des positions |
 | `node hauteur.mjs` | La révision tient dans l'écran, sur cinq tailles d'appareil |
 | `node notes-e2e.mjs` | Notes : texte, tableau calculé, croquis au stylet, persistance |
+| `node alias-e2e.mjs` | Regroupement en alias : filtre image, sans doublon, propagation |
 
 Chacun sort en code non nul s'il trouve quelque chose.

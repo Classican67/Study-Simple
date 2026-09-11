@@ -1,11 +1,13 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { Reorder, useDragControls } from "motion/react";
 import {
   ChevronDown,
   ChevronUp,
   GripVertical,
+  Link2,
   Loader2,
   Plus,
   Trash2,
@@ -17,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { ImageLightbox } from "@/components/image-lightbox";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { RichEditor } from "@/components/rich-editor";
+import { RichText } from "@/components/rich-text";
 import { PhotoPicker } from "@/components/photo-picker";
 import {
   addEmptyCard,
@@ -27,11 +30,16 @@ import {
   setCardImage,
 } from "./actions";
 
+export type CardOrigin = { cardId: string; deckId: string; deckTitle: string };
+
 export type EditableCard = {
   id: string;
   term: string;
   definition: string;
   imagePath: string | null;
+
+  /** Renseigné si la carte reprend celle d'un autre paquet. */
+  aliasOf?: CardOrigin | null;
 };
 
 const MAX_BYTES = 8 * 1024 * 1024;
@@ -286,7 +294,21 @@ function CardRow({
             {index + 1}
           </span>
 
-          <SaveIndicator state={state} message={message} />
+          {card.aliasOf ? (
+            // Une reprise n'est pas modifiable ici : la corriger ferait
+            // diverger de l'originale sans le dire. On renvoie donc au paquet
+            // d'où elle vient, où la correction se propagera d'elle-même.
+            <Link
+              href={`/decks/${card.aliasOf.deckId}#card-${card.aliasOf.cardId}`}
+              className="flex min-h-9 items-center gap-1.5 rounded-full bg-surface-container-high px-3 m3-label-small text-on-surface-variant transition-colors hover:text-primary"
+              title={`Modifier dans « ${card.aliasOf.deckTitle} »`}
+            >
+              <Link2 className="size-3.5 shrink-0" />
+              <span className="max-w-40 truncate">Reprise de « {card.aliasOf.deckTitle} »</span>
+            </Link>
+          ) : (
+            <SaveIndicator state={state} message={message} />
+          )}
 
           <div className="ml-auto flex items-center gap-0.5">
             {/* Flèches en plus du glisser : au clavier et sur un long paquet,
@@ -348,25 +370,37 @@ function CardRow({
           className="grid gap-3 p-3 lg:grid-cols-[1fr_1.3fr_auto]"
         >
           <LabelledField label="Terme">
-            <RichEditor
-              compact
-              value={card.term.trim()}
-              onChange={setTerm}
-              onBlur={onBlur}
-              ariaLabel={`Terme de la carte ${index + 1}`}
-              placeholder="Décibel"
-            />
+            {card.aliasOf ? (
+              <ReadOnlyField>
+                <RichText>{card.term.trim()}</RichText>
+              </ReadOnlyField>
+            ) : (
+              <RichEditor
+                compact
+                value={card.term.trim()}
+                onChange={setTerm}
+                onBlur={onBlur}
+                ariaLabel={`Terme de la carte ${index + 1}`}
+                placeholder="Décibel"
+              />
+            )}
           </LabelledField>
 
           <LabelledField label="Définition">
-            <RichEditor
-              compact
-              value={card.definition.trim()}
-              onChange={setDefinition}
-              onBlur={onBlur}
-              ariaLabel={`Définition de la carte ${index + 1}`}
-              placeholder="Rapport logarithmique entre la pression mesurée et la pression de référence"
-            />
+            {card.aliasOf ? (
+              <ReadOnlyField>
+                <RichText>{card.definition.trim()}</RichText>
+              </ReadOnlyField>
+            ) : (
+              <RichEditor
+                compact
+                value={card.definition.trim()}
+                onChange={setDefinition}
+                onBlur={onBlur}
+                ariaLabel={`Définition de la carte ${index + 1}`}
+                placeholder="Rapport logarithmique entre la pression mesurée et la pression de référence"
+              />
+            )}
           </LabelledField>
 
           <div className="lg:w-40">
@@ -382,18 +416,20 @@ function CardRow({
                 />
                 {/* La zone de clic fait 44 px, la pastille visible 28 : la
                     cible tactile est atteinte sans alourdir la vignette. */}
-                <button
-                  type="button"
-                  onClick={dropImage}
-                  aria-label="Retirer l'image"
-                  className="group/remove absolute -right-4 -top-4 grid size-11 place-items-center"
-                >
-                  <span className="grid size-7 place-items-center rounded-full bg-surface-container text-on-surface-variant elevation-2 transition-colors group-hover/remove:text-error">
-                    <X className="size-3.5" />
-                  </span>
-                </button>
+                {card.aliasOf ? null : (
+                  <button
+                    type="button"
+                    onClick={dropImage}
+                    aria-label="Retirer l'image"
+                    className="group/remove absolute -right-4 -top-4 grid size-11 place-items-center"
+                  >
+                    <span className="grid size-7 place-items-center rounded-full bg-surface-container text-on-surface-variant elevation-2 transition-colors group-hover/remove:text-error">
+                      <X className="size-3.5" />
+                    </span>
+                  </button>
+                )}
               </div>
-            ) : (
+            ) : card.aliasOf ? null : (
               <PhotoPicker onPicked={upload} disabled={state === "saving"} />
             )}
           </div>
@@ -421,6 +457,15 @@ function CardRow({
         ) : null}
       </div>
     </Reorder.Item>
+  );
+}
+
+/** Cadre d'un champ non modifiable : même gabarit que l'éditeur, sans curseur. */
+function ReadOnlyField({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="min-h-14 rounded-xl border border-outline-variant bg-surface-container-high/50 px-3 py-2.5 m3-body-medium text-on-surface">
+      {children}
+    </div>
   );
 }
 

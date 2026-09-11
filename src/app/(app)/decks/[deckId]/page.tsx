@@ -131,6 +131,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
           term: card.term,
           definition: card.definition,
           imagePath: card.imagePath,
+          aliasOf: card.aliasOf ?? null,
         }))}
       />
 

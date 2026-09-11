@@ -104,10 +104,30 @@ model Card {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
+  // Alias : cette carte reprend une carte d'un autre paquet, pour la réunir
+  // avec d'autres — par exemple toutes les figures anatomiques dans un paquet
+  // de révision dédié.
+  //
+  // Le contenu est **recopié** et non lu au travers de la référence. Résoudre
+  // à la lecture aurait obligé la révision, la recherche, l'export et chaque
+  // compteur à connaître les alias ; recopier ne demande qu'une chose : que
+  // les corrections faites sur l'originale se propagent, ce qui tient en trois
+  // écritures identifiées. L'origine reste enregistrée, pour pouvoir remonter
+  // à la carte source et pour propager.
+  //
+  // `SetNull` et non `Cascade` : supprimer le paquet d'origine ne doit pas
+  // vider le paquet de révision qu'on a constitué. L'alias devient une carte
+  // ordinaire, avec son contenu.
+  aliasOfId  String?
+  aliasOf    Card?  @relation("CardAlias", fields: [aliasOfId], references: [id], onDelete: SetNull)
+  aliases    Card[] @relation("CardAlias")
+
   deck     Deck           @relation(fields: [deckId], references: [id], onDelete: Cascade)
   progress CardProgress[]
 
   @@index([deckId, position])
+  // Sert à propager une correction vers les alias, à chaque enregistrement.
+  @@index([aliasOfId])
 }
 
 model Tag {

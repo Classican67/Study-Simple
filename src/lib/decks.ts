@@ -101,6 +101,8 @@ export type StudyCard = {
   status: string;
   /** Nulle = jamais répondue, donc à réviser. */
   dueAt: Date | null;
+  /** Renseigné si la carte reprend celle d'un autre paquet. */
+  aliasOf?: { cardId: string; deckId: string; deckTitle: string } | null;
 };
 
 // Toutes les cartes du paquet avec l'état de progression de l'utilisateur.
@@ -116,6 +118,10 @@ export async function getDeckCards(deckId: string, userId: string): Promise<Stud
       definition: true,
       imagePath: true,
       progress: { where: { userId }, select: { status: true, dueAt: true } },
+      // Reprise d'une carte d'un autre paquet : l'éditeur doit le dire et
+      // renvoyer vers l'originale, plutôt que de laisser modifier une copie
+      // qui divergerait en silence.
+      aliasOf: { select: { id: true, deck: { select: { id: true, title: true } } } },
     },
   });
 
@@ -126,6 +132,9 @@ export async function getDeckCards(deckId: string, userId: string): Promise<Stud
     imagePath: card.imagePath,
     status: card.progress[0]?.status ?? "new",
     dueAt: card.progress[0]?.dueAt ?? null,
+    aliasOf: card.aliasOf
+      ? { cardId: card.aliasOf.id, deckId: card.aliasOf.deck.id, deckTitle: card.aliasOf.deck.title }
+      : null,
   }));
 }
 
@@ -142,6 +151,10 @@ export async function getDueCards(userId: string): Promise<StudyCard[]> {
       definition: true,
       imagePath: true,
       progress: { where: { userId }, select: { status: true, dueAt: true } },
+      // Reprise d'une carte d'un autre paquet : l'éditeur doit le dire et
+      // renvoyer vers l'originale, plutôt que de laisser modifier une copie
+      // qui divergerait en silence.
+      aliasOf: { select: { id: true, deck: { select: { id: true, title: true } } } },
     },
   });
 
@@ -152,6 +165,9 @@ export async function getDueCards(userId: string): Promise<StudyCard[]> {
     imagePath: card.imagePath,
     status: card.progress[0]?.status ?? "new",
     dueAt: card.progress[0]?.dueAt ?? null,
+    aliasOf: card.aliasOf
+      ? { cardId: card.aliasOf.id, deckId: card.aliasOf.deck.id, deckTitle: card.aliasOf.deck.title }
+      : null,
   }));
 }
 

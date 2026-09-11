@@ -30,6 +30,8 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   dépassement vertical selon l'appareil
 - `node notes-e2e.mjs` — notes : texte, tableau calculé, croquis au stylet,
   et persistance de tout cela
+- `node alias-e2e.mjs` — regroupement de cartes en alias : filtre sur l'image,
+  absence de doublon, propagation d'une correction vers les reprises
 
 Puis **ouvrir les captures**. Une mesure qui passe ne dit pas que c'est joli.
 

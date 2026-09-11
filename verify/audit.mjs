@@ -78,10 +78,22 @@ const TOUCH = `
     if (r.width < 2 || r.height < 2) continue;
     const cs = getComputedStyle(el);
     if (cs.visibility === "hidden" || cs.opacity === "0" || cs.pointerEvents === "none") continue;
-    if (r.width < 44 || r.height < 44) {
+    // La cible, au sens de WCAG, est la zone qui ACTIVE le contrôle. Une case
+    // de 20 px enveloppee dans une etiquette pleine largeur se coche en
+    // touchant l'etiquette : c'est elle qu'il faut mesurer.
+    let zone = r;
+    if (el.tagName === "INPUT") {
+      const etiquette = el.closest("label") || document.querySelector('label[for="' + el.id + '"]');
+      if (etiquette) {
+        const er = etiquette.getBoundingClientRect();
+        if (er.width * er.height > zone.width * zone.height) zone = er;
+      }
+    }
+
+    if (zone.width < 44 || zone.height < 44) {
       out.push({
         label: (el.getAttribute("aria-label") || el.textContent || el.tagName).trim().slice(0, 30),
-        size: Math.round(r.width) + "x" + Math.round(r.height),
+        size: Math.round(zone.width) + "x" + Math.round(zone.height),
       });
     }
   }
@@ -189,6 +201,16 @@ const openExport = async (p) => {
 };
 await audit("export clair", phone, "/", false, openExport);
 await audit("export sombre", phone, "/", true, openExport);
+
+// Le regroupement en alias : cases, interrupteur, liste défilante, annonce.
+const openGroup = async (p) => {
+  await p.getByRole("button", { name: "Regrouper" }).click();
+  await p.waitForSelector('[role="dialog"]');
+  await p.waitForTimeout(800);
+};
+await audit("regroupement clair", phone, "/", false, openGroup);
+await audit("regroupement sombre", phone, "/", true, openGroup);
+await audit("regroupement desktop", desktop, "/", false, openGroup);
 
 // Les notes : la liste, puis un éditeur portant les trois types de blocs.
 await audit("notes liste clair", phone, "/notes", false);
