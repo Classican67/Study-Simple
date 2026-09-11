@@ -4,7 +4,9 @@ import { notFound } from "next/navigation";
 import { ChevronRight, FileText, Folder as FolderIcon, Home, NotebookPen, PenLine, Table2, Type } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/panel";
+import { DropZone } from "@/components/drag-move";
 import { NewNoteButton } from "./new-note-button";
+import { NoteDragHandle } from "./note-drag-handle";
 import { NewNoteFolderButton } from "./new-note-folder-button";
 import { NoteSearch } from "./note-search";
 import { requireUser } from "@/lib/auth";
@@ -88,7 +90,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
           <h2 className="m3-title-small text-on-surface-variant">Dossiers</h2>
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {view.folders.map((folder) => (
-              <li key={folder.id}>
+              <DropZone key={folder.id} folderId={folder.id}>
                 <Link
                   href={href({ folder: folder.id, q: null, has: null })}
                   className="state-layer flex min-h-14 items-center gap-3 rounded-xl border border-outline-variant bg-surface-container px-4 transition-all hover:-translate-y-0.5 hover:elevation-2"
@@ -106,7 +108,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                     {folder.noteCount}
                   </span>
                 </Link>
-              </li>
+              </DropZone>
             ))}
           </ul>
         </section>
@@ -121,7 +123,12 @@ export default async function NotesPage(props: PageProps<"/notes">) {
       {view.notes.length > 0 ? (
         <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {view.notes.map((note) => (
-            <li key={note.id}>
+            <li key={note.id} className="relative">
+              {/* La poignée est hors du lien : un lien ne peut pas contenir de
+                  bouton, et le glissement ne doit pas déclencher la navigation. */}
+              <div className="absolute right-2 top-2 z-10">
+                <NoteDragHandle noteId={note.id} title={note.title.trim() || UNTITLED} />
+              </div>
               <Link
                 href={`/notes/${note.id}`}
                 className="state-layer flex h-full flex-col gap-3 rounded-xl border border-outline-variant bg-surface-container p-5 elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
@@ -173,7 +180,8 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
   return (
     <nav aria-label="Fil d'Ariane" className="-mt-1">
       <ol className="flex flex-wrap items-center gap-1 m3-body-medium text-on-surface-variant">
-        <li>
+        {/* Déposer ici sort la note de tout dossier. */}
+        <DropZone folderId={null}>
           <Link
             href="/notes"
             className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 transition-colors hover:text-on-surface"
@@ -181,7 +189,7 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
             <Home className="size-4" />
             Notes
           </Link>
-        </li>
+        </DropZone>
         {trail.map((folder, index) => {
           const last = index === trail.length - 1;
           return (

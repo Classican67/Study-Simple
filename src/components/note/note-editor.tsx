@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, ChevronUp, Loader2, Maximize2, PenLine, Table2, Trash2, Type, X } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ImportDocument } from "@/components/note/import-document";
 import { DrawingBlock } from "@/components/note/drawing-block";
 import { TableBlock } from "@/components/note/table-block";
 import { TextBlock } from "@/components/note/text-block";
@@ -94,7 +95,10 @@ export function NoteEditor({
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
+    // Pleine largeur : une note se lit et s'écrit large, surtout sur iPad.
+    // Le plafond de la mise en page suffit, en remettre un ici laissait de
+    // larges bandes vides de chaque côté.
+    <div className="w-full space-y-4">
       <NoteTitle noteId={noteId} initial={initialTitle} onError={setError} />
 
       {error ? (
@@ -131,6 +135,22 @@ export function NoteEditor({
             {label}
           </Button>
         ))}
+        {/* Un document devient une page annotable par page : c'est le geste de
+            l'étudiant qui reprend le polycopié du cours. */}
+        <ImportDocument
+          noteId={noteId}
+          onError={setError}
+          onImported={(created) => {
+            setError(null);
+            // Ajoutées à la liste locale, comme tout autre bloc : recharger la
+            // page ne suffisait pas — l'état est initialisé une seule fois, et
+            // les pages importées n'apparaissaient donc jamais.
+            setBlocks((current) => [
+              ...current,
+              ...created.map((b) => ({ id: b.id, kind: b.kind as BlockKind, content: b.content })),
+            ]);
+          }}
+        />
       </div>
 
       {/* Discret mais présent : sans retour, on ne sait pas si le croquis
@@ -324,9 +344,7 @@ function BlockCard({
             </Button>
           </div>
           <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-            <div className="mx-auto w-full max-w-4xl">
-              <BlockBody block={block} onChange={schedule} />
-            </div>
+            <BlockBody block={block} onChange={schedule} />
           </div>
         </div>
       ) : null}

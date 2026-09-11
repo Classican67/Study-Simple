@@ -105,7 +105,21 @@ export type Stroke = {
 export const PAPERS = ["blank", "ruled", "grid", "dots"] as const;
 export type Paper = (typeof PAPERS)[number];
 
-export type DrawingContent = { strokes: Stroke[]; ratio: number; paper: Paper };
+/**
+ * Page de document servant de fond, pour l'annoter.
+ *
+ * `file` est le PDF stocké — tout import est converti en PDF — et `page` le
+ * numéro de page, à partir de 1. Le fond n'est pas recopié dans le bloc : un
+ * même document sert de fond à toutes ses pages, une par bloc.
+ */
+export type Backdrop = { file: string; page: number };
+
+export type DrawingContent = {
+  strokes: Stroke[];
+  ratio: number;
+  paper: Paper;
+  backdrop?: Backdrop | null;
+};
 
 export const MAX_STROKES = 4000;
 export const MAX_POINTS_PER_STROKE = 30000;
@@ -125,9 +139,18 @@ export function parseDrawing(raw: string): DrawingContent {
     typeof data?.ratio === "number" && data.ratio > 0.1 && data.ratio <= MAX_RATIO ? data.ratio : DEFAULT_RATIO;
   const paper = (PAPERS as readonly unknown[]).includes(data?.paper) ? (data!.paper as Paper) : "blank";
 
+  // Le fond n'est retenu que s'il est complet : un nom de fichier sans numéro
+  // de page, ou l'inverse, ne mène nulle part.
+  const brut = data?.backdrop as Partial<Backdrop> | null | undefined;
+  const backdrop: Backdrop | null =
+    brut && typeof brut.file === "string" && Number.isInteger(brut.page) && (brut.page as number) >= 1
+      ? { file: brut.file.slice(0, 128), page: brut.page as number }
+      : null;
+
   return {
     ratio,
     paper,
+    backdrop,
     strokes: strokes
       .slice(0, MAX_STROKES)
       .map((stroke: unknown) => {

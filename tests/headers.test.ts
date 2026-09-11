@@ -1,5 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import nextConfig from "../next.config";
 
@@ -45,5 +47,14 @@ describe("en-têtes de sécurité", () => {
     // version de l'app après un déploiement.
     const headers = await headerMap("/sw.js");
     assert.match(headers.get("cache-control") ?? "", /no-store|no-cache/);
+  });
+});
+
+describe("proxy — fichiers statiques nécessaires à l'app", () => {
+  it("laisse passer le worker de pdf.js", () => {
+    // Redirigé vers /login, il ne démarre pas, et l'échec de pdf.js est muet :
+    // « Ce PDF n'a pas pu être lu », sans rien dire de la cause.
+    const source = readFileSync(path.join(process.cwd(), "src/proxy.ts"), "utf8");
+    assert.match(source, /"\/pdf\.worker\.min\.mjs"/);
   });
 });

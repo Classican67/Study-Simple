@@ -10,6 +10,7 @@ import {
   defaultContent,
   isBlockKind,
   MAX_BLOCK_BYTES,
+  MAX_RATIO,
   noteSearchText,
   type BlockKind,
 } from "@/lib/notes";
@@ -220,4 +221,85 @@ export async function moveNote(noteId: string, folderId: string | null): Promise
 
   revalidatePath("/notes");
   return { ok: true };
+}
+
+export type ImportResult = { ok: true; file: string } | { ok: false; error: string };
+
+/**
+ * Importe un document à annoter et renvoie le PDF stocké.
+ *
+ * Le comptage des pages est laissé au client : il doit de toute façon charger
+ * le PDF pour l'afficher, et le faire aussi ici obligerait à embarquer un
+ * moteur PDF côté serveur pour un renseignement qu'on a déjà.
+ */
+export async function importNoteDocument(formData: FormData): Promise<ImportResult> {
+  await requireUser();
+
+  const file = formData.get("document");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Aucun fichier reçu." };
+  }
+
+  const { importDocument } = await import("@/lib/documents");
+  const result = await importDocument(file);
+  if ("error" in result) return { ok: false, error: result.error };
+  return { ok: true, file: result.file };
+}
+
+/**
+ * Ajoute une page manuscrite par page du document, d'un seul coup.
+ *
+ * En une transaction plutôt qu'un appel par page : un document de quarante
+ * pages ferait sinon quarante allers-retours, et une interruption au milieu
+ * laisserait la note à moitié constituée.
+ */
+export type DocumentBlocks =
+  | { ok: true; blocks: { id: string; kind: string; content: string }[] }
+  | { ok: false; error: string };
+
+export async function addDocumentBlocks(
+  noteId: string,
+  file: string,
+  ratios: number[],
+): Promise<DocumentBlocks> {
+  const user = await requireUser();
+  if (!(await ownsNote(noteId, user.id))) return { ok: false, error: "Note introuvable." };
+  if (ratios.length === 0) return { ok: false, error: "Document sans page." };
+  if (ratios.length > 200) return { ok: false, error: "Document trop long (200 pages maximum)." };
+
+  const last = await prisma.noteBlock.findFirst({
+    where: { noteId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+  let position = (last?.position ?? -1) + 1;
+
+  const premierRang = position;
+  await prisma.noteBlock.createMany({
+    data: ratios.map((ratio, index) => ({
+      noteId,
+      kind: "drawing",
+      position: position++,
+      content: JSON.stringify({
+        strokes: [],
+        // Le format de la page suit celui du document : annoter une page A4 sur
+        // une feuille carrée décalerait tout.
+        ratio: Math.min(MAX_RATIO, Math.max(0.2, ratio)),
+        paper: "blank",
+        backdrop: { file, page: index + 1 },
+      }),
+    })),
+  });
+
+  await touch(noteId);
+
+  // Les blocs créés sont renvoyés pour que l'éditeur les affiche aussitôt.
+  // Sans cela rien n'apparaissait, et l'on réimportait le document en croyant
+  // que l'import avait échoué.
+  const blocks = await prisma.noteBlock.findMany({
+    where: { noteId, position: { gte: premierRang } },
+    orderBy: { position: "asc" },
+    select: { id: true, kind: true, content: true },
+  });
+  return { ok: true, blocks };
 }

@@ -14,6 +14,10 @@ const PUBLIC_PATHS = [
   "/sw.js",
   "/api/health",
   "/offline",
+  // Le worker de pdf.js, servi depuis public/. C'est un fichier statique sans
+  // la moindre donnée : redirigé vers /login, il ne démarrait pas, et pdf.js
+  // échouait sur un « UnknownErrorException » muet.
+  "/pdf.worker.min.mjs",
   // Les routes d'API s'authentifient elles-mêmes et répondent 401 en JSON.
   // Les laisser au proxy les ferait rediriger vers /login, ce qu'un client
   // mobile ne saurait pas interpréter.

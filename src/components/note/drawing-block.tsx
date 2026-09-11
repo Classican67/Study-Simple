@@ -2,8 +2,14 @@
 
 import * as React from "react";
 import {
+  Circle,
   Crosshair,
   Eraser,
+  Lasso,
+  Minus as LineIcon,
+  Ruler as RulerIcon,
+  Shapes,
+  Square as RectIcon,
   Grid3x3,
   Highlighter,
   Maximize2,
@@ -17,7 +23,8 @@ import {
 } from "lucide-react";
 
 import { InkCanvas, type InkTool } from "@/components/note/ink-canvas";
-import { PAPERS, type DrawingContent, type Paper, type Stroke } from "@/lib/notes";
+import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
+import { MAX_RATIO, PAPERS, type DrawingContent, type Paper, type Stroke } from "@/lib/notes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,6 +51,12 @@ const SIZES = [
   { size: 5, label: "Épais" },
 ];
 
+const SHAPE_ICONS: Record<Shape, { label: string; icon: React.ElementType }> = {
+  line: { label: "Ligne", icon: LineIcon },
+  rect: { label: "Rectangle", icon: RectIcon },
+  ellipse: { label: "Ellipse", icon: Circle },
+};
+
 const PAPER_LABELS: Record<Paper, { label: string; icon: React.ElementType }> = {
   blank: { label: "Uni", icon: Square },
   ruled: { label: "Lignes", icon: Minus },
@@ -69,6 +82,13 @@ export function DrawingBlock({
   // On l'annonce, sinon on croit à une panne.
   const [penMode, setPenMode] = React.useState(false);
   const [zoom, setZoom] = React.useState(1);
+  const [shape, setShape] = React.useState<Shape>("rect");
+  // La sélection du lasso appartient au bloc : c'est lui qui propose de la
+  // supprimer, et supprimer revient à réécrire la liste des traits.
+  const [selection, setSelection] = React.useState<number[]>([]);
+  // La règle est posée ou rangée ; elle n'est pas un outil, on continue
+  // d'écrire au stylo pendant qu'elle est là.
+  const [ruler, setRuler] = React.useState<Ruler | null>(null);
   // Remonter le canevas remet la vue à sa position d'origine : il n'y a rien à
   // réinitialiser à la main, les traits venant du contenu.
   const [viewKey, setViewKey] = React.useState(0);
@@ -91,11 +111,48 @@ export function DrawingBlock({
     onChange({ ...content, strokes: [...content.strokes, last] });
   }
 
+  function deleteSelection() {
+    if (selection.length === 0) return;
+    const retires = new Set(selection);
+    const restants = content.strokes.filter((_, i) => !retires.has(i));
+    undone.current = [...undone.current, ...content.strokes.filter((_, i) => retires.has(i))];
+    setSelection([]);
+    onChange({ ...content, strokes: restants });
+  }
+
   function clear() {
     if (content.strokes.length === 0) return;
     undone.current = [...content.strokes].reverse();
     onChange({ ...content, strokes: [] });
   }
+
+  const surfaceRef = React.useRef<HTMLDivElement>(null);
+  // Hauteur disponible pour la feuille en plein écran, palette déduite.
+  const [fullHeight, setFullHeight] = React.useState(0);
+
+  /*
+   * À l'ouverture, la page est allongée pour remplir l'écran.
+   *
+   * Sans cela, une page au format par défaut laisse une bande vide sous elle :
+   * on ouvre le plein écran et la surface d'écriture n'occupe que les deux
+   * tiers. On ne raccourcit jamais — cela effacerait ce qui est écrit plus bas.
+   */
+  React.useEffect(() => {
+    if (!full) return;
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    const { width, height } = surface.getBoundingClientRect();
+    if (width === 0) return;
+    // La palette occupe le bas : on retire sa hauteur de la place disponible.
+    const palette = surface.querySelector('[role="toolbar"]');
+    const dispo = height - (palette?.getBoundingClientRect().height ?? 0);
+    setFullHeight(Math.round(dispo));
+    const voulu = Math.min(MAX_RATIO, dispo / width);
+    if (voulu > content.ratio + 0.01) onChange({ ...content, ratio: Number(voulu.toFixed(3)) });
+    // Une seule fois, à l'ouverture : reprendre à chaque changement de contenu
+    // rallongerait la page sans fin.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [full]);
 
   // Échap ferme le plein écran, comme partout ailleurs dans l'app.
   React.useEffect(() => {
@@ -122,6 +179,14 @@ export function DrawingBlock({
       strokes={strokeCount}
       penMode={penMode}
       zoom={zoom}
+      shape={shape}
+      selection={selection.length}
+      ruler={ruler}
+      onToggleRuler={() =>
+        setRuler((current) => (current ? null : { y: (content.ratio || 0.75) / 2, angle: 0 }))
+      }
+      onShape={setShape}
+      onDeleteSelection={deleteSelection}
       onResetView={() => {
         setZoom(1);
         setViewKey((k) => k + 1);
@@ -154,6 +219,14 @@ export function DrawingBlock({
       onStrokeCount={setStrokeCount}
       onPenMode={setPenMode}
       onView={setZoom}
+      shape={shape}
+      selection={selection}
+      onSelect={setSelection}
+      ruler={ruler}
+      onRuler={setRuler}
+      // En ligne, la page se montre dans une fenêtre de hauteur raisonnable et
+      // défile en elle-même ; en plein écran, elle occupe la place restante.
+      height={full ? fullHeight : 520}
       className={full ? "rounded-none border-0" : "rounded-xl border border-outline-variant"}
     />
   );
@@ -172,9 +245,12 @@ export function DrawingBlock({
           Page ouverte en plein écran
         </div>
 
-        <div className="fixed inset-0 z-40 flex flex-col bg-surface">
+        <div ref={surfaceRef} className="fixed inset-0 z-40 flex flex-col bg-surface">
+          {/* Pleine largeur, sans marge : la feuille doit occuper l'écran, pas
+              flotter au milieu. Le défilement sert à descendre dans la page,
+              qui s'allonge à mesure qu'on écrit. */}
           <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain">
-            <div className="mx-auto w-full max-w-4xl">{canvas}</div>
+            {canvas}
           </div>
           {palette}
         </div>
@@ -198,8 +274,14 @@ function Palette({
   strokes,
   penMode,
   zoom,
+  shape,
+  selection,
+  ruler,
   full,
   onTool,
+  onToggleRuler,
+  onShape,
+  onDeleteSelection,
   onResetView,
   onInk,
   onSize,
@@ -216,6 +298,9 @@ function Palette({
   strokes: number;
   penMode: boolean;
   zoom: number;
+  shape: Shape;
+  selection: number;
+  ruler: Ruler | null;
   full: boolean;
   onTool: (tool: InkTool) => void;
   onInk: (name: string) => void;
@@ -226,6 +311,9 @@ function Palette({
   onClear: () => void;
   onToggleFull: () => void;
   onResetView: () => void;
+  onShape: (shape: Shape) => void;
+  onToggleRuler: () => void;
+  onDeleteSelection: () => void;
 }) {
   return (
     <div
@@ -248,7 +336,49 @@ function Palette({
           label="Surligneur"
         />
         <Tool active={tool === "eraser"} onClick={() => onTool("eraser")} icon={Eraser} label="Gomme" />
+        <Tool active={tool === "lasso"} onClick={() => onTool("lasso")} icon={Lasso} label="Lasso" />
+        <Tool active={tool === "shape"} onClick={() => onTool("shape")} icon={Shapes} label="Formes" />
+        <Tool
+          active={Boolean(ruler)}
+          onClick={onToggleRuler}
+          icon={RulerIcon}
+          label={ruler ? "Ranger la règle" : "Poser la règle"}
+        />
       </Group>
+
+      {ruler ? (
+        <span
+          className="px-2 m3-label-small tabular-nums text-on-surface-variant"
+          title="Glisse la règle pour la déplacer, saisis-la par un bout pour l'orienter."
+        >
+          {rulerDegrees(ruler)}°
+        </span>
+      ) : null}
+
+      {/* Les réglages de l'outil courant, et rien d'autre : une palette qui
+          montre tout en permanence devient illisible sur un téléphone. */}
+      {tool === "shape" ? (
+        <Group label="Forme">
+          {SHAPES.map((name) => (
+            <Tool
+              key={name}
+              active={shape === name}
+              onClick={() => onShape(name)}
+              icon={SHAPE_ICONS[name].icon}
+              label={SHAPE_ICONS[name].label}
+            />
+          ))}
+        </Group>
+      ) : null}
+
+      {tool === "lasso" && selection > 0 ? (
+        <Group label="Sélection">
+          <span className="px-2 m3-label-small tabular-nums text-on-surface-variant">
+            {selection} trait{selection > 1 ? "s" : ""}
+          </span>
+          <Tool onClick={onDeleteSelection} icon={Trash2} label="Supprimer la sélection" danger />
+        </Group>
+      ) : null}
 
       <Group label="Couleur">
         {INKS.map((entry) => (

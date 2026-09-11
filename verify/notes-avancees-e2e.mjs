@@ -102,12 +102,22 @@ check(!page.url().includes("folder="), "chercher sort du dossier courant", page.
 // --- Filtres par type de bloc ------------------------------------------------
 section("filtres");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
-const avant = await page.locator('a[href^="/notes/"]').count();
 await page.getByRole("button", { name: "Manuscrit" }).click();
 await page.waitForTimeout(900);
 check(page.url().includes("has=drawing"), "le filtre vit dans l'adresse", page.url());
-const manuscrites = await page.locator('a[href^="/notes/"]').count();
-check(manuscrites <= avant, `${manuscrites} note(s) manuscrite(s) sur ${avant}`);
+
+// Comparer au nombre de notes de la racine n'aurait aucun sens : un filtre
+// porte volontairement sur toute l'arborescence. On vérifie plutôt que chaque
+// résultat contient bien ce qu'on a demandé.
+const cartes = page.locator('a[href^="/notes/"]');
+const n = await cartes.count();
+let toutesManuscrites = true;
+for (let i = 0; i < n; i++) {
+  if ((await cartes.nth(i).locator('[title*="pages manuscrites"]').count()) === 0) {
+    toutesManuscrites = false;
+  }
+}
+check(toutesManuscrites, `les ${n} résultats contiennent tous une page manuscrite`);
 
 await page.getByRole("button", { name: "Texte", exact: true }).click();
 await page.waitForTimeout(900);
@@ -184,14 +194,16 @@ await tracer([[0.1, 0.6, 0.5], [0.5, 0.6, 0.5], [0.8, 0.6, 0.5]]);
 await page.waitForTimeout(400);
 check((await canvas.getAttribute("aria-label")).includes("2 trait"), "le surligneur écrit aussi");
 
-// Papier
+// Papier. La classe vit sur la page qui défile, pas sur le canevas : celui-ci
+// ne fait que la taille de la fenêtre, le fond doit défiler avec le contenu.
+const classePage = () =>
+  page.evaluate(() => {
+    const tous = document.querySelectorAll('[data-testid="drawing-canvas"]');
+    return tous[tous.length - 1].parentElement.className;
+  });
 await page.getByRole("button", { name: "Lignes", exact: true }).click();
 await page.waitForTimeout(500);
-check(
-  (await canvas.getAttribute("class")).includes("paper-ruled"),
-  "le papier ligné s'applique",
-  await canvas.getAttribute("class"),
-);
+check((await classePage()).includes("paper-ruled"), "le papier ligné s'applique", await classePage());
 
 // Plein écran
 await page.getByRole("button", { name: "Écrire en plein écran" }).click();
@@ -218,10 +230,7 @@ await page.waitForTimeout(1200);
 await page.reload({ waitUntil: "networkidle" });
 const apres = page.locator('[data-testid="drawing-canvas"]').last();
 check((await apres.getAttribute("aria-label")).includes("2 trait"), "les traits sont enregistrés");
-check(
-  (await apres.getAttribute("class")).includes("paper-ruled"),
-  "le choix de papier aussi",
-);
+check((await classePage()).includes("paper-ruled"), "le choix de papier aussi", await classePage());
 
 // --- Zoom et déplacement à deux doigts ---------------------------------------
 section("zoom");
@@ -314,6 +323,147 @@ check(
   (await page.locator('a[href*="folder="]').filter({ hasText: DOSSIER2 }).count()) === 1,
   "un dossier créé depuis les Notes y apparaît, même vide",
 );
+
+// --- Lasso et formes, à la GoodNotes -----------------------------------------
+section("lasso et formes");
+await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Nouvelle note" }).click();
+await page.waitForURL(/\/notes\/[a-z0-9]+/);
+await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
+await page.waitForSelector('[data-testid="drawing-canvas"]');
+await page.waitForTimeout(600);
+const toile = page.locator('[data-testid="drawing-canvas"]').last();
+
+for (const outil of ["Lasso", "Formes"]) {
+  check((await page.getByRole("button", { name: outil, exact: true }).count()) >= 1, `outil « ${outil} »`);
+}
+
+// Une forme : on trace n'importe comment, elle est redressée au lâcher.
+await page.getByRole("button", { name: "Formes", exact: true }).click();
+for (const forme of ["Ligne", "Rectangle", "Ellipse"]) {
+  check(
+    (await page.getByRole("button", { name: forme, exact: true }).count()) >= 1,
+    `forme « ${forme} » proposée`,
+  );
+}
+await page.getByRole("button", { name: "Rectangle", exact: true }).click();
+await tracer([[0.2, 0.2, 0.5], [0.6, 0.24, 0.5], [0.62, 0.45, 0.5], [0.22, 0.42, 0.5]]);
+await page.waitForTimeout(400);
+check((await toile.getAttribute("aria-label")).includes("1 trait"), "la forme est posée");
+
+// Deux traits libres à côté, pour avoir de quoi sélectionner.
+await page.getByRole("button", { name: "Stylo", exact: true }).click();
+await tracer([[0.1, 0.7, 0.5], [0.2, 0.72, 0.6], [0.3, 0.7, 0.5]]);
+await page.waitForTimeout(300);
+await tracer([[0.7, 0.7, 0.5], [0.8, 0.72, 0.6], [0.9, 0.7, 0.5]]);
+await page.waitForTimeout(400);
+check((await toile.getAttribute("aria-label")).includes("3 trait"), "trois traits sur la page");
+
+// Le lasso entoure le trait de gauche seulement.
+await page.getByRole("button", { name: "Lasso", exact: true }).click();
+await tracer([
+  [0.05, 0.62, 0.5], [0.38, 0.62, 0.5], [0.38, 0.8, 0.5], [0.05, 0.8, 0.5], [0.05, 0.62, 0.5],
+]);
+await page.waitForTimeout(500);
+check(
+  (await page.getByRole("button", { name: "Supprimer la sélection" }).count()) === 1,
+  "le lasso retient quelque chose",
+);
+const compte = await page.locator("text=/^\\d+ traits?$/").first().innerText();
+check(compte.startsWith("1 "), "un seul trait retenu, pas ses voisins", compte);
+
+await page.getByRole("button", { name: "Supprimer la sélection" }).click();
+await page.waitForTimeout(500);
+check((await toile.getAttribute("aria-label")).includes("2 trait"), "la sélection est supprimée");
+check(
+  (await page.getByRole("button", { name: "Supprimer la sélection" }).count()) === 0,
+  "et la palette n'en propose plus",
+);
+
+await page.waitForTimeout(1200);
+await page.reload({ waitUntil: "networkidle" });
+check(
+  (await page.locator('[data-testid="drawing-canvas"]').last().getAttribute("aria-label")).includes("2 trait"),
+  "la suppression est enregistrée",
+);
+
+// --- Règle -------------------------------------------------------------------
+section("règle");
+check(
+  (await page.getByRole("button", { name: "Poser la règle" }).count()) === 1,
+  "la règle se pose depuis la palette",
+);
+await page.getByRole("button", { name: "Poser la règle" }).click();
+await page.waitForTimeout(400);
+check(
+  (await page.getByRole("button", { name: "Ranger la règle" }).count()) === 1,
+  "et se range de la même façon",
+);
+check((await page.locator("text=/^-?\\d+°$/").count()) === 1, "son angle s'affiche");
+
+// Un trait tremblant tracé le long de la règle doit ressortir droit.
+const avantRegle = Number((await toile.getAttribute("aria-label")).match(/(\d+) trait/)[1]);
+await page.getByRole("button", { name: "Stylo", exact: true }).click();
+const milieu = await page.evaluate(() => {
+  const tous = document.querySelectorAll('[data-testid="drawing-canvas"]');
+  const el = tous[tous.length - 1];
+  const r = el.getBoundingClientRect();
+  return r.height / 2 / r.height;
+});
+await tracer([
+  [0.15, milieu + 0.004, 0.5],
+  [0.35, milieu - 0.006, 0.6],
+  [0.55, milieu + 0.005, 0.5],
+  [0.75, milieu - 0.003, 0.4],
+]);
+await page.waitForTimeout(500);
+check(
+  Number((await toile.getAttribute("aria-label")).match(/(\d+) trait/)[1]) === avantRegle + 1,
+  "on écrit toujours au stylo, règle posée",
+);
+
+await page.getByRole("button", { name: "Ranger la règle" }).click();
+await page.waitForTimeout(300);
+check(
+  (await page.locator("text=/^-?\\d+°$/").count()) === 0,
+  "rangée, elle disparaît de la palette",
+);
+
+// --- Le plein écran occupe vraiment l'écran ----------------------------------
+section("plein écran, sans marge");
+await page.getByRole("button", { name: "Écrire en plein écran" }).click();
+await page.waitForTimeout(800);
+const mesures = await page.evaluate(() => {
+  const tous = document.querySelectorAll('[data-testid="drawing-canvas"]');
+  const el = tous[tous.length - 1];
+  const r = el.getBoundingClientRect();
+  const palette = document.querySelector('[role="toolbar"]');
+  return {
+    largeurToile: Math.round(r.width),
+    largeurEcran: window.innerWidth,
+    hauteurToile: Math.round(r.height),
+    dispo: Math.round(window.innerHeight - (palette?.getBoundingClientRect().height ?? 0)),
+    // Le canevas ne doit jamais dépasser ce que le navigateur sait peindre.
+    mpx: Number(((el.width * el.height) / 1e6).toFixed(1)),
+  };
+});
+check(
+  mesures.largeurToile >= mesures.largeurEcran - 2,
+  "la feuille occupe toute la largeur",
+  JSON.stringify(mesures),
+);
+check(
+  mesures.hauteurToile >= mesures.dispo - 4,
+  "et toute la hauteur disponible",
+  JSON.stringify(mesures),
+);
+check(
+  mesures.mpx < 16,
+  `le canevas reste sous la limite de Safari (${mesures.mpx} Mpx)`,
+  JSON.stringify(mesures),
+);
+await page.screenshot({ path: "shots/canvas-plein-ecran.png" });
+await page.keyboard.press("Escape");
 
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();

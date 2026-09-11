@@ -23,7 +23,8 @@ import { GroupDialog } from "./group-dialog";
 import { NewDeckButton } from "./new-deck-button";
 import { NewFolderButton } from "./new-folder-button";
 import { FolderSettings } from "./folder-settings";
-import { DraggableDeck, DropTarget } from "./drag-drop";
+import { DropZone } from "@/components/drag-move";
+import { DeckDragHandle } from "./deck-drag-handle";
 
 // Vue commune à la racine et à un dossier : la seule différence est le
 // contenu passé en paramètre, donc les deux pages partagent tout ce fichier.
@@ -138,7 +139,7 @@ export function FolderBrowser({
               </h2>
               <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {folders.map((folder) => (
-                  <DropTarget key={folder.id} folderId={folder.id}>
+                  <DropZone key={folder.id} folderId={folder.id}>
                     <Link
                       href={`/folders/${folder.id}`}
                       className="group flex items-center gap-3 rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1 transition-all hover:-translate-y-0.5 hover:border-outline hover:elevation-2"
@@ -166,7 +167,7 @@ export function FolderBrowser({
                       </span>
                       <ChevronRight className="size-4 shrink-0 text-on-surface-variant transition-transform group-hover:translate-x-0.5" />
                     </Link>
-                  </DropTarget>
+                  </DropZone>
                 ))}
               </ul>
             </section>
@@ -186,7 +187,13 @@ export function FolderBrowser({
                   const color = deckColor(deck.color);
 
                   return (
-                    <DraggableDeck key={deck.id} deckId={deck.id}>
+                    <li key={deck.id} className="relative">
+                      {/* La poignée est hors du lien : un lien ne peut pas
+                          contenir de bouton, et le glissement ne doit pas
+                          déclencher la navigation. */}
+                      <div className="absolute right-2 top-2 z-10">
+                        <DeckDragHandle deckId={deck.id} title={toPlainText(deck.title)} />
+                      </div>
                       <Link
                         href={`/decks/${deck.id}`}
                         className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-outline-variant bg-surface-container elevation-1 transition-all duration-200 hover:-translate-y-1 hover:border-outline hover:elevation-2 sm:min-h-52"
@@ -240,7 +247,7 @@ export function FolderBrowser({
                           </div>
                         </div>
                       </Link>
-                    </DraggableDeck>
+                    </li>
                   );
                 })}
               </ul>
@@ -305,7 +312,7 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
   return (
     <nav aria-label="Fil d'Ariane" className="-mt-1">
       <ol className="flex flex-wrap items-center gap-1 m3-body-medium text-on-surface-variant">
-        <DropTarget folderId={null} className="!rounded-lg">
+        <DropZone folderId={null} className="!rounded-lg">
           <Link
             href="/"
             className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 transition-colors hover:text-on-surface"
@@ -313,7 +320,7 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
             <Home className="size-3.5" />
             Accueil
           </Link>
-        </DropTarget>
+        </DropZone>
         {trail.map((folder, index) => {
           const last = index === trail.length - 1;
           return (
@@ -326,14 +333,14 @@ function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
                   {folder.name}
                 </span>
               ) : (
-                <DropTarget folderId={folder.id} as="div" className="!rounded-lg">
+                <DropZone folderId={folder.id} as="div" className="!rounded-lg">
                   <Link
                     href={`/folders/${folder.id}`}
                     className="flex min-h-11 items-center rounded-lg px-2 transition-colors hover:text-on-surface"
                   >
                     {folder.name}
                   </Link>
-                </DropTarget>
+                </DropZone>
               )}
             </li>
           );

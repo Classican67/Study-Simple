@@ -1,12 +1,23 @@
 # Image de production, destinée au Xubuntu qui fait tourner l'app.
 FROM node:22-bookworm-slim
 
-# openssl        : requis par le moteur Prisma.
-# ca-certificates : requis pour toute connexion TLS sortante.
-# sqlite3         : utilisé par scripts/backup.sh, qui appelle « .backup »
-#                   pour copier la base à chaud sans risque d'incohérence.
+# openssl           : requis par le moteur Prisma.
+# ca-certificates    : requis pour toute connexion TLS sortante.
+# sqlite3            : utilisé par scripts/backup.sh, qui appelle « .backup »
+#                      pour copier la base à chaud sans risque d'incohérence.
+# libreoffice-writer : convertit les documents Word en PDF à l'import, pour
+#                      pouvoir les annoter. C'est le seul convertisseur libre
+#                      dont la fidélité tient la route — il n'existe aucun
+#                      équivalent en JavaScript pur. Il pèse lourd (~500 Mo) :
+#                      on installe le seul module Writer, pas la suite entière,
+#                      et sans les recommandations (qui tireraient Java et des
+#                      polices supplémentaires).
+# fonts-liberation   : les substituts métriques d'Arial, Times et Courier.
+#                      Sans elles, un document Word sort avec une mise en page
+#                      décalée, les polices Microsoft étant absentes.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates sqlite3 \
+    && apt-get install -y --no-install-recommends \
+        openssl ca-certificates sqlite3 libreoffice-writer fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

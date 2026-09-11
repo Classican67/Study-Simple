@@ -3,7 +3,19 @@
 import * as React from "react";
 import { getStroke } from "perfect-freehand";
 
+import {
+  boundsOf,
+  snapShape,
+  snapStrokeToRuler,
+  strokeInLasso,
+  translateStroke,
+  unionBounds,
+  type Point,
+  type Ruler,
+  type Shape,
+} from "@/lib/ink";
 import { DEFAULT_RATIO, MAX_RATIO, type DrawingContent, type Paper, type Stroke, type Tool } from "@/lib/notes";
+import { PdfPage } from "@/components/note/pdf-page";
 import { cn } from "@/lib/utils";
 
 /**
@@ -26,7 +38,19 @@ import { cn } from "@/lib/utils";
  * la même page se relit sur un téléphone comme sur un iPad.
  */
 
-export type InkTool = Tool | "eraser";
+export type InkTool = Tool | "eraser" | "lasso" | "shape";
+
+/** Largeur de la règle, en proportion de la page. */
+const RULER_THICKNESS = 0.055;
+
+/** Le point tombe-t-il sur la règle ? */
+function nearRuler(point: number[], ruler: Ruler): boolean {
+  const dx = Math.cos(ruler.angle);
+  const dy = Math.sin(ruler.angle);
+  // Distance perpendiculaire au bord d'appui, du bon côté seulement.
+  const profondeur = -(point[0] - 0.5) * dy + (point[1] - ruler.y) * dx;
+  return profondeur >= -0.006 && profondeur <= RULER_THICKNESS;
+}
 
 const OPTIONS = {
   pen: { thinning: 0.62, smoothing: 0.5, streamline: 0.42 },
@@ -39,23 +63,33 @@ export function InkCanvas({
   content,
   onChange,
   tool,
+  shape = "rect",
   color,
   size,
   className,
   /** En plein écran, la page s'allonge quand on écrit près du bas. */
   growable = true,
+  /** Hauteur visible. Sans elle, la fenêtre prend la hauteur de la page. */
+  height,
   readOnly = false,
   onStrokeCount,
   onPenMode,
   onView,
+  selection = [],
+  onSelect,
+  ruler = null,
+  onRuler,
 }: {
   content: DrawingContent;
   onChange: (next: DrawingContent) => void;
   tool: InkTool;
+  /** Forme tracée quand l'outil est « shape ». */
+  shape?: Shape;
   color: string;
   size: number;
   className?: string;
   growable?: boolean;
+  height?: number;
   readOnly?: boolean;
   onStrokeCount?: (count: number) => void;
   /** Prévient que le rejet de la paume s'est enclenché. */
@@ -72,8 +106,31 @@ export function InkCanvas({
    * façon du contenu.
    */
   onView?: (scale: number) => void;
+  /**
+   * Traits retenus par le lasso, par leur rang.
+   *
+   * La sélection appartient au parent : c'est lui qui propose de la supprimer,
+   * et supprimer revient à réécrire la liste des traits, ce qu'il fait déjà
+   * pour l'annulation. La garder ici obligerait à une interface impérative,
+   * donc à muter une référence pendant le rendu.
+   */
+  selection?: number[];
+  onSelect?: (indices: number[]) => void;
+  /**
+   * Règle posée sur la page, ou absente.
+   *
+   * Ce n'est pas un outil au sens des autres : on continue d'écrire au stylo,
+   * et les traits qui passent près d'elle se redressent — comme une vraie règle
+   * sur laquelle on appuie le crayon.
+   */
+  ruler?: Ruler | null;
+  onRuler?: (ruler: Ruler) => void;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  // Largeur mesurée de la page, en pixels. Sert à convertir les coordonnées,
+  // qui sont enregistrées en proportion de cette largeur.
+  const [width, setWidth] = React.useState(0);
 
   // Le trait en cours ne vit pas dans l'état : l'y mettre déclencherait un rendu
   // React par point, soit des centaines par seconde.
@@ -98,12 +155,28 @@ export function InkCanvas({
    * Le calcul du tracé reste donc identique, à n'importe quel niveau de zoom.
    */
   const [view, setView] = React.useState({ scale: 1, x: 0, y: 0 });
+
+  /*
+   * Lasso : le tracé en cours, puis les traits retenus.
+   *
+   * Les traits retenus sont désignés par leur **rang** et non par référence :
+   * ils sont remplacés à chaque déplacement, une référence deviendrait périmée.
+   */
+  const lasso = React.useRef<Point[] | null>(null);
+  // Manipulation de la règle : « move » la translate, « rotate » l'oriente.
+  const rulerDrag = React.useRef<"move" | "rotate" | null>(null);
+  // Déplacement d'une sélection : point de départ, en coordonnées de page.
+  const moving = React.useRef<{ x: number; y: number } | null>(null);
   // Doigts posés. Deux ou plus : on manipule la vue, on ne trace pas.
   const touches = React.useRef(new Map<number, { x: number; y: number }>());
   const gesture = React.useRef<{ distance: number; x: number; y: number; scale: number } | null>(null);
 
   const ratio = content.ratio || DEFAULT_RATIO;
   const paper = content.paper ?? "blank";
+  const backdrop = content.backdrop ?? null;
+  // Hauteur totale de la page, et hauteur de la fenêtre qui la montre.
+  const pageHeight = Math.round(width * ratio);
+  const viewport = height ?? Math.min(pageHeight, 900);
 
   const bump = React.useCallback(() => {
     setVersion((v) => v + 1);
@@ -120,19 +193,26 @@ export function InkCanvas({
   /** Redessine tout. Appelé au montage, au redimensionnement, à chaque trait. */
   const repaint = React.useCallback(() => {
     const canvas = canvasRef.current;
+    const scroller = scrollRef.current;
     const context = canvas?.getContext("2d");
-    if (!canvas || !context) return;
+    if (!canvas || !context || !scroller) return;
 
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    // Un canevas flou est le premier reproche fait à une application d'écriture.
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    if (w === 0 || h === 0) return;
+
+    // La densité est plafonnée, et le canevas ne fait jamais que la taille de
+    // la fenêtre : on reste loin des limites de Safari.
     const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
-      canvas.width = Math.round(width * dpr);
-      canvas.height = Math.round(height * dpr);
+    if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
     }
+    const top = scroller.scrollTop;
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, width, height);
+    context.clearRect(0, 0, w, h);
+    // Décalage du défilement : seul ce qui est visible est dessiné.
+    context.translate(0, -top);
 
     const styles = getComputedStyle(canvas);
     const colorOf = (name: string) => styles.getPropertyValue(`--ink-${name}`).trim() || styles.color;
@@ -141,9 +221,69 @@ export function InkCanvas({
     // Les surligneurs passent sous l'encre, comme sur le papier : on surligne un
     // texte déjà écrit, et le trait ne doit pas le voiler.
     for (const stroke of [...all].sort((a, b) => rank(a) - rank(b))) {
-      paintStroke(context, stroke, width, colorOf(stroke.color));
+      // Hors de la fenêtre : rien à peindre. C'est ce qui permet à une page de
+      // plusieurs milliers de traits de rester fluide.
+      const b = boundsOf(stroke.points);
+      if (b && (b.maxY * w < top - 0.05 * w || b.minY * w > top + h + 0.05 * w)) continue;
+      paintStroke(context, stroke, w, colorOf(stroke.color));
     }
-  }, []);
+
+    // La règle, par-dessus tout le reste : c'est un objet posé sur la page.
+    if (ruler) {
+      const cx = w / 2;
+      const cy = ruler.y * w;
+      const demi = w;
+      const epaisseur = RULER_THICKNESS * w;
+      context.save();
+      context.translate(cx, cy);
+      context.rotate(ruler.angle);
+      context.fillStyle = styles.getPropertyValue("--color-primary").trim() || "#7c3aed";
+      context.globalAlpha = 0.12;
+      context.fillRect(-demi, 0, demi * 2, epaisseur);
+      context.globalAlpha = 0.85;
+      context.fillRect(-demi, 0, demi * 2, 1.5);
+      context.globalAlpha = 0.5;
+      for (let x = -demi; x <= demi; x += w / 20) {
+        const haut = Math.round(x / (w / 20)) % 5 === 0 ? epaisseur * 0.5 : epaisseur * 0.28;
+        context.fillRect(x, 1.5, 1, haut);
+      }
+      context.restore();
+    }
+
+    // Le lasso en cours de tracé : pointillés, comme partout.
+    const trace = lasso.current;
+    if (trace && trace.length > 1) {
+      context.save();
+      context.setLineDash([6, 5]);
+      context.lineWidth = 1.5;
+      context.strokeStyle = styles.getPropertyValue("--color-primary").trim() || "#7c3aed";
+      context.beginPath();
+      context.moveTo(trace[0].x * w, trace[0].y * w);
+      for (const point of trace.slice(1)) context.lineTo(point.x * w, point.y * w);
+      context.closePath();
+      context.stroke();
+      context.restore();
+    }
+
+    // Le cadre de la sélection, pour montrer ce qu'on s'apprête à déplacer.
+    const retenus = selection.map((i) => strokes.current[i]?.points).filter(Boolean);
+    const cadre = unionBounds(retenus as number[][]);
+    if (cadre) {
+      const marge = 0.012;
+      context.save();
+      context.setLineDash([5, 4]);
+      context.lineWidth = 1.5;
+      context.strokeStyle = styles.getPropertyValue("--color-primary").trim() || "#7c3aed";
+      context.strokeRect(
+        (cadre.minX - marge) * w,
+        (cadre.minY - marge) * w,
+        (cadre.maxX - cadre.minX + marge * 2) * w,
+        (cadre.maxY - cadre.minY + marge * 2) * w,
+      );
+      context.restore();
+    }
+    // `selection` et `ruler` sont des dépendances réelles : elles se dessinent.
+  }, [selection, ruler]);
 
   React.useEffect(() => {
     repaint();
@@ -154,8 +294,12 @@ export function InkCanvas({
   React.useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const observer = new ResizeObserver(() => repaint());
+    const observer = new ResizeObserver(() => {
+      setWidth(canvas.clientWidth);
+      repaint();
+    });
     observer.observe(canvas);
+    setWidth(canvas.clientWidth);
     return () => observer.disconnect();
   }, [repaint]);
 
@@ -167,7 +311,10 @@ export function InkCanvas({
   }, [repaint]);
 
   function commit(nextRatio = ratio) {
-    onChange({ ratio: nextRatio, paper, strokes: strokes.current });
+    // Le contenu est **étendu**, jamais reconstruit champ par champ : une
+    // reconstruction oubliait le document de fond, et le premier trait
+    // enregistré effaçait le PDF qu'on venait d'annoter.
+    onChange({ ...content, ratio: nextRatio, strokes: strokes.current });
   }
 
   function accepts(event: React.PointerEvent): boolean {
@@ -179,8 +326,11 @@ export function InkCanvas({
   }
 
   function pointOf(event: PointerEvent | React.PointerEvent, rect: DOMRect): number[] {
+    // Le canevas ne montre qu'une fenêtre de la page : la position dans la
+    // page ajoute le défilement.
+    const top = scrollRef.current?.scrollTop ?? 0;
     const x = (event.clientX - rect.left) / rect.width;
-    const y = (event.clientY - rect.top) / rect.width;
+    const y = (event.clientY - rect.top + top) / rect.width;
     // Une souris annonce une pression nulle : on la traite comme un appui moyen,
     // sinon son trait serait invisible.
     const pressure = event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0.5;
@@ -225,7 +375,55 @@ export function InkCanvas({
       eraseAt(pointOf(event, rect));
       return;
     }
-    drawing.current = { color, size, tool, points: pointOf(event, rect) };
+
+    const point = pointOf(event, rect);
+
+    /*
+     * La règle se saisit à la main, pas au stylet.
+     *
+     * C'est la répartition d'une vraie règle : le crayon écrit le long du
+     * bord, la main la déplace. Sans cette distinction, poser la pointe sur la
+     * règle pour tracer la ferait glisser — le contraire de ce qu'on veut.
+     */
+    if (ruler && onRuler && event.pointerType !== "pen" && nearRuler(point, ruler)) {
+      // Le tiers extérieur oriente, le centre translate — comme on ferait
+      // pivoter une vraie règle en la tenant par un bout.
+      const long = Math.abs((point[0] - 0.5) * Math.cos(ruler.angle) + (point[1] - ruler.y) * Math.sin(ruler.angle));
+      rulerDrag.current = long > 0.22 ? "rotate" : "move";
+      return;
+    }
+
+    if (tool === "lasso") {
+      // Repartir d'une sélection existante : si l'on repose le doigt dedans,
+      // c'est pour la déplacer, pas pour en tracer une autre.
+      const retenus = selection.map((i) => strokes.current[i]?.points).filter(Boolean);
+      const cadre = unionBounds(retenus as number[][]);
+      const marge = 0.012;
+      if (
+        cadre &&
+        point[0] >= cadre.minX - marge &&
+        point[0] <= cadre.maxX + marge &&
+        point[1] >= cadre.minY - marge &&
+        point[1] <= cadre.maxY + marge
+      ) {
+        moving.current = { x: point[0], y: point[1] };
+        return;
+      }
+
+      onSelect?.([]);
+      lasso.current = [{ x: point[0], y: point[1] }];
+      setVersion((v) => v + 1);
+      return;
+    }
+
+    // Le stylo, le surligneur et les formes tracent tous de la même façon ;
+    // seule la fin du geste diffère.
+    drawing.current = {
+      color,
+      size,
+      tool: tool === "shape" ? "pen" : tool,
+      points: point,
+    };
     setVersion((v) => v + 1);
   }
 
@@ -254,10 +452,45 @@ export function InkCanvas({
     }
 
     const rect = event.currentTarget.getBoundingClientRect();
+    if (rulerDrag.current && ruler && onRuler) {
+      if (event.buttons === 0) return;
+      const point = pointOf(event, rect);
+      if (rulerDrag.current === "move") {
+        onRuler({ ...ruler, y: Math.max(0, Math.min(ratio, point[1])) });
+      } else {
+        onRuler({ ...ruler, angle: Math.atan2(point[1] - ruler.y, point[0] - 0.5) });
+      }
+      return;
+    }
+
     if (tool === "eraser") {
       if (event.buttons > 0 && accepts(event)) eraseAt(pointOf(event, rect));
       return;
     }
+
+    if (tool === "lasso") {
+      if (event.buttons === 0) return;
+      const point = pointOf(event, rect);
+
+      if (moving.current) {
+        const dx = point[0] - moving.current.x;
+        const dy = point[1] - moving.current.y;
+        const bouge = new Set(selection);
+        strokes.current = strokes.current.map((stroke, i) =>
+          bouge.has(i) ? { ...stroke, points: translateStroke(stroke.points, dx, dy) } : stroke,
+        );
+        moving.current = { x: point[0], y: point[1] };
+        repaint();
+        return;
+      }
+
+      if (lasso.current) {
+        lasso.current.push({ x: point[0], y: point[1] });
+        repaint();
+      }
+      return;
+    }
+
     if (!drawing.current) return;
 
     const events =
@@ -271,9 +504,36 @@ export function InkCanvas({
   }
 
   function onPointerUp(event?: React.PointerEvent<HTMLCanvasElement>) {
+    if (rulerDrag.current) {
+      rulerDrag.current = null;
+      return;
+    }
+
     if (event?.pointerType === "touch") {
       touches.current.delete(event.pointerId);
       if (touches.current.size < 2) gesture.current = null;
+    }
+
+    // Fin d'un déplacement de sélection : on enregistre la nouvelle position.
+    if (moving.current) {
+      moving.current = null;
+      commit();
+      return;
+    }
+
+    // Fin d'un tracé de lasso : on retient ce qu'il entoure.
+    if (lasso.current) {
+      const polygone = lasso.current;
+      lasso.current = null;
+      onSelect?.(
+        polygone.length >= 3
+          ? strokes.current
+              .map((stroke, i) => (strokeInLasso(stroke.points, polygone) ? i : -1))
+              .filter((i) => i >= 0)
+          : [],
+      );
+      setVersion((v) => v + 1);
+      return;
     }
 
     const trait = drawing.current;
@@ -287,7 +547,15 @@ export function InkCanvas({
       return;
     }
 
-    strokes.current = [...strokes.current, trait];
+    // Une forme est redressée au lâcher : l'outil est choisi avant de tracer,
+    // on ne devine pas ce que le gribouillis voulait dire.
+    const redresse =
+      ruler && (tool === "pen" || tool === "highlighter")
+        ? { ...trait, points: snapStrokeToRuler(trait.points, ruler) }
+        : trait;
+    const final =
+      tool === "shape" ? { ...trait, points: snapShape(trait.points, shape) } : redresse;
+    strokes.current = [...strokes.current, final];
     bump();
 
     /*
@@ -295,7 +563,7 @@ export function InkCanvas({
      * déroule. Sans cela il faudrait décider de la hauteur avant d'écrire —
      * exactement ce qu'on ne sait jamais.
      */
-    const bas = maxY(trait);
+    const bas = maxY(final);
     const nouveauRatio = growable && bas > ratio - 0.12 ? Math.min(MAX_RATIO, bas + 0.45) : ratio;
     commit(nouveauRatio);
   }
@@ -318,32 +586,68 @@ export function InkCanvas({
   }
 
   return (
-    <canvas
-      ref={canvasRef}
-      data-testid="drawing-canvas"
-      data-pen-mode={penMode ? "true" : "false"}
-      role="img"
-      aria-label={`Page manuscrite, ${count} trait${count > 1 ? "s" : ""}`}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onPointerLeave={onPointerUp}
-      className={cn(
-        "w-full bg-surface-lowest text-on-surface",
-        paperClass(paper),
-        !readOnly && (tool === "eraser" ? "cursor-cell" : "cursor-crosshair"),
-        className,
-      )}
-      style={{
-        aspectRatio: `1 / ${ratio}`,
-        transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
-        transformOrigin: "center top",
-        // Sans cela, le navigateur applique sa propre inertie au geste et la
-        // page saute pendant qu'on pince.
-        touchAction: "none",
-      }}
-    />
+    /*
+     * Canevas **fenêtré**.
+     *
+     * Une page qui s'allonge atteint vite plusieurs milliers de pixels. Un
+     * canevas de cette taille dépasse la limite de Safari sur iPad — 16,7 Mpx
+     * et 4096 px de côté — et cesse alors de peindre quoi que ce soit : mesuré
+     * à 28 656 px de haut et 68 Mpx pour une page de douze écrans.
+     *
+     * Le canevas fait donc la taille de la **fenêtre**, il colle en haut du
+     * conteneur qui défile, et le dessin est décalé du défilement. La page
+     * peut s'allonger autant qu'on veut, le canevas garde la même taille — et
+     * redessiner ne coûte plus que ce qui est visible.
+     *
+     * Le fond de page vit sur le conteneur, pas sur le canevas : il doit
+     * défiler avec le contenu, et il n'a pas de limite de taille.
+     */
+    <div
+      ref={scrollRef}
+      onScroll={() => repaint()}
+      className={cn("scroll-slim relative overflow-y-auto overscroll-contain", className)}
+      style={{ height: viewport }}
+    >
+      <div
+        className={cn("relative w-full bg-surface-lowest", backdrop ? null : paperClass(paper))}
+        style={{ height: `${pageHeight}px` }}
+      >
+        {/* Le document importé, sous les annotations. Il défile avec la page,
+            et le fond de cahier s'efface : on n'annote pas un document sur du
+            papier quadrillé. */}
+        {backdrop ? (
+          <PdfPage
+            file={backdrop.file}
+            page={backdrop.page}
+            className="pointer-events-none absolute inset-0"
+          />
+        ) : null}
+        <canvas
+          ref={canvasRef}
+          data-testid="drawing-canvas"
+          data-pen-mode={penMode ? "true" : "false"}
+          role="img"
+          aria-label={`Page manuscrite, ${count} trait${count > 1 ? "s" : ""}`}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onPointerCancel={onPointerUp}
+          onPointerLeave={onPointerUp}
+          className={cn(
+            "sticky top-0 block w-full text-on-surface",
+            !readOnly && (tool === "eraser" ? "cursor-cell" : "cursor-crosshair"),
+          )}
+          style={{
+            height: viewport,
+            transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+            transformOrigin: "center top",
+            // Sans cela, le navigateur applique sa propre inertie au geste et
+            // la page saute pendant qu'on pince.
+            touchAction: "none",
+          }}
+        />
+      </div>
+    </div>
   );
 }
 

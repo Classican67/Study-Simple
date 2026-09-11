@@ -32,6 +32,12 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   et persistance de tout cela
 - `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
   par mots-clés et filtres de contenu, page manuscrite en plein écran
+- `node document-e2e.mjs` — import d'un document à annoter : le PDF devient
+  une page manuscrite par page, l'annotation ne l'efface pas, et un format
+  inconnu est refusé proprement
+- `node glisser-e2e.mjs` — glisser une note ou un paquet dans un dossier, en
+  **Pointer Events tactiles** : le glisser-déposer natif du navigateur ne
+  fonctionne pas au toucher, c'est une limite de l'API et non un oubli
 - `node copies-e2e.mjs` — regroupement de cartes : la copie et l'originale
   restent indépendantes dans les deux sens, et supprimer l'une ne prive jamais
   l'autre de son image
@@ -79,6 +85,10 @@ couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`.
   `flex-1` ne borne rien et le débordement revient. Et une hauteur fixe en
   `clamp()` ignore par construction ce qui l'entoure — c'est au conteneur
   d'être borné et à l'élément d'absorber la place restante.
+- **Navigateur de vérification trop ancien.** `verify/` installe Playwright en
+  version **courante**, pas figée : pdf.js s'appuie sur des fonctions arrivées
+  dans Chrome 140, et un Chromium plus ancien échoue sur « toHex is not a
+  function ». L'erreur accuse l'application alors qu'elle vient de l'outil.
 - **Isolation des essais.** La base de vérification accumule ce que les essais
   précédents y ont laissé. Un test qui rouvre « la première note » ou cherche
   un texte fixe finit par viser au hasard et accuser l'application à tort.
