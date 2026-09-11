@@ -4,6 +4,7 @@ import * as React from "react";
 import { ChevronDown, ChevronUp, Loader2, Maximize2, PenLine, Table2, Trash2, Type, X } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
+import { ExportPdf } from "@/components/note/export-pdf";
 import { ImportDocument } from "@/components/note/import-document";
 import { DrawingBlock } from "@/components/note/drawing-block";
 import { TableBlock } from "@/components/note/table-block";
@@ -137,6 +138,10 @@ export function NoteEditor({
         ))}
         {/* Un document devient une page annotable par page : c'est le geste de
             l'étudiant qui reprend le polycopié du cours. */}
+        <ExportPdf
+          noteId={noteId}
+          disabled={!blocks.some((b) => b.kind === "drawing")}
+        />
         <ImportDocument
           noteId={noteId}
           onError={setError}
