@@ -187,6 +187,35 @@ check(
   `HTTP ${(await page.request.get(`${BASE}/api/uploads/${fichier}`)).status()}`,
 );
 
+// --- 7. Un regroupement qui ne trouve rien ne laisse pas de paquet fantôme --
+section("échec sans dégât");
+const avantPaquets = await (async () => {
+  await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+  return page.locator('a[href^="/decks/"]').count();
+})();
+
+await page.getByRole("button", { name: "Regrouper" }).click();
+await page.waitForSelector('[role="dialog"]');
+await page.waitForTimeout(1000);
+// Plus aucune carte ne porte d'image : le filtre ne doit rien trouver.
+await page.getByLabel("Titre du nouveau paquet").fill(`Fantôme ${Date.now()}`);
+const annonce = await page.locator('[aria-live="polite"]').first().innerText();
+const bouton = page.getByRole("button", { name: "Regrouper" }).last();
+
+if (annonce.includes("Aucune carte")) {
+  check(await bouton.isDisabled(), "sans carte correspondante, le bouton est inactif");
+} else {
+  await bouton.click();
+  await page.waitForTimeout(2000);
+}
+await page.keyboard.press("Escape");
+await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+check(
+  (await page.locator('a[href^="/decks/"]').count()) === avantPaquets,
+  "aucun paquet vide n'est laissé derrière",
+  `${avantPaquets} → ${await page.locator('a[href^="/decks/"]').count()}`,
+);
+
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();
 process.exit(ko === 0 ? 0 : 1);

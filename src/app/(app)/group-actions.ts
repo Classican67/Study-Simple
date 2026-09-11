@@ -68,41 +68,37 @@ export async function groupCards(input: {
   });
   if (sources.length === 0) return { ok: false, error: "Aucun paquet source valide." };
 
-  // --- Paquet cible ---------------------------------------------------------
-  let targetId: string;
-  if (input.targetDeckId) {
-    const target = await prisma.deck.findFirst({
-      where: { id: input.targetDeckId, ownerId: user.id },
-      select: { id: true },
-    });
-    if (!target) return { ok: false, error: "Paquet de destination introuvable." };
-    targetId = target.id;
-  } else {
-    const parsed = deckSchema.safeParse({
-      title: input.newDeckTitle ?? "",
-      description: "",
-      color: "amber",
-    });
-    if (!parsed.success) {
-      return { ok: false, error: parsed.error.issues[0]?.message ?? "Titre invalide." };
-    }
-    const created = await prisma.deck.create({
-      data: {
-        ownerId: user.id,
-        title: parsed.data.title,
-        description: "",
-        color: parsed.data.color,
-        folderId: input.folderId ?? null,
-      },
-      select: { id: true },
-    });
-    targetId = created.id;
+  /*
+   * On lit les cartes AVANT de toucher à la destination.
+   *
+   * L'ordre inverse laissait un paquet vide derrière lui dès que la suite
+   * échouait — et c'est arrivé, sur un client Prisma périmé : l'utilisateur
+   * s'est retrouvé avec un « Figures à réviser » fantôme. Rien n'est créé tant
+   * qu'on ne sait pas qu'il y a quelque chose à copier.
+   */
+  const existingTarget = input.targetDeckId
+    ? await prisma.deck.findFirst({
+        where: { id: input.targetDeckId, ownerId: user.id },
+        select: { id: true },
+      })
+    : null;
+  if (input.targetDeckId && !existingTarget) {
+    return { ok: false, error: "Paquet de destination introuvable." };
   }
 
-  // Se reprendre soi-même n'aurait aucun sens et ferait des doublons en boucle.
-  const sourceIds = sources.map((d) => d.id).filter((id) => id !== targetId);
+  // Se copier soi-même n'aurait aucun sens et ferait des doublons en boucle.
+  const sourceIds = sources.map((d) => d.id).filter((id) => id !== existingTarget?.id);
   if (sourceIds.length === 0) {
     return { ok: false, error: "Le paquet de destination ne peut pas être sa propre source." };
+  }
+
+  // Le titre est validé maintenant, lui aussi : mieux vaut le refuser avant
+  // d'avoir lu des centaines de cartes pour rien.
+  const parsedTitle = existingTarget
+    ? null
+    : deckSchema.safeParse({ title: input.newDeckTitle ?? "", description: "", color: "amber" });
+  if (parsedTitle && !parsedTitle.success) {
+    return { ok: false, error: parsedTitle.error.issues[0]?.message ?? "Titre invalide." };
   }
 
   const cards = await prisma.card.findMany({
@@ -123,6 +119,22 @@ export async function groupCards(input: {
     },
   });
   if (cards.length === 0) return { ok: false, error: "Aucune carte ne correspond." };
+
+  // Il y a de quoi copier : on peut créer la destination.
+  const targetId =
+    existingTarget?.id ??
+    (
+      await prisma.deck.create({
+        data: {
+          ownerId: user.id,
+          title: parsedTitle!.data.title,
+          description: "",
+          color: parsedTitle!.data.color,
+          folderId: input.folderId ?? null,
+        },
+        select: { id: true },
+      })
+    ).id;
 
   // Ce que le paquet cible contient déjà, par origine : relancer l'opération
   // après avoir ajouté des cartes ne doit pas créer de doublons.

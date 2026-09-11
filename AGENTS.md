@@ -75,6 +75,13 @@ couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`.
   `flex-1` ne borne rien et le débordement revient. Et une hauteur fixe en
   `clamp()` ignore par construction ce qui l'entoure — c'est au conteneur
   d'être borné et à l'élément d'absorber la place restante.
+- **Client Prisma périmé.** Modifier `schema.prisma` ne suffit pas : le client
+  généré vit dans `node_modules/.prisma/client`, et un serveur déjà lancé garde
+  l'ancien en mémoire. L'échec arrive à l'exécution, avec un message obscur
+  (« Unknown field … for select statement »), sans que la compilation ni les
+  tests n'aient rien vu. **Après toute migration, redémarrer le serveur.**
+  `npm run dev` et `npm run build` régénèrent désormais le client avant de
+  démarrer, et `tests/prisma-client.test.ts` compare le schéma au client.
 - **Fichiers partagés.** Le regroupement copie les cartes, et la copie reprend
   le **nom de fichier** de l'image de l'originale. Effacer ce fichier en
   supprimant l'une priverait l'autre de son image. Toute suppression d'image
