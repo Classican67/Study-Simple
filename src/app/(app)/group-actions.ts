@@ -35,11 +35,19 @@ export async function countGroupable(
 }
 
 /**
- * Réunit dans un paquet les cartes de plusieurs autres, sous forme d'alias.
+ * Réunit dans un paquet les cartes de plusieurs autres, en les **dupliquant**.
  *
  * Le cas d'usage : rassembler toutes les figures anatomiques éparpillées dans
- * les paquets d'un cours pour les réviser ensemble, sans les déplacer ni les
- * dupliquer à la main.
+ * les paquets d'un cours pour les réviser ensemble.
+ *
+ * Ce sont de vraies copies, pas des références : on les modifie et on les
+ * supprime librement, le paquet d'origine n'en sait rien. Seule la provenance
+ * est notée, pour afficher d'où vient la carte et pour ne pas la reprendre
+ * deux fois si l'on relance le regroupement.
+ *
+ * Un seul lien subsiste entre les deux, et il est invisible : le **nom de
+ * fichier de l'image**, partagé. C'est pourquoi un fichier n'est effacé du
+ * disque que lorsque plus aucune carte ne le référence.
  *
  * Le paquet cible peut être un paquet existant ou un paquet à créer. Les
  * cartes déjà présentes — même originale déjà reprise — sont ignorées : on
@@ -109,9 +117,9 @@ export async function groupCards(input: {
       definition: true,
       imagePath: true,
       searchText: true,
-      // Reprendre un alias reviendrait à pointer sur une reprise : on remonte
-      // toujours à l'originale, ce qui garde la propagation à un seul niveau.
-      aliasOfId: true,
+      // Copier une copie ferait pointer la provenance sur une copie : on
+      // remonte toujours à l'originale, pour que « déjà repris » reste juste.
+      sourceCardId: true,
     },
   });
   if (cards.length === 0) return { ok: false, error: "Aucune carte ne correspond." };
@@ -120,9 +128,9 @@ export async function groupCards(input: {
   // après avoir ajouté des cartes ne doit pas créer de doublons.
   const existing = await prisma.card.findMany({
     where: { deckId: targetId },
-    select: { id: true, aliasOfId: true },
+    select: { id: true, sourceCardId: true },
   });
-  const already = new Set(existing.map((c) => c.aliasOfId ?? c.id));
+  const already = new Set(existing.map((c) => c.sourceCardId ?? c.id));
 
   const last = await prisma.card.findFirst({
     where: { deckId: targetId },
@@ -132,7 +140,7 @@ export async function groupCards(input: {
   let position = (last?.position ?? -1) + 1;
 
   const toCreate = cards
-    .map((card) => ({ card, origin: card.aliasOfId ?? card.id }))
+    .map((card) => ({ card, origin: card.sourceCardId ?? card.id }))
     .filter(({ origin }) => !already.has(origin))
     // Deux paquets sources peuvent contenir un alias de la même originale.
     .filter(({ origin }, index, list) => list.findIndex((x) => x.origin === origin) === index);
@@ -145,7 +153,7 @@ export async function groupCards(input: {
         definition: card.definition,
         imagePath: card.imagePath,
         searchText: card.searchText,
-        aliasOfId: origin,
+        sourceCardId: origin,
         position: position++,
       })),
     });

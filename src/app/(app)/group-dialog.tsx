@@ -21,8 +21,8 @@ export type GroupableDeck = { id: string; title: string; color: string; cardCoun
  * paquets, on ne garde que les cartes qui portent une image, et on les reprend
  * dans un paquet dédié.
  *
- * Les cartes ne sont ni déplacées ni dupliquées à la main : ce sont des alias.
- * Corriger l'originale corrige la reprise.
+ * Ce sont de vraies copies : on les modifie et on les supprime dans le paquet
+ * de révision sans que le paquet d'origine en soit affecté.
  */
 export function GroupDialog({
   decks,
@@ -50,7 +50,7 @@ export function GroupDialog({
       </DialogTrigger>
       <DialogContent
         title="Regrouper des cartes"
-        description="Réunit les cartes de plusieurs paquets dans un paquet de révision."
+        description="Copie les cartes de plusieurs paquets dans un paquet de révision."
         className="sm:max-w-lg"
       >
         <GroupForm decks={decks} folderId={folderId} onDone={() => setOpen(false)} />
@@ -232,7 +232,7 @@ function GroupForm({
             ? "Calcul…"
             : count === 0
               ? "Aucune carte ne correspond."
-              : `${count} carte${count > 1 ? "s" : ""} seront reprises. Les cartes déjà présentes sont ignorées.`}
+              : `${count} carte${count > 1 ? "s" : ""} seront copiées. Celles déjà présentes sont ignorées.`}
       </p>
 
       {error ? (

@@ -30,8 +30,9 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   dépassement vertical selon l'appareil
 - `node notes-e2e.mjs` — notes : texte, tableau calculé, croquis au stylet,
   et persistance de tout cela
-- `node alias-e2e.mjs` — regroupement de cartes en alias : filtre sur l'image,
-  absence de doublon, propagation d'une correction vers les reprises
+- `node copies-e2e.mjs` — regroupement de cartes : la copie et l'originale
+  restent indépendantes dans les deux sens, et supprimer l'une ne prive jamais
+  l'autre de son image
 
 Puis **ouvrir les captures**. Une mesure qui passe ne dit pas que c'est joli.
 
@@ -74,6 +75,11 @@ couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`.
   `flex-1` ne borne rien et le débordement revient. Et une hauteur fixe en
   `clamp()` ignore par construction ce qui l'entoure — c'est au conteneur
   d'être borné et à l'élément d'absorber la place restante.
+- **Fichiers partagés.** Le regroupement copie les cartes, et la copie reprend
+  le **nom de fichier** de l'image de l'originale. Effacer ce fichier en
+  supprimant l'une priverait l'autre de son image. Toute suppression d'image
+  passe donc par `deleteUnreferencedUploads`, **après** l'écriture en base :
+  c'est l'état final qui dit si un fichier est devenu orphelin.
 - **Jeton de session périmé.** Les scripts de `scratchpad/` s'authentifient par
   un cookie stocké dans `ctx.json`. Expiré, il fait rediriger vers `/login` : le
   script mesure alors l'écran de connexion et annonce que tout va bien. Devant
@@ -88,3 +94,15 @@ jusqu'à ce qu'un scénario desktop soit ajouté.
 
 Ne jamais laisser de carte ou de paquet d'essai dans la base : travailler sur
 une copie (`cp data/dev.db …`), et vérifier les comptes après coup.
+
+La copie de base **ne suffit pas** : `UPLOAD_DIR` vaut `data/uploads` par
+défaut, quelle que soit la base. Un essai qui téléverse une image écrit donc
+dans les fichiers réels. Lancer le serveur de vérification avec les deux :
+
+```bash
+DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
+  npx next start -p 3100
+```
+
+Cinq images d'essai se sont retrouvées dans `data/uploads` avant que ce soit
+noté ici.

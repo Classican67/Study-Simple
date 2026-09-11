@@ -104,30 +104,30 @@ model Card {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  // Alias : cette carte reprend une carte d'un autre paquet, pour la réunir
-  // avec d'autres — par exemple toutes les figures anatomiques dans un paquet
-  // de révision dédié.
+  // Copie : cette carte a été dupliquée depuis une autre, pour réunir par
+  // exemple toutes les figures anatomiques dans un paquet de révision.
   //
-  // Le contenu est **recopié** et non lu au travers de la référence. Résoudre
-  // à la lecture aurait obligé la révision, la recherche, l'export et chaque
-  // compteur à connaître les alias ; recopier ne demande qu'une chose : que
-  // les corrections faites sur l'originale se propagent, ce qui tient en trois
-  // écritures identifiées. L'origine reste enregistrée, pour pouvoir remonter
-  // à la carte source et pour propager.
+  // La copie est **entièrement indépendante** : on la modifie, on la supprime,
+  // sans que l'originale en soit affectée — et réciproquement. Ce champ ne
+  // sert qu'à deux choses : afficher d'où vient la carte, et éviter de la
+  // reprendre deux fois si l'on relance le regroupement.
   //
-  // `SetNull` et non `Cascade` : supprimer le paquet d'origine ne doit pas
-  // vider le paquet de révision qu'on a constitué. L'alias devient une carte
-  // ordinaire, avec son contenu.
-  aliasOfId  String?
-  aliasOf    Card?  @relation("CardAlias", fields: [aliasOfId], references: [id], onDelete: SetNull)
-  aliases    Card[] @relation("CardAlias")
+  // `SetNull` : supprimer l'originale ne doit pas emporter la copie. Elle perd
+  // seulement la mention de sa provenance.
+  //
+  // Attention : les deux cartes partagent le NOM DE FICHIER de leur image.
+  // Effacer ce fichier n'est donc permis que lorsque plus aucune carte ne le
+  // référence — voir `deleteUnreferencedUploads`.
+  sourceCardId String?
+  sourceCard   Card?  @relation("CardCopy", fields: [sourceCardId], references: [id], onDelete: SetNull)
+  copies       Card[] @relation("CardCopy")
 
   deck     Deck           @relation(fields: [deckId], references: [id], onDelete: Cascade)
   progress CardProgress[]
 
   @@index([deckId, position])
-  // Sert à propager une correction vers les alias, à chaque enregistrement.
-  @@index([aliasOfId])
+  // Sert à repérer les copies déjà faites, pour ne pas dupliquer deux fois.
+  @@index([sourceCardId])
 }
 
 model Tag {

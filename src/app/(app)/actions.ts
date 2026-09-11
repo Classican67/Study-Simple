@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { deckSchema } from "@/lib/validation";
-import { deleteUpload } from "@/lib/uploads";
+import { deleteUnreferencedUploads } from "@/lib/uploads";
 
 export type FormState = { error?: string };
 
@@ -69,12 +69,16 @@ export async function deleteDeck(deckId: string) {
   });
   if (!deck) redirect("/");
 
-  // La cascade Prisma nettoie les lignes, pas les fichiers : on retire les
-  // images du disque avant, sinon elles restent orphelines sur le NAS.
-  await Promise.all(
-    deck.cards.filter((c) => c.imagePath).map((c) => deleteUpload(c.imagePath!)),
-  );
+  // La cascade Prisma nettoie les lignes, pas les fichiers : sans ce ménage,
+  // les images resteraient orphelines sur le NAS.
+  //
+  // On supprime le paquet D'ABORD, puis on n'efface que les fichiers devenus
+  // orphelins : une carte reprise dans un autre paquet partage le nom de
+  // fichier de son originale. Effacer avant aurait privé l'originale de son
+  // image en supprimant le paquet de révision qui la reprend.
+  const images = deck.cards.map((c) => c.imagePath);
   await prisma.deck.delete({ where: { id: deckId } });
+  await deleteUnreferencedUploads(images);
 
   revalidatePath("/");
   redirect("/");

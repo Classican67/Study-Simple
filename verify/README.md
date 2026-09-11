@@ -21,7 +21,15 @@ résultat étonnamment propre, relancer `./bootstrap.sh`.
 
 ## Les contrôles
 
-Le serveur doit tourner sur le port 3100 (`npx next start -p 3100`).
+Le serveur doit tourner sur le port 3100, **sur une copie de la base et un
+dossier d'images à part** — sans quoi les essais écrivent dans les données
+réelles :
+
+```bash
+cp data/dev.db verify/verif.db
+DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
+  npx next start -p 3100
+```
 
 | Script | Ce qu'il vérifie |
 | --- | --- |
@@ -29,6 +37,6 @@ Le serveur doit tourner sur le port 3100 (`npx next start -p 3100`).
 | `node audit.mjs` | Contraste WCAG 4.5:1, cibles tactiles 44 px, cohérence des positions |
 | `node hauteur.mjs` | La révision tient dans l'écran, sur cinq tailles d'appareil |
 | `node notes-e2e.mjs` | Notes : texte, tableau calculé, croquis au stylet, persistance |
-| `node alias-e2e.mjs` | Regroupement en alias : filtre image, sans doublon, propagation |
+| `node copies-e2e.mjs` | Regroupement : indépendance des copies dans les deux sens, et sûreté des images partagées |
 
 Chacun sort en code non nul s'il trouve quelque chose.

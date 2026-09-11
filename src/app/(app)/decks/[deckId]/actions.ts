@@ -8,31 +8,11 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth";
 import { cardSchema } from "@/lib/validation";
 import { MAX_IMPORT_CARDS, parseImport, type ImportOptions } from "@/lib/import";
-import { deleteUpload, saveUpload, UploadError } from "@/lib/uploads";
+import { deleteUnreferencedUploads, saveUpload, UploadError } from "@/lib/uploads";
 import { buildSearchText } from "@/lib/search";
 
 export type CardFormState = { error?: string; ok?: boolean };
 
-/**
- * Propage une correction vers les alias de cette carte.
- *
- * Un alias reprend le contenu de son originale plutôt que de le lire au
- * travers d'une référence — voir le commentaire du modèle. Le prix de ce choix
- * est ici, et nulle part ailleurs : les trois écritures qui touchent au
- * contenu d'une carte doivent répercuter.
- *
- * Une carte ne peut être alias que d'une carte ordinaire — l'action de
- * regroupement remonte toujours à la source — donc un seul niveau à propager.
- */
-async function syncAliases(
-  cardId: string,
-  data: { term?: string; definition?: string; searchText?: string; imagePath?: string | null },
-) {
-  await prisma.card.updateMany({ where: { aliasOfId: cardId }, data });
-}
-
-// Vérifie que le paquet appartient bien à l'utilisateur connecté.
-// Toute écriture sur une carte passe par là avant de toucher la base.
 async function assertOwnsDeck(deckId: string, userId: string) {
   const deck = await prisma.deck.findFirst({
     where: { id: deckId, ownerId: userId },
@@ -129,20 +109,21 @@ export async function updateCard(
     throw error;
   }
 
-  const contenu = {
-    term: parsed.data.term,
-    definition: parsed.data.definition,
-    searchText: buildSearchText(parsed.data.term, parsed.data.definition),
-    // `undefined` laisse Prisma ignorer le champ : l'image reste en place.
-    ...(nextImage === undefined ? {} : { imagePath: nextImage }),
-  };
-  await prisma.card.update({ where: { id: cardId }, data: contenu });
-  await syncAliases(cardId, contenu);
+  await prisma.card.update({
+    where: { id: cardId },
+    data: {
+      term: parsed.data.term,
+      definition: parsed.data.definition,
+      searchText: buildSearchText(parsed.data.term, parsed.data.definition),
+      // `undefined` laisse Prisma ignorer le champ : l'image reste en place.
+      ...(nextImage === undefined ? {} : { imagePath: nextImage }),
+    },
+  });
 
   // L'ancien fichier n'est supprimé qu'après la mise à jour réussie, pour ne
   // pas perdre l'image si l'écriture en base échoue.
   if (nextImage !== undefined && card.imagePath && card.imagePath !== nextImage) {
-    await deleteUpload(card.imagePath);
+    await deleteUnreferencedUploads([card.imagePath]);
   }
 
   revalidatePath(`/decks/${card.deckId}`);
@@ -159,7 +140,9 @@ export async function deleteCard(cardId: string) {
   if (!card) return;
 
   await prisma.card.delete({ where: { id: cardId } });
-  if (card.imagePath) await deleteUpload(card.imagePath);
+  // Après la suppression, et sous condition : une carte copiée partage le nom
+  // de fichier de son originale. L'effacer priverait l'autre de son image.
+  await deleteUnreferencedUploads([card.imagePath]);
 
   revalidatePath(`/decks/${card.deckId}`);
 }
@@ -278,17 +261,14 @@ export async function saveCardText(
     return { ok: false, error: parsed.error.issues[0]?.message ?? "Contenu invalide." };
   }
 
-  const contenu = {
-    ...parsed.data,
-    searchText: buildSearchText(parsed.data.term, parsed.data.definition),
-  };
   const { count } = await prisma.card.updateMany({
     where: { id: cardId, deck: { ownerId: user.id } },
-    data: contenu,
+    data: {
+      ...parsed.data,
+      searchText: buildSearchText(parsed.data.term, parsed.data.definition),
+    },
   });
-  if (count !== 1) return { ok: false, error: "Carte introuvable." };
-  await syncAliases(cardId, contenu);
-  return { ok: true };
+  return count === 1 ? { ok: true } : { ok: false, error: "Carte introuvable." };
 }
 
 // Crée une carte vide en fin de liste et la renvoie, pour que l'éditeur
@@ -415,9 +395,10 @@ export async function setCardImage(cardId: string, formData: FormData): Promise<
   }
 
   await prisma.card.update({ where: { id: cardId }, data: { imagePath: next } });
-  await syncAliases(cardId, { imagePath: next });
   // L'ancien fichier ne part qu'après l'écriture réussie en base.
-  if (card.imagePath && card.imagePath !== next) await deleteUpload(card.imagePath);
+  if (card.imagePath && card.imagePath !== next) {
+    await deleteUnreferencedUploads([card.imagePath]);
+  }
 
   return { ok: true, imagePath: next };
 }

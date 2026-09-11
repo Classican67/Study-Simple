@@ -58,3 +58,25 @@ export async function deleteUpload(fileName: string) {
 }
 
 
+
+/**
+ * Efface du disque les images qu'aucune carte ne référence plus.
+ *
+ * Indispensable depuis que les cartes peuvent être reprises d'un paquet à
+ * l'autre : une reprise recopie le **nom de fichier** de l'originale. Effacer
+ * l'image en supprimant la reprise priverait donc l'originale de la sienne.
+ *
+ * À appeler **après** la suppression des lignes en base : c'est l'état final
+ * qui dit si un fichier est devenu orphelin.
+ */
+export async function deleteUnreferencedUploads(paths: (string | null)[]) {
+  const { prisma } = await import("@/lib/prisma");
+  const uniques = [...new Set(paths.filter((p): p is string => Boolean(p)))];
+
+  await Promise.all(
+    uniques.map(async (path) => {
+      const encore = await prisma.card.count({ where: { imagePath: path } });
+      if (encore === 0) await deleteUpload(path);
+    }),
+  );
+}
