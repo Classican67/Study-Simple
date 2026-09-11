@@ -223,6 +223,98 @@ check(
   "le choix de papier aussi",
 );
 
+// --- Zoom et déplacement à deux doigts ---------------------------------------
+section("zoom");
+
+/** Pince à deux doigts sur le canevas, en vrais PointerEvent tactiles. */
+async function pincer(ecart) {
+  await page.evaluate((ecart) => {
+    const tous = document.querySelectorAll('[data-testid="drawing-canvas"]');
+    const el = tous[tous.length - 1];
+    const r = el.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const fire = (type, id, x, y, buttons) =>
+      el.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true, cancelable: true, pointerId: id, pointerType: "touch",
+          isPrimary: id === 1, pressure: 0.5, buttons, clientX: x, clientY: y,
+        }),
+      );
+    fire("pointerdown", 1, cx - 50, cy, 1);
+    fire("pointerdown", 2, cx + 50, cy, 1);
+    for (let i = 1; i <= 6; i++) {
+      const d = 50 + ((ecart - 100) / 2) * (i / 6);
+      fire("pointermove", 1, cx - d, cy, 1);
+      fire("pointermove", 2, cx + d, cy, 1);
+    }
+    fire("pointerup", 1, cx - ecart / 2, cy, 0);
+    fire("pointerup", 2, cx + ecart / 2, cy, 0);
+  }, ecart);
+}
+
+const traitsAvant = await apres.getAttribute("aria-label");
+await pincer(300);
+await page.waitForTimeout(400);
+
+const transform = await apres.evaluate((el) => el.style.transform);
+check(/scale\((?!1\))/.test(transform), "écarter deux doigts agrandit la page", transform);
+check(
+  (await page.getByRole("button", { name: /Zoom \d+ %/ }).count()) === 1,
+  "le facteur de zoom s'affiche",
+);
+check(
+  (await apres.getAttribute("aria-label")) === traitsAvant,
+  "pincer ne laisse aucun trait sur la page",
+  `${traitsAvant} → ${await apres.getAttribute("aria-label")}`,
+);
+
+await page.getByRole("button", { name: /Zoom \d+ %/ }).click();
+await page.waitForTimeout(400);
+check(
+  (await page.getByRole("button", { name: /Zoom \d+ %/ }).count()) === 0,
+  "et l'on revient à la taille d'origine d'un geste",
+);
+
+// --- Plein écran du tableau et du texte --------------------------------------
+section("plein écran des autres blocs");
+await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Nouvelle note" }).click();
+await page.waitForURL(/\/notes\/[a-z0-9]+/);
+await page.getByRole("button", { name: "Tableau", exact: true }).last().click();
+await page.waitForSelector("table");
+await page.waitForTimeout(600);
+
+for (const [rang, nom] of [[1, "Texte"], [2, "Tableau"]]) {
+  await page.getByRole("button", { name: `Agrandir le bloc ${rang}` }).click();
+  await page.waitForTimeout(500);
+  check(
+    (await page.locator(".fixed").filter({ hasText: nom }).count()) >= 1,
+    `le bloc ${nom.toLowerCase()} s'ouvre en plein écran`,
+  );
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(400);
+  check(
+    (await page.getByRole("button", { name: "Quitter le plein écran" }).count()) === 0,
+    `et Échap le referme`,
+  );
+}
+
+// --- Dossier créé depuis la section Notes ------------------------------------
+section("dossier depuis les Notes");
+const DOSSIER2 = `Thèmes ${Date.now()}`;
+await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Dossier", exact: true }).click();
+await page.waitForSelector('[role="dialog"]');
+await page.locator('[role="dialog"] input[name="name"]').fill(DOSSIER2);
+await page.locator('[role="dialog"] button[type="submit"]').click();
+await page.waitForTimeout(1800);
+await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
+check(
+  (await page.locator('a[href*="folder="]').filter({ hasText: DOSSIER2 }).count()) === 1,
+  "un dossier créé depuis les Notes y apparaît, même vide",
+);
+
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();
 process.exit(ko === 0 ? 0 : 1);

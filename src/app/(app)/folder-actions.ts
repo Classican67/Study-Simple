@@ -43,6 +43,9 @@ export async function createFolder(
   await prisma.folder.create({ data: { ...parsed.data, parentId, ownerId: user.id } });
 
   revalidatePath(parentId ? `/folders/${parentId}` : "/");
+  // Les dossiers servent aussi à ranger les notes : la section doit voir
+  // apparaître celui qu'on vient de créer depuis chez elle.
+  revalidatePath("/notes");
   return {};
 }
 

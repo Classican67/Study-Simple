@@ -5,6 +5,7 @@ import { ChevronRight, FileText, Folder as FolderIcon, Home, NotebookPen, PenLin
 
 import { EmptyState } from "@/components/ui/panel";
 import { NewNoteButton } from "./new-note-button";
+import { NewNoteFolderButton } from "./new-note-folder-button";
 import { NoteSearch } from "./note-search";
 import { requireUser } from "@/lib/auth";
 import { deckColor } from "@/lib/deck-colors";
@@ -63,7 +64,12 @@ export default async function NotesPage(props: PageProps<"/notes">) {
             </p>
           </div>
         </div>
-        {view.total > 0 ? <NewNoteButton folderId={folderId} /> : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Les dossiers se créent aussi d'ici : ranger ses notes par thème
+              ne doit pas obliger à passer par la section Paquets. */}
+          <NewNoteFolderButton parentId={folderId} />
+          {view.total > 0 ? <NewNoteButton folderId={folderId} /> : null}
+        </div>
       </header>
 
       {view.total > 0 ? <NoteSearch query={query} has={has ?? null} folderId={folderId} /> : null}

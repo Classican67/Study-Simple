@@ -47,6 +47,7 @@ export function InkCanvas({
   readOnly = false,
   onStrokeCount,
   onPenMode,
+  onView,
 }: {
   content: DrawingContent;
   onChange: (next: DrawingContent) => void;
@@ -59,6 +60,18 @@ export function InkCanvas({
   onStrokeCount?: (count: number) => void;
   /** Prévient que le rejet de la paume s'est enclenché. */
   onPenMode?: (active: boolean) => void;
+  /**
+   * Facteur de zoom courant, prévenu depuis le geste lui-même.
+   *
+   * Le rapporter depuis un effet déclencherait un rendu du parent en cascade
+   * après chaque rendu du canevas ; l'annoncer là où la valeur change coûte un
+   * rendu, pas deux.
+   *
+   * La remise à zéro, elle, se fait en remontant le composant depuis le parent
+   * (`key`) : rien à réinitialiser à la main, et les traits viennent de toute
+   * façon du contenu.
+   */
+  onView?: (scale: number) => void;
 }) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
 
@@ -74,6 +87,20 @@ export function InkCanvas({
   // Une fois un stylet vu, le doigt ne dessine plus : c'est le rejet de la paume.
   const penSeen = React.useRef(false);
   const [penMode, setPenMode] = React.useState(false);
+
+  /*
+   * Zoom et déplacement.
+   *
+   * Indispensable sur iPad : on écrit gros, puis on recule pour voir la page
+   * entière. La transformation est appliquée en CSS sur le canevas lui-même —
+   * et non au contexte de dessin — parce que les coordonnées sont calculées à
+   * partir de `getBoundingClientRect()`, qui reflète déjà la transformation.
+   * Le calcul du tracé reste donc identique, à n'importe quel niveau de zoom.
+   */
+  const [view, setView] = React.useState({ scale: 1, x: 0, y: 0 });
+  // Doigts posés. Deux ou plus : on manipule la vue, on ne trace pas.
+  const touches = React.useRef(new Map<number, { x: number; y: number }>());
+  const gesture = React.useRef<{ distance: number; x: number; y: number; scale: number } | null>(null);
 
   const ratio = content.ratio || DEFAULT_RATIO;
   const paper = content.paper ?? "blank";
@@ -160,7 +187,30 @@ export function InkCanvas({
     return [round(x), round(y), Math.round(pressure * 100) / 100];
   }
 
+  /** Centre et écartement des doigts posés. */
+  function pinch() {
+    const points = [...touches.current.values()];
+    const x = points.reduce((s, p) => s + p.x, 0) / points.length;
+    const y = points.reduce((s, p) => s + p.y, 0) / points.length;
+    const distance =
+      points.length >= 2 ? Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y) : 0;
+    return { x, y, distance };
+  }
+
   function onPointerDown(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === "touch") {
+      touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      if (touches.current.size >= 2) {
+        // Un second doigt : ce n'est plus un tracé, c'est un geste. Le trait
+        // commencé par mégarde est abandonné plutôt que laissé à moitié.
+        drawing.current = null;
+        const { x, y, distance } = pinch();
+        gesture.current = { distance, x, y, scale: view.scale };
+        setVersion((v) => v + 1);
+        return;
+      }
+    }
+
     if (!accepts(event)) return;
     if (event.pointerType === "pen" && !penSeen.current) {
       penSeen.current = true;
@@ -180,6 +230,29 @@ export function InkCanvas({
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+    if (event.pointerType === "touch" && touches.current.has(event.pointerId)) {
+      touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+      if (gesture.current && touches.current.size >= 2) {
+        const { x, y, distance } = pinch();
+        const depart = gesture.current;
+        // Bornes : au-delà, on ne retrouve plus sa page.
+        const scale = Math.min(6, Math.max(0.5, (depart.scale * distance) / (depart.distance || 1)));
+        setView((v) => ({ scale, x: v.x + (x - depart.x), y: v.y + (y - depart.y) }));
+        onView?.(scale);
+        gesture.current = { ...depart, x, y };
+        return;
+      }
+
+      // Un seul doigt, stylet déjà vu : il déplace la page au lieu d'écrire.
+      if (penSeen.current && touches.current.size === 1 && !drawing.current) {
+        const point = touches.current.get(event.pointerId)!;
+        setView((v) => ({ ...v, x: v.x + event.movementX, y: v.y + event.movementY }));
+        touches.current.set(event.pointerId, point);
+        return;
+      }
+    }
+
     const rect = event.currentTarget.getBoundingClientRect();
     if (tool === "eraser") {
       if (event.buttons > 0 && accepts(event)) eraseAt(pointOf(event, rect));
@@ -197,7 +270,12 @@ export function InkCanvas({
     repaint();
   }
 
-  function onPointerUp() {
+  function onPointerUp(event?: React.PointerEvent<HTMLCanvasElement>) {
+    if (event?.pointerType === "touch") {
+      touches.current.delete(event.pointerId);
+      if (touches.current.size < 2) gesture.current = null;
+    }
+
     const trait = drawing.current;
     drawing.current = null;
     if (!trait) return;
@@ -252,15 +330,19 @@ export function InkCanvas({
       onPointerCancel={onPointerUp}
       onPointerLeave={onPointerUp}
       className={cn(
-        // `touch-none` seulement quand le doigt écrit : une fois le stylet
-        // détecté, le doigt doit pouvoir faire défiler la page.
-        penMode ? "touch-pan-y" : "touch-none",
         "w-full bg-surface-lowest text-on-surface",
         paperClass(paper),
         !readOnly && (tool === "eraser" ? "cursor-cell" : "cursor-crosshair"),
         className,
       )}
-      style={{ aspectRatio: `1 / ${ratio}` }}
+      style={{
+        aspectRatio: `1 / ${ratio}`,
+        transform: `translate(${view.x}px, ${view.y}px) scale(${view.scale})`,
+        transformOrigin: "center top",
+        // Sans cela, le navigateur applique sa propre inertie au geste et la
+        // page saute pendant qu'on pince.
+        touchAction: "none",
+      }}
     />
   );
 }

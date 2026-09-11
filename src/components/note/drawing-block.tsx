@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  Crosshair,
   Eraser,
   Grid3x3,
   Highlighter,
@@ -67,6 +68,10 @@ export function DrawingBlock({
   // Le rejet de la paume est invisible : le doigt cesse d'écrire sans rien dire.
   // On l'annonce, sinon on croit à une panne.
   const [penMode, setPenMode] = React.useState(false);
+  const [zoom, setZoom] = React.useState(1);
+  // Remonter le canevas remet la vue à sa position d'origine : il n'y a rien à
+  // réinitialiser à la main, les traits venant du contenu.
+  const [viewKey, setViewKey] = React.useState(0);
 
   // Pile d'annulation, à part du contenu : ce qu'on vient de retirer n'a pas à
   // être enregistré, seulement à pouvoir revenir.
@@ -116,6 +121,11 @@ export function DrawingBlock({
       paper={content.paper}
       strokes={strokeCount}
       penMode={penMode}
+      zoom={zoom}
+      onResetView={() => {
+        setZoom(1);
+        setViewKey((k) => k + 1);
+      }}
       full={full}
       onTool={setTool}
       onInk={(name) => {
@@ -133,6 +143,7 @@ export function DrawingBlock({
 
   const canvas = (
     <InkCanvas
+      key={viewKey}
       content={content}
       onChange={onChange}
       tool={tool}
@@ -142,6 +153,7 @@ export function DrawingBlock({
       growable={full}
       onStrokeCount={setStrokeCount}
       onPenMode={setPenMode}
+      onView={setZoom}
       className={full ? "rounded-none border-0" : "rounded-xl border border-outline-variant"}
     />
   );
@@ -185,8 +197,10 @@ function Palette({
   paper,
   strokes,
   penMode,
+  zoom,
   full,
   onTool,
+  onResetView,
   onInk,
   onSize,
   onPaper,
@@ -201,6 +215,7 @@ function Palette({
   paper: Paper;
   strokes: number;
   penMode: boolean;
+  zoom: number;
   full: boolean;
   onTool: (tool: InkTool) => void;
   onInk: (name: string) => void;
@@ -210,6 +225,7 @@ function Palette({
   onRedo: () => void;
   onClear: () => void;
   onToggleFull: () => void;
+  onResetView: () => void;
 }) {
   return (
     <div
@@ -303,6 +319,21 @@ function Palette({
       </Group>
 
       <div className="ml-auto flex items-center gap-0.5">
+        {/* Le zoom ne se voit qu'une fois utilisé : afficher « 100 % » en
+            permanence n'apprend rien. */}
+        {Math.abs(zoom - 1) > 0.01 ? (
+          <button
+            type="button"
+            onClick={onResetView}
+            title="Revenir à la taille d'origine"
+            aria-label={`Zoom ${Math.round(zoom * 100)} %. Revenir à la taille d'origine`}
+            className="mr-1 flex min-h-11 items-center gap-1.5 rounded-full bg-surface-container px-3 m3-label-small tabular-nums text-on-surface-variant transition-colors hover:text-on-surface"
+          >
+            <Crosshair className="size-3.5" />
+            {Math.round(zoom * 100)} %
+          </button>
+        ) : null}
+
         {penMode ? (
           <span
             title="Un stylet a été détecté : le doigt ne dessine plus et sert à faire défiler, pour que la paume ne marque pas la page."

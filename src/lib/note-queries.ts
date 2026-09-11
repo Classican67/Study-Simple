@@ -108,12 +108,17 @@ export async function getNotesView(
   return {
     current: current ? { id: current.id, name: current.name, color: current.color } : null,
     breadcrumb,
+    // Tous les sous-dossiers du niveau, même vides : on doit pouvoir créer un
+    // dossier depuis cette section puis y déposer une note. Les masquer tant
+    // qu'ils sont vides les ferait disparaître à la création.
     folders: cherche
       ? []
-      : enfants
-          .map((f) => ({ id: f.id, name: f.name, color: f.color, noteCount: counts.get(f.id) ?? 0 }))
-          // Un dossier sans la moindre note n'a rien à faire dans cette section.
-          .filter((f) => f.noteCount > 0),
+      : enfants.map((f) => ({
+          id: f.id,
+          name: f.name,
+          color: f.color,
+          noteCount: counts.get(f.id) ?? 0,
+        })),
     notes: notes.map((note) => ({
       id: note.id,
       title: note.title,

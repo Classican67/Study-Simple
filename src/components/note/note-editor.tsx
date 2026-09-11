@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Loader2, PenLine, Table2, Trash2, Type } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Maximize2, PenLine, Table2, Trash2, Type, X } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DrawingBlock } from "@/components/note/drawing-block";
@@ -25,6 +25,12 @@ export type EditableBlock = { id: string; kind: BlockKind; content: string };
 // Le tracé au stylet produit des dizaines d'événements par seconde : on ne
 // remonte au serveur qu'une fois la main levée depuis un moment.
 const SAVE_DELAY = 700;
+
+const KIND_LABELS: Record<BlockKind, string> = {
+  text: "Texte",
+  table: "Tableau",
+  drawing: "Page manuscrite",
+};
 
 const KINDS: { kind: BlockKind; label: string; icon: React.ElementType }[] = [
   { kind: "text", label: "Texte", icon: Type },
@@ -204,6 +210,22 @@ function BlockCard({
   onDelete: () => void;
 }) {
   const timer = React.useRef<number | null>(null);
+  const [full, setFull] = React.useState(false);
+
+  // Échap referme, et la page derrière ne défile pas sous le bloc agrandi.
+  React.useEffect(() => {
+    if (!full) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFull(false);
+    };
+    window.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [full]);
 
   // Enregistrement différé : on écrit une fois la main levée, pas à chaque
   // point du tracé ni à chaque frappe.
@@ -227,6 +249,18 @@ function BlockCard({
       className="group rounded-2xl border border-outline-variant bg-surface-container p-3 transition-colors focus-within:border-primary/40 sm:p-4"
     >
       <div className="mb-2 flex items-center justify-end gap-0.5 opacity-60 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+        {/* Le croquis a son propre plein écran, taillé pour sa palette. */}
+        {block.kind !== "drawing" ? (
+          <Button
+            variant="text"
+            size="icon"
+            onClick={() => setFull(true)}
+            aria-label={`Agrandir le bloc ${index + 1}`}
+            title="Plein écran"
+          >
+            <Maximize2 />
+          </Button>
+        ) : null}
         <Button
           variant="text"
           size="icon"
@@ -263,7 +297,39 @@ function BlockCard({
         />
       </div>
 
-      <BlockBody block={block} onChange={schedule} />
+      {full ? (
+        // Le bloc garde sa place pendant l'édition plein écran : sans lui, la
+        // note se replierait derrière et le défilement sauterait en sortant.
+        <div
+          aria-hidden
+          className="grid min-h-40 place-items-center rounded-xl border border-dashed border-outline-variant m3-body-medium text-on-surface-variant"
+        >
+          Bloc ouvert en plein écran
+        </div>
+      ) : (
+        <BlockBody block={block} onChange={schedule} />
+      )}
+
+      {full ? (
+        <div className="fixed inset-0 z-40 flex flex-col bg-surface">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-outline-variant px-3 py-2">
+            <span className="m3-title-medium text-on-surface">{KIND_LABELS[block.kind]}</span>
+            <Button
+              variant="text"
+              size="icon"
+              onClick={() => setFull(false)}
+              aria-label="Quitter le plein écran"
+            >
+              <X />
+            </Button>
+          </div>
+          <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
+            <div className="mx-auto w-full max-w-4xl">
+              <BlockBody block={block} onChange={schedule} />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Insertion entre deux blocs, au pied de celui-ci — comme pour les
           cartes, le geste se lit là où le nouveau bloc va apparaître. */}
