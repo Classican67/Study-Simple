@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { deckColor } from "@/lib/deck-colors";
 import { cn } from "@/lib/utils";
-import { countGroupable, groupCards, type GroupFilter } from "./group-actions";
+import { countByDeck, groupCards, type GroupFilter } from "./group-actions";
 
 export type GroupableDeck = { id: string; title: string; color: string; cardCount: number };
 
@@ -69,7 +69,10 @@ function GroupForm({
   onDone: () => void;
 }) {
   const router = useRouter();
-  const [selected, setSelected] = React.useState<string[]>(() => decks.map((d) => d.id));
+  // Rien de coché au départ : on choisit ce qu'on regroupe. Tout présélectionner
+  // pousse à valider sans regarder, alors que l'intérêt est justement de ne
+  // prendre que les paquets qui contiennent des figures.
+  const [selected, setSelected] = React.useState<string[]>([]);
   const [onlyImages, setOnlyImages] = React.useState(true);
   const [title, setTitle] = React.useState("Figures à réviser");
   const [targetId, setTargetId] = React.useState<string>("");
@@ -77,33 +80,42 @@ function GroupForm({
   const [error, setError] = React.useState<string | null>(null);
 
   const filter: GroupFilter = onlyImages ? "withImage" : "all";
+  const deckIds = React.useMemo(() => decks.map((d) => d.id), [decks]);
 
   /*
-   * Le compte est conservé AVEC les critères qui l'ont produit. « En cours de
-   * calcul » et « aucune carte » s'en déduisent au rendu, au lieu d'être
-   * recopiés dans un état qu'il faudrait remettre à zéro depuis un effet à
-   * chaque clic — ce qui déclenche une cascade de rendus.
+   * Les comptes sont conservés AVEC le filtre qui les a produits : « en cours
+   * de calcul » se déduit au rendu, au lieu d'être recopié dans un état qu'il
+   * faudrait remettre à zéro depuis un effet — ce qui déclenche une cascade de
+   * rendus.
+   *
+   * Un seul appel couvre tous les paquets ; le total se recalcule ensuite sans
+   * aller-retour à chaque case cochée.
    */
-  const key = `${filter}|${[...selected].sort().join(",")}`;
-  const [counted, setCounted] = React.useState<{ key: string; n: number } | null>(null);
-  const count = selected.length === 0 ? 0 : counted?.key === key ? counted.n : null;
+  const [counted, setCounted] = React.useState<{ filter: GroupFilter; byDeck: Record<string, number> } | null>(
+    null,
+  );
+  const counts = counted?.filter === filter ? counted.byDeck : null;
 
   React.useEffect(() => {
-    if (selected.length === 0) return;
     let cancelled = false;
-    countGroupable(selected, filter)
-      .then((n) => {
-        // Une réponse lente arrivée après une plus récente est jetée, sinon le
-        // compte reviendrait en arrière tout seul.
-        if (!cancelled) setCounted({ key, n });
+    countByDeck(deckIds, filter)
+      .then((byDeck) => {
+        if (!cancelled) setCounted({ filter, byDeck });
       })
       .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [key, selected, filter]);
+  }, [deckIds, filter]);
 
-  const allSelected = selected.length === decks.length;
+  const count = counts ? selected.reduce((sum, id) => sum + (counts[id] ?? 0), 0) : null;
+
+  // « Tout sélectionner » ne retient que les paquets qui ont de quoi donner :
+  // cocher un paquet sans figure n'apporte rien et brouille le compte.
+  const utiles = counts ? decks.filter((d) => (counts[d.id] ?? 0) > 0) : decks;
+  // Comparé aux paquets utiles, pas à tous : sinon le bouton continuerait à
+  // proposer « Tout sélectionner » alors que tout ce qui compte l'est déjà.
+  const allSelected = utiles.length > 0 && utiles.every((d) => selected.includes(d.id));
 
   async function submit() {
     setPending(true);
@@ -133,7 +145,7 @@ function GroupForm({
           <h3 className="m3-title-small text-on-surface">Paquets à parcourir</h3>
           <button
             type="button"
-            onClick={() => setSelected(allSelected ? [] : decks.map((d) => d.id))}
+            onClick={() => setSelected(allSelected ? [] : utiles.map((d) => d.id))}
             className="min-h-11 rounded-full px-3 m3-label-large text-primary"
           >
             {allSelected ? "Tout décocher" : "Tout sélectionner"}
@@ -143,12 +155,14 @@ function GroupForm({
         <ul className="scroll-slim max-h-56 space-y-1 overflow-y-auto">
           {decks.map((deck) => {
             const on = selected.includes(deck.id);
+            const disponible = counts?.[deck.id] ?? 0;
             return (
               <li key={deck.id}>
                 <label
                   className={cn(
                     "flex min-h-12 cursor-pointer items-center gap-3 rounded-xl px-3 transition-colors",
                     on ? "bg-primary-container/40" : "hover:bg-surface-container",
+                    counts !== null && disponible === 0 && !on && "opacity-55",
                   )}
                 >
                   <input
@@ -172,8 +186,21 @@ function GroupForm({
                   <span className="min-w-0 flex-1 truncate m3-body-large text-on-surface">
                     {deck.title}
                   </span>
-                  <span className="m3-label-small tabular-nums text-on-surface-variant">
-                    {deck.cardCount}
+                  {/* Le compte qui décide : combien de cartes ce paquet
+                      donnerait, filtre appliqué. Sans lui on coche à
+                      l'aveugle. */}
+                  <span
+                    className={cn(
+                      "shrink-0 tabular-nums m3-label-small",
+                      disponible === 0 ? "text-on-surface-variant/50" : "text-on-surface-variant",
+                    )}
+                    title={
+                      onlyImages
+                        ? `${disponible} carte(s) avec image sur ${deck.cardCount}`
+                        : `${deck.cardCount} carte(s)`
+                    }
+                  >
+                    {counts === null ? "…" : onlyImages ? `${disponible}/${deck.cardCount}` : deck.cardCount}
                   </span>
                 </label>
               </li>
@@ -227,7 +254,7 @@ function GroupForm({
 
       <p aria-live="polite" className="m3-body-medium text-on-surface-variant">
         {selected.length === 0
-          ? "Choisis au moins un paquet."
+          ? "Choisis les paquets à parcourir."
           : count === null
             ? "Calcul…"
             : count === 0

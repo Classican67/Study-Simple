@@ -33,6 +33,8 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node copies-e2e.mjs` — regroupement de cartes : la copie et l'originale
   restent indépendantes dans les deux sens, et supprimer l'une ne prive jamais
   l'autre de son image
+- `node selection-e2e.mjs` — choix des paquets à regrouper : rien de coché
+  d'avance, compte par paquet, total qui suit la sélection
 
 Puis **ouvrir les captures**. Une mesure qui passe ne dit pas que c'est joli.
 

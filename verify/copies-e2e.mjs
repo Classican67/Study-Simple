@@ -75,7 +75,20 @@ section("copie");
 await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Regrouper" }).click();
 await page.waitForSelector('[role="dialog"]');
-await page.waitForTimeout(1000);
+await page.waitForTimeout(1200);
+
+// Rien n'est coché au départ : c'est délibéré, on choisit ce qu'on regroupe.
+check(
+  (await page.locator('[role="dialog"] input[type="checkbox"]:checked').count()) === 0,
+  "aucun paquet n'est coché d'avance",
+);
+check(
+  await page.getByRole("button", { name: "Regrouper" }).last().isDisabled(),
+  "et le bouton reste inactif tant que rien n'est choisi",
+);
+
+await page.getByRole("button", { name: "Tout sélectionner" }).click();
+await page.waitForTimeout(400);
 await page.getByLabel("Titre du nouveau paquet").fill(TITRE);
 await page.getByRole("button", { name: "Regrouper" }).last().click();
 await page.waitForURL(/\/decks\/[a-z0-9]+/, { timeout: 15000 });
@@ -92,10 +105,16 @@ check(
 
 // --- 1. Modifier la copie ne touche pas l'originale -------------------------
 section("modifier la copie");
+const copieOrigine = (await lire(urlCopies, 1)).terme;
+await page.goto(urlCopies, { waitUntil: "networkidle" });
 await ecrire(champ(1), " COPIE-MODIFIÉE");
 const apres1Copie = await lire(urlCopies, 1);
 const apres1Source = await lire(urlSource, 1);
-check(apres1Copie.terme.includes("COPIE-MODIFIÉE"), "la copie a bien changé");
+check(
+  apres1Copie.terme === `${copieOrigine} COPIE-MODIFIÉE`,
+  "la copie a bien changé",
+  `${copieOrigine} → ${apres1Copie.terme}`,
+);
 check(
   apres1Source.terme === avantSource.terme,
   "l'originale est inchangée",
@@ -104,14 +123,23 @@ check(
 
 // --- 2. Modifier l'originale ne touche pas la copie -------------------------
 section("modifier l'originale");
+// On compare l'état de la copie avant et après, plutôt que de chercher un
+// texte : la base de vérification peut porter les traces d'un essai précédent,
+// et l'assertion accuserait alors l'app à tort.
+const copieAvant = apres1Copie.terme;
+await page.goto(urlSource, { waitUntil: "networkidle" });
 await ecrire(champ(1), " SOURCE-MODIFIÉE");
 const apres2Source = await lire(urlSource, 1);
 const apres2Copie = await lire(urlCopies, 1);
-check(apres2Source.terme.includes("SOURCE-MODIFIÉE"), "l'originale a bien changé");
 check(
-  !apres2Copie.terme.includes("SOURCE-MODIFIÉE"),
+  apres2Source.terme === `${apres1Source.terme} SOURCE-MODIFIÉE`,
+  "l'originale a bien changé",
+  apres2Source.terme,
+);
+check(
+  apres2Copie.terme === copieAvant,
   "la copie est inchangée : l'indépendance joue dans les deux sens",
-  apres2Copie.terme,
+  `${copieAvant} → ${apres2Copie.terme}`,
 );
 
 // --- 3. Supprimer une copie ne touche ni l'originale ni son image -----------
@@ -139,6 +167,7 @@ section("remplacer une image");
 await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Regrouper" }).click();
 await page.waitForSelector('[role="dialog"]');
+await page.getByRole("button", { name: "Tout sélectionner" }).click();
 await page.selectOption('select[aria-label="Paquet de destination"]', { label: TITRE });
 await page.waitForTimeout(1000);
 await page.getByRole("button", { name: "Regrouper" }).last().click();
@@ -196,18 +225,21 @@ const avantPaquets = await (async () => {
 
 await page.getByRole("button", { name: "Regrouper" }).click();
 await page.waitForSelector('[role="dialog"]');
-await page.waitForTimeout(1000);
-// Plus aucune carte ne porte d'image : le filtre ne doit rien trouver.
-await page.getByLabel("Titre du nouveau paquet").fill(`Fantôme ${Date.now()}`);
-const annonce = await page.locator('[aria-live="polite"]').first().innerText();
-const bouton = page.getByRole("button", { name: "Regrouper" }).last();
+await page.waitForTimeout(1200);
 
-if (annonce.includes("Aucune carte")) {
-  check(await bouton.isDisabled(), "sans carte correspondante, le bouton est inactif");
-} else {
-  await bouton.click();
-  await page.waitForTimeout(2000);
-}
+// Rien n'étant coché par défaut, on coche tout à la main : plus aucune carte
+// ne porte d'image à ce stade, le filtre ne doit donc rien trouver.
+const cases = page.locator('[role="dialog"] input[type="checkbox"]');
+for (let i = 0; i < (await cases.count()); i++) await cases.nth(i).check();
+await page.waitForTimeout(800);
+await page.getByLabel("Titre du nouveau paquet").fill(`Fantôme ${Date.now()}`);
+
+const annonce = await page.locator('[role="dialog"] [aria-live="polite"]').first().innerText();
+check(annonce.includes("Aucune carte"), "aucune carte ne correspond au filtre", annonce);
+check(
+  await page.getByRole("button", { name: "Regrouper" }).last().isDisabled(),
+  "et le bouton reste inactif",
+);
 await page.keyboard.press("Escape");
 await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
 check(

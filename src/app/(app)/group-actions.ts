@@ -14,24 +14,36 @@ export type GroupResult =
 export type GroupFilter = "withImage" | "all";
 
 /**
- * Compte ce qui serait repris, sans rien écrire.
- * Sert à annoncer « 23 cartes » avant de valider : constituer un paquet de
- * révision à l'aveugle n'inspire pas confiance.
+ * Compte, paquet par paquet, ce qui serait copié — sans rien écrire.
+ *
+ * Par paquet et non en total : c'est ce qui permet d'être sélectif. Sans ce
+ * détail, on coche à l'aveugle sans savoir lesquels contiennent des figures.
+ *
+ * Un seul appel couvre tous les paquets à l'écran : le total se recalcule
+ * ensuite côté client à chaque case cochée, sans aller-retour.
  */
-export async function countGroupable(
+export async function countByDeck(
   deckIds: string[],
   filter: GroupFilter,
-): Promise<number> {
+): Promise<Record<string, number>> {
   const user = await requireUser();
-  if (deckIds.length === 0) return 0;
+  if (deckIds.length === 0) return {};
 
-  return prisma.card.count({
+  const rows = await prisma.card.groupBy({
+    by: ["deckId"],
     where: {
       deckId: { in: deckIds },
       deck: { ownerId: user.id },
       ...(filter === "withImage" ? { imagePath: { not: null } } : {}),
     },
+    _count: { _all: true },
   });
+
+  // Les paquets sans aucune carte correspondante sont absents du groupBy : on
+  // les remet à zéro, pour que l'interface puisse les afficher quand même.
+  const counts: Record<string, number> = Object.fromEntries(deckIds.map((id) => [id, 0]));
+  for (const row of rows) counts[row.deckId] = row._count._all;
+  return counts;
 }
 
 /**
