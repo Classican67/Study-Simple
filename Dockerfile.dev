@@ -19,6 +19,12 @@ COPY package.json package-lock.json ./
 # au passage, sans qu'une commande séparée soit nécessaire.
 COPY prisma ./prisma
 
+# Les scripts d'installation AVANT l'installation : le `postinstall` de
+# package.json lance `node scripts/copy-pdf-worker.mjs`, qui met le worker de
+# pdf.js dans public/. Sans ce dossier, `npm ci` s'arrête sur « Cannot find
+# module ». Même raison que pour prisma/ juste au-dessus, et même remède.
+COPY scripts ./scripts
+
 RUN npm ci
 
 EXPOSE 3000

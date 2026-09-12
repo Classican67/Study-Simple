@@ -124,6 +124,14 @@ du verrou npm.
   utilitaire. Remonter le drapeau en état React a réglé la chose en trois
   lignes. La couche `components` sert à ce qu'un utilitaire **doive** pouvoir
   écraser — pas à ce qui doit gagner.
+- **Ce que le `postinstall` touche doit être dans l'image.** npm l'exécute à la
+  fin de `npm ci`, avant le `COPY . .` : il a fallu copier `prisma/` d'abord,
+  puis `scripts/` le jour où le `postinstall` s'est mis à copier le worker de
+  pdf.js — « Cannot find module /app/scripts/copy-pdf-worker.mjs », au
+  déploiement seulement. `tests/dockerfile.test.ts` **relit** la ligne de
+  `postinstall` et exige que chaque chemin qui y figure soit copié avant
+  l'installation : ajouter un script sans toucher au Dockerfile fait échouer le
+  test, pas le serveur.
 - **Verrou npm et version de npm.** Deux npm différents n'écrivent pas le même
   `package-lock.json` : npm 11 omet des dépendances de paquets optionnels —
   `@emnapi/runtime`, réclamé par `@img/sharp-wasm32` — que npm 10 exige. Le
