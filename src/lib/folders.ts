@@ -27,7 +27,8 @@ export type FolderSummary = FolderNode & {
 // parents un par un (une requête par niveau) ou d'écrire du SQL récursif.
 async function allFolders(userId: string): Promise<FolderNode[]> {
   return prisma.folder.findMany({
-    where: { ownerId: userId },
+    // Seuls les dossiers de paquets : les notes ont leur propre classement.
+    where: { ownerId: userId, kind: "deck" },
     orderBy: { name: "asc" },
     select: { id: true, name: true, color: true, parentId: true },
   });

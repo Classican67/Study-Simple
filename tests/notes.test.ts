@@ -2,14 +2,22 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  buildPreview,
+  DEFAULT_RATIO,
   defaultContent,
+  documentRatio,
   isBlockKind,
+  MAX_DOCUMENT_PAGES,
   MAX_TABLE_COLS,
   MAX_TABLE_ROWS,
+  noteSearchText,
+  PAGE_GAP,
+  pageAtY,
+  pageBands,
   parseDrawing,
+  parsePreview,
   parseTable,
   parseText,
-  noteSearchText,
 } from "@/lib/notes";
 
 describe("isBlockKind", () => {
@@ -188,5 +196,182 @@ describe("noteSearchText", () => {
   it("survit à un bloc abîmé", () => {
     const texte = noteSearchText("Titre", [{ kind: "text", content: "{tronqué" }], brut);
     assert.ok(texte.includes("Titre"));
+  });
+});
+
+describe("aperçu de note", () => {
+  const page = (strokes: number) =>
+    JSON.stringify({
+      ratio: 1.4,
+      paper: "blank",
+      strokes: Array.from({ length: strokes }, (_, i) => ({
+        color: i % 2 ? "rose" : "default",
+        size: 2,
+        tool: "pen",
+        // Coordonnées réalistes : en proportion de la largeur, donc entre 0
+        // et le ratio de la page. Des valeurs hors page fausseraient la mesure
+        // de poids qui suit.
+        points: Array.from({ length: 120 }, (_, k) =>
+          k % 3 === 2 ? 0.5 : ((k + i) % 140) / 100,
+        ),
+      })),
+    });
+
+  it("ne fait pas d'aperçu d'un bloc qui n'est pas une page", () => {
+    assert.equal(buildPreview("text", "{}"), null);
+    assert.equal(buildPreview("table", "{}"), null);
+  });
+
+  it("résume un document importé à sa référence", () => {
+    const raw = JSON.stringify({
+      ratio: 1.414,
+      paper: "blank",
+      strokes: [],
+      backdrop: { file: "a.pdf", page: 3 },
+    });
+    assert.deepEqual(buildPreview("drawing", raw), {
+      kind: "pdf",
+      file: "a.pdf",
+      page: 3,
+      ratio: 1.414,
+    });
+  });
+
+  it("échantillonne une page manuscrite, sans la tronquer", () => {
+    // Garder les premiers traits ne montrerait que le coin d'une page remplie.
+    const apercu = buildPreview("drawing", page(400));
+    assert.equal(apercu?.kind, "ink");
+    if (apercu?.kind !== "ink") return;
+    assert.ok(apercu.strokes.length <= 24, `${apercu.strokes.length} traits`);
+    assert.ok(apercu.strokes.every((s) => s.points.length <= 24), "points bornés");
+    // Les points sont en millièmes entiers : deux fois plus légers.
+    assert.ok(apercu.strokes.every((s) => s.points.every(Number.isInteger)), "coordonnées entières");
+    // Le dernier trait échantillonné vient bien de la fin de la page.
+    const dernier = apercu.strokes.at(-1)!.points[0];
+    assert.ok(dernier > 400, `le prélèvement couvre toute la page (${dernier})`);
+  });
+
+  it("reste petit, quoi qu'on lui donne", () => {
+    // C'est tout l'objet : la liste des notes ne doit pas peser plus que les
+    // notes elles-mêmes.
+    const taille = JSON.stringify(buildPreview("drawing", page(2000))).length;
+    // Le budget : cent notes affichées doivent peser à peine plus qu'une seule
+    // page manuscrite chargée en entier (environ 300 Ko).
+    assert.ok(taille < 3500, `${taille} octets`);
+  });
+
+  it("ne fait pas d'aperçu d'une page vide", () => {
+    assert.equal(buildPreview("drawing", JSON.stringify({ strokes: [], ratio: 1 })), null);
+  });
+
+  it("relit ce qu'il a écrit", () => {
+    for (const brut of [
+      JSON.stringify(buildPreview("drawing", page(10))),
+      JSON.stringify({ kind: "pdf", file: "x.pdf", page: 1, ratio: 1.4 }),
+    ]) {
+      assert.ok(parsePreview(brut) !== null, brut.slice(0, 40));
+    }
+  });
+
+  it("survit à un aperçu abîmé", () => {
+    for (const brut of ["", "{", "null", '{"kind":"autre"}', '{"kind":"pdf"}', "[]"]) {
+      assert.equal(parsePreview(brut), null, brut);
+    }
+  });
+});
+
+
+describe("les pages d'un document sur une même surface", () => {
+  const doc = (ratios: number[]) => ratios.map((ratio, i) => ({ file: "a.pdf", page: i + 1, ratio }));
+
+  it("empile les pages les unes sous les autres", () => {
+    const bandes = pageBands(doc([1, 1.4, 1]));
+    assert.deepEqual(
+      bandes.map((b) => b.top),
+      [0, 1 + PAGE_GAP, 1 + 1.4 + 2 * PAGE_GAP],
+    );
+  });
+
+  it("donne au document la hauteur de ses pages, sans blanc final", () => {
+    assert.equal(documentRatio(doc([1, 1])), 2 + PAGE_GAP);
+    assert.equal(documentRatio(doc([1.4])), 1.4);
+  });
+
+  it("retombe sur une page ordinaire quand il n'y a pas de document", () => {
+    assert.equal(documentRatio([]), DEFAULT_RATIO);
+    assert.deepEqual(pageBands([]), []);
+  });
+
+  it("dit à quelle page appartient une hauteur", () => {
+    const bandes = pageBands(doc([1, 1, 1]));
+    assert.equal(pageAtY(bandes, 0), 0);
+    assert.equal(pageAtY(bandes, 0.99), 0);
+    assert.equal(pageAtY(bandes, 1.5), 1);
+    assert.equal(pageAtY(bandes, 2.5), 2);
+    // Au-delà de la dernière page, c'est encore la dernière.
+    assert.equal(pageAtY(bandes, 99), 2);
+  });
+
+  it("range le blanc entre deux pages avec la page qui précède", () => {
+    const bandes = pageBands(doc([1, 1]));
+    // Un trait posé dans la gouttière appartient à l'une des deux, pas à rien.
+    assert.equal(pageAtY(bandes, 1 + PAGE_GAP / 2), 1);
+  });
+});
+
+describe("parseDrawing — les notes d'avant", () => {
+  it("relit un fond d'une seule page écrit sous l'ancienne forme", () => {
+    // Les premières notes rangeaient une page par bloc, sous `backdrop`.
+    const ancien = JSON.stringify({
+      strokes: [],
+      ratio: 1.414,
+      paper: "blank",
+      backdrop: { file: "cours.pdf", page: 3 },
+    });
+    const contenu = parseDrawing(ancien);
+    assert.deepEqual(contenu.pages, [{ file: "cours.pdf", page: 3, ratio: 1.414 }]);
+    assert.equal(contenu.ratio, 1.414);
+  });
+
+  it("lit un document entier sous la nouvelle forme", () => {
+    const contenu = parseDrawing(
+      JSON.stringify({
+        strokes: [],
+        paper: "blank",
+        pages: [
+          { file: "c.pdf", page: 1, ratio: 1.4 },
+          { file: "c.pdf", page: 2, ratio: 1.4 },
+        ],
+      }),
+    );
+    assert.equal(contenu.pages.length, 2);
+    assert.equal(contenu.ratio, 2.8 + PAGE_GAP);
+  });
+
+  it("écarte les pages mal formées sans perdre les autres", () => {
+    const contenu = parseDrawing(
+      JSON.stringify({
+        pages: [
+          { file: "c.pdf", page: 1, ratio: 1.4 },
+          { file: "c.pdf" },
+          { page: 2 },
+          { file: "c.pdf", page: 0, ratio: 1 },
+          { file: "c.pdf", page: 2, ratio: 1.4 },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      contenu.pages.map((p) => p.page),
+      [1, 2],
+    );
+  });
+
+  it("ne garde pas plus de pages qu'un document n'en a le droit", () => {
+    const contenu = parseDrawing(
+      JSON.stringify({
+        pages: Array.from({ length: 500 }, (_, i) => ({ file: "c.pdf", page: i + 1, ratio: 1 })),
+      }),
+    );
+    assert.equal(contenu.pages.length, MAX_DOCUMENT_PAGES);
   });
 });

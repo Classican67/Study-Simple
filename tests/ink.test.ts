@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   boundsOf,
+  eraseStroke,
   pointInPolygon,
   pointsOf,
   snapShape,
@@ -209,5 +210,77 @@ describe("règle", () => {
     assert.equal(rulerDegrees({ y: 0, angle: Math.PI / 4 }), 45);
     assert.equal(rulerDegrees({ y: 0, angle: Math.PI }), 0, "un demi-tour revient au même");
     assert.equal(rulerDegrees({ y: 0, angle: -Math.PI / 2 }), -90);
+  });
+});
+
+describe("eraseStroke — la gomme précise", () => {
+  // Une ligne horizontale de x = 0 à x = 1, à mi-hauteur.
+  const ligne = (n = 11) =>
+    Array.from({ length: n }, (_, i) => [i / (n - 1), 0.5, 0.5]).flat();
+
+  it("laisse le trait intact quand la gomme passe loin", () => {
+    const trait = ligne();
+    const reste = eraseStroke(trait, { x: 0.5, y: 0.9 }, 0.05);
+    assert.equal(reste.length, 1);
+    // Le tableau d'origine, tel quel : rien à réenregistrer.
+    assert.equal(reste[0], trait);
+  });
+
+  it("coupe le trait en deux quand elle passe au milieu", () => {
+    const reste = eraseStroke(ligne(), { x: 0.5, y: 0.5 }, 0.1);
+    assert.equal(reste.length, 2);
+    const gauche = reste[0];
+    const droite = reste[1];
+    // Le premier morceau s'arrête au bord de la gomme, le second repart après.
+    assert.ok(Math.abs(gauche[gauche.length - 3] - 0.4) < 1e-9);
+    assert.ok(Math.abs(droite[0] - 0.6) < 1e-9);
+    // Et les extrémités du trait sont intactes.
+    assert.equal(gauche[0], 0);
+    assert.equal(droite[droite.length - 3], 1);
+  });
+
+  it("raccourcit le trait quand elle passe sur une extrémité", () => {
+    const reste = eraseStroke(ligne(), { x: 0, y: 0.5 }, 0.15);
+    assert.equal(reste.length, 1);
+    assert.ok(Math.abs(reste[0][0] - 0.15) < 1e-9);
+    assert.ok(reste[0].length < ligne().length);
+  });
+
+  it("efface tout le trait quand elle le recouvre", () => {
+    assert.deepEqual(eraseStroke(ligne(), { x: 0.5, y: 0.5 }, 2), []);
+  });
+
+  it("coupe une droite dessinée à la règle, qui n'a que deux points", () => {
+    // Le cas que rate une gomme qui ne compare que les points enregistrés.
+    const droite = [0, 0.5, 0.5, 1, 0.5, 0.5];
+    const reste = eraseStroke(droite, { x: 0.5, y: 0.5 }, 0.1);
+    assert.equal(reste.length, 2);
+    assert.ok(Math.abs(reste[0][3] - 0.4) < 1e-9);
+    assert.ok(Math.abs(reste[1][0] - 0.6) < 1e-9);
+  });
+
+  it("jette les miettes d'un seul point, qui ne se dessinent pas", () => {
+    // La gomme s'arrête juste avant le dernier point : le reste serait un point seul.
+    const reste = eraseStroke([0, 0.5, 0.5, 0.5, 0.5, 0.5, 1, 0.5, 0.5], { x: 0.5, y: 0.5 }, 0.55);
+    for (const morceau of reste) assert.ok(morceau.length >= 6);
+  });
+
+  it("garde la pression en interpolant la coupure", () => {
+    const trait = [0, 0.5, 0, 1, 0.5, 1];
+    const reste = eraseStroke(trait, { x: 1, y: 0.5 }, 0.5);
+    assert.equal(reste.length, 1);
+    // La coupure tombe à mi-chemin : la pression y vaut la moyenne.
+    assert.ok(Math.abs(reste[0][5] - 0.5) < 1e-9);
+  });
+
+  it("suit un trait replié qu'elle traverse deux fois", () => {
+    // Un « V » dont les deux branches passent sous la gomme.
+    const v = [0, 0.2, 0.5, 0.5, 0.8, 0.5, 1, 0.2, 0.5];
+    const reste = eraseStroke(v, { x: 0.5, y: 0.85 }, 0.2);
+    assert.equal(reste.length, 2);
+  });
+
+  it("ne renvoie rien pour un trait vide", () => {
+    assert.deepEqual(eraseStroke([], { x: 0, y: 0 }, 0.1), []);
   });
 });

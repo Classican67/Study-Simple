@@ -6,7 +6,8 @@
  * d'encre pour vérifier que les annotations y sont réellement peintes.
  */
 import { chromium } from "playwright";
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import path from "node:path";
 
 const { token } = JSON.parse(readFileSync("ctx.json", "utf8"));
 const BASE = "http://localhost:3100";
@@ -32,7 +33,27 @@ const noteId = page.url().split("/notes/")[1];
 await page.getByLabel("Titre de la note").fill(`Export ${Date.now()}`);
 await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
 await page.waitForTimeout(7000);
-check((await page.locator('[data-testid="drawing-canvas"]').count()) === 2, "deux pages importées");
+check(
+  (await page.locator('[data-testid="drawing-canvas"]').count()) === 1,
+  "le document tient sur une seule surface",
+);
+
+/*
+ * L'empreinte du document importé, prise **maintenant**.
+ *
+ * Le dossier d'envois garde ce que les essais précédents y ont laissé — dont
+ * des PDF exportés puis réimportés, qui n'ont aucune raison de faire la même
+ * taille. Comparer « tous les fichiers entre eux » accusait l'export de
+ * modifier des documents qu'il n'avait jamais ouverts.
+ */
+const DOSSIER = path.resolve(process.env.UPLOAD_DIR ?? "./uploads");
+const empreinte = () =>
+  Object.fromEntries(
+    readdirSync(DOSSIER)
+      .filter((f) => f.endsWith(".pdf"))
+      .map((f) => [f, statSync(path.join(DOSSIER, f)).size]),
+  );
+const avant = empreinte();
 
 // Trois traits bien visibles sur la première page, dont un surligneur.
 await page.evaluate(() => {
@@ -58,7 +79,44 @@ await page.evaluate(() => {
 await page.waitForTimeout(2000);
 check(
   (await page.locator('[data-testid="drawing-canvas"]').first().getAttribute("aria-label")).includes("3 trait"),
-  "trois annotations posées",
+  "trois annotations posées sur la première page",
+);
+
+/*
+ * Et un quatrième trait sur la **deuxième** page.
+ *
+ * C'est là que se joue tout l'empilement : les traits sont repérés d'un bout à
+ * l'autre de la surface, et l'export doit les rendre à la page où ils tombent.
+ * Un trait de la page 2 qui ressortirait sur la page 1 — ou hors du papier —
+ * ne se verrait sur aucune mesure de l'écran.
+ */
+await page.evaluate(() => {
+  const surface = document.querySelector("[data-ink-scroll]");
+  // Le milieu de la deuxième page, en proportion de la largeur.
+  surface.scrollTop = 1.9 * surface.clientWidth - surface.clientHeight / 2;
+});
+await page.waitForTimeout(1500);
+await page.evaluate(() => {
+  const el = document.querySelector('[data-testid="drawing-canvas"]');
+  const r = el.getBoundingClientRect();
+  const fire = (type, x, y, p, buttons) =>
+    el.dispatchEvent(
+      new PointerEvent(type, {
+        bubbles: true, cancelable: true, pointerId: 1, pointerType: "pen",
+        isPrimary: true, pressure: p, buttons,
+        clientX: r.left + r.width * x, clientY: r.top + r.height * y,
+      }),
+    );
+  fire("pointerdown", 0.2, 0.45, 0.8, 1);
+  fire("pointermove", 0.5, 0.5, 0.8, 1);
+  fire("pointermove", 0.8, 0.46, 0.8, 1);
+  fire("pointerup", 0.8, 0.46, 0, 0);
+});
+await page.waitForTimeout(2000);
+check(
+  (await page.locator('[data-testid="drawing-canvas"]').first().getAttribute("aria-label")).includes("4 trait"),
+  "un quatrième trait posé sur la deuxième page",
+  await page.locator('[data-testid="drawing-canvas"]').first().getAttribute("aria-label"),
 );
 
 // --- Les deux formes d'export -------------------------------------------------
@@ -96,8 +154,27 @@ for (const [mode, nom] of [["flat", "aplati"], ["annot", "annotations"]]) {
       })
     : [];
 
+  const page2 = doc.getPage(1);
+  const annots2 = page2.node.get(PDFName.of("Annots"));
+  const inks2 = annots2
+    ? annots2.asArray().filter((ref) => {
+        const dict = doc.context.lookup(ref);
+        return dict instanceof PDFDict && dict.get(PDFName.of("Subtype"))?.toString() === "/Ink";
+      })
+    : [];
+
   if (mode === "annot") {
     check(inks.length === 3, "les trois traits sont des annotations Ink", `${inks.length} trouvée(s)`);
+    // La preuve de l'empilement : chaque trait est revenu à sa page.
+    check(inks2.length === 1, "et le quatrième est sur la deuxième page", `${inks2.length} trouvée(s)`);
+    const boite = inks2.length
+      ? doc.context.lookup(inks2[0]).get(PDFName.of("Rect")).asArray().map((n) => n.asNumber())
+      : null;
+    check(
+      boite !== null && boite[1] >= -5 && boite[3] <= page2.getHeight() + 5,
+      "et il tombe bien dans le papier, pas au-delà",
+      JSON.stringify(boite),
+    );
     const premier = doc.context.lookup(annots.asArray()[0]);
     for (const clef of ["Rect", "InkList", "AP", "C", "F"]) {
       check(Boolean(premier.get(PDFName.of(clef))), `l'annotation porte /${clef}`);
@@ -116,16 +193,13 @@ for (const [mode, nom] of [["flat", "aplati"], ["annot", "annotations"]]) {
 
 // --- Le document d'origine est intact ----------------------------------------
 section("innocuité");
-const { readdirSync, statSync } = await import("node:fs");
-const path = await import("node:path");
-const dossier = path.resolve(process.env.UPLOAD_DIR ?? "./uploads");
-const sources = readdirSync(dossier).filter((f) => f.endsWith(".pdf"));
-const tailles = sources.map((f) => statSync(path.join(dossier, f)).size);
-check(sources.length > 0, "le document importé est toujours sur le disque");
+const apres = empreinte();
+check(Object.keys(avant).length > 0, "le document importé est toujours sur le disque");
+const modifies = Object.keys(avant).filter((f) => apres[f] !== avant[f]);
 check(
-  tailles.every((t) => t === tailles[0]),
-  "et sa taille n'a pas bougé — l'export ne le modifie pas",
-  JSON.stringify(tailles),
+  modifies.length === 0,
+  "et pas un octet n'a bougé — l'export ne touche pas au document",
+  JSON.stringify(modifies.map((f) => [f, avant[f], apres[f]])),
 );
 
 // --- Le PDF exporté se relit : on le réimporte dans l'app --------------------
@@ -136,8 +210,13 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("shots/export-flat.pdf");
 await page.waitForTimeout(8000);
 check(
-  (await page.locator('[data-testid="drawing-canvas"]').count()) === 2,
-  "le PDF exporté se réimporte, avec ses deux pages",
+  (await page.locator('[data-testid="drawing-canvas"]').count()) === 1,
+  "le PDF exporté se réimporte, sur une seule surface",
+);
+check(
+  (await page.locator('canvas[aria-label*="du document"]').count()) === 2,
+  "et il a bien gardé ses deux pages",
+  String(await page.locator('canvas[aria-label*="du document"]').count()),
 );
 const relu = await page
   .locator('canvas[aria-label^="Page 1 du document"]')

@@ -8,7 +8,7 @@
 import { chromium } from "playwright";
 import { readFileSync, mkdirSync } from "node:fs";
 
-const { token, deckId, folderId } = JSON.parse(readFileSync("ctx.json", "utf8"));
+const { token, deckId, folderId, noteFolderId } = JSON.parse(readFileSync("ctx.json", "utf8"));
 const BASE = "http://localhost:3100";
 mkdirSync("shots", { recursive: true });
 
@@ -26,6 +26,8 @@ const pages = [
   ["jour", "/study"],
   ["notes", "/notes"],
   ["dossier", folderId ? `/folders/${folderId}` : "/"],
+  // Les deux classements sont séparés : le dossier de notes a sa propre page.
+  ["dossier-notes", noteFolderId ? `/notes?folder=${noteFolderId}` : "/notes"],
   ["connexion", "/login"],
 ];
 

@@ -32,6 +32,14 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   et persistance de tout cela
 - `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
   par mots-clés et filtres de contenu, page manuscrite en plein écran
+- `node pages-e2e.mjs` — pages d'une note : la gomme précise coupe le trait au
+  lieu de l'effacer, la duplication rend une copie indépendante, et le volet
+  montre les pages en vignettes
+- `node dossiers-e2e.mjs` — les dossiers des paquets et ceux des notes ne se
+  mélangent pas, et la recherche sait dans lesquels chercher
+- `node vignettes-e2e.mjs` — liste des notes : la vignette montre la première
+  page, les tailles d'affichage et le tri vivent dans l'adresse, et la liste
+  reste légère malgré les aperçus
 - `node palette-e2e.mjs` — barre d'outils de la page manuscrite : les réglages
   suivent l'outil courant, chaque outil retient les siens, le verrou du stylet
   et la gomme sélective font ce qu'ils annoncent
@@ -70,7 +78,8 @@ défaut, constater que le test le signale, puis restaurer. Une sonde ajoutée à
 `audit.mjs` a été validée ainsi : au premier essai elle ne voyait rien.
 
 Les vérifications qui tiennent sans navigateur vont dans `tests/` — ordre des
-couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`.
+couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`, cohérence
+du verrou npm.
 
 ## Pièges rencontrés
 
@@ -91,6 +100,44 @@ couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`.
   `flex-1` ne borne rien et le débordement revient. Et une hauteur fixe en
   `clamp()` ignore par construction ce qui l'entoure — c'est au conteneur
   d'être borné et à l'élément d'absorber la place restante.
+- **Constante exportée d'un module client.** Une valeur exportée depuis un
+  fichier `"use client"` n'arrive pas comme une vraie valeur dans un composant
+  serveur : on n'y reçoit qu'une référence, et l'appeler échoue à l'exécution
+  sur un « includes is not a function » peu parlant. Les tableaux et listes
+  partagés vont dans un module neutre de `src/lib/`.
+- **Un document importé est *une* surface.** Ses pages sont empilées sur le
+  même canevas, pas une par bloc : on fait défiler d'un geste, on annote à
+  cheval, et la palette ne bouge pas. Les traits sont donc repérés d'un bout à
+  l'autre de la pile, et l'export doit **rendre chaque trait à sa page**
+  (`pageAtY` puis `translateStroke`) : sans ce retour au repère de la page, un
+  trait de la page 2 sort du papier à y ≈ −290, ce qu'aucune mesure d'écran ne
+  voit. Seules les pages proches de l'écran sont rendues — deux cents canevas
+  pdf.js tuent l'onglet.
+- **Deux classements, pas un.** Les dossiers portent un genre (`Folder.kind`,
+  « deck » ou « note ») : créer un dossier pour ses notes en faisait apparaître
+  un dans les paquets. Toute requête de dossier filtre donc sur le genre, et
+  ranger une note dans un dossier de paquets est refusé — elle y deviendrait
+  invisible.
+- **Un état que React connaît ne se dit pas en CSS.** Le repère de page devait
+  monter quand le canevas passe en plein écran ; la règle `html[data-…] .x`
+  vivait dans `@layer components` et perdait contre `md:bottom-6`, qui est un
+  utilitaire. Remonter le drapeau en état React a réglé la chose en trois
+  lignes. La couche `components` sert à ce qu'un utilitaire **doive** pouvoir
+  écraser — pas à ce qui doit gagner.
+- **Verrou npm et version de npm.** Deux npm différents n'écrivent pas le même
+  `package-lock.json` : npm 11 omet des dépendances de paquets optionnels —
+  `@emnapi/runtime`, réclamé par `@img/sharp-wasm32` — que npm 10 exige. Le
+  `npm ci` du `Dockerfile` s'arrête alors sur « Missing: … from lock file »,
+  alors que tout passe sur la machine de développement. Le déploiement a échoué
+  deux fois là-dessus. La version vit désormais dans `packageManager`
+  (package.json), le `Dockerfile` l'impose avant `npm ci`, et
+  `tests/lockfile.test.ts` vérifie sans npm que chaque dépendance citée par le
+  verrou s'y résout. **Régénérer un verrou se fait avec la version déclarée**,
+  et npm 11 au minimum : il relit un verrou de npm 10, l'inverse est faux.
+- **Tri de texte en SQLite.** La comparaison est octet par octet : « Écrite »
+  se range après « Note », parce que « É » s'encode sur deux octets dont le
+  premier vaut plus que « N ». Aucune collation française sans extension — trier
+  en mémoire après un listing borné.
 - **Navigateur de vérification trop ancien.** `verify/` installe Playwright en
   version **courante**, pas figée : pdf.js s'appuie sur des fonctions arrivées
   dans Chrome 140, et un Chromium plus ancien échoue sur « toHex is not a
@@ -132,9 +179,15 @@ défaut, quelle que soit la base. Un essai qui téléverse une image écrit donc
 dans les fichiers réels. Lancer le serveur de vérification avec les deux :
 
 ```bash
+cp data/dev.db verify/verif.db
+rm -rf verify/uploads && mkdir -p verify/uploads && cp -R data/uploads/. verify/uploads/
 DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
   npx next start -p 3100
 ```
+
+Copier la base **sans ses fichiers** donne une copie incomplète : les notes qui
+portent un document importé s'ouvrent alors sur un 404, et le rendu PDF échoue.
+Ce n'est pas un défaut de l'application, c'est un bac à sable mal rempli.
 
 Cinq images d'essai se sont retrouvées dans `data/uploads` avant que ce soit
 noté ici.

@@ -10,6 +10,20 @@
  */
 
 /**
+ * Où l'on cherche.
+ *
+ * Les cartes et les notes ne se cherchent pas de la même façon — on cherche un
+ * terme à réviser, ou un cours à relire — et mêler les deux listes obligerait
+ * à trier du regard. On choisit donc.
+ */
+export const SEARCH_SCOPES = ["cards", "notes"] as const;
+export type SearchScope = (typeof SEARCH_SCOPES)[number];
+
+export function isSearchScope(value: unknown): value is SearchScope {
+  return typeof value === "string" && (SEARCH_SCOPES as readonly string[]).includes(value);
+}
+
+/**
  * Repli d'un texte sur sa forme comparable, caractère par caractère.
  *
  * NFKD plutôt que NFD : la décomposition dite « de compatibilité » ramène au

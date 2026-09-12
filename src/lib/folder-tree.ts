@@ -5,6 +5,19 @@
  * fonctions ne sont que du calcul sur une liste déjà chargée.
  */
 
+/**
+ * À quelle section appartient un dossier.
+ *
+ * Les paquets et les notes ont chacun leur classement : un dossier créé pour
+ * ranger des notes n'a rien à faire dans les paquets.
+ */
+export const FOLDER_KINDS = ["deck", "note"] as const;
+export type FolderKind = (typeof FOLDER_KINDS)[number];
+
+export function isFolderKind(value: unknown): value is FolderKind {
+  return typeof value === "string" && (FOLDER_KINDS as readonly string[]).includes(value);
+}
+
 export type FolderNode = {
   id: string;
   name: string;

@@ -23,10 +23,13 @@ await ctx.addCookies([{ name: "fiches_session", value: token, domain: "localhost
 const page = await ctx.newPage();
 page.on("pageerror", (e) => { console.log("   erreur page :", String(e).slice(0, 140)); ko++; });
 
-// --- Créer un dossier depuis la section Paquets -----------------------------
+// --- Créer un dossier depuis la section Notes -------------------------------
+//
+// Les notes ont leur propre classement : un dossier créé dans les paquets ne
+// leur est pas proposé, et c'est voulu.
 section("préparation");
 const DOSSIER = `Physique ${Date.now()}`;
-await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: /Dossier/ }).first().click();
 await page.waitForSelector('[role="dialog"]');
 await page.locator('[role="dialog"] input[name="name"]').fill(DOSSIER);

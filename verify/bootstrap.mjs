@@ -20,7 +20,10 @@ const user = db.prepare(`SELECT id, email, role FROM "User" LIMIT 1`).get();
 const deck =
   db.prepare(`SELECT id FROM "Deck" WHERE title = 'Biologie cellulaire'`).get() ??
   db.prepare(`SELECT id FROM "Deck" LIMIT 1`).get();
-const folder = db.prepare(`SELECT id FROM "Folder" LIMIT 1`).get();
+// Un dossier de **paquets** : `/folders/<id>` est la route des paquets, et un
+// dossier de notes y répond 404 depuis que les deux classements sont séparés.
+const folder = db.prepare(`SELECT id FROM "Folder" WHERE kind = 'deck' LIMIT 1`).get();
+const noteFolder = db.prepare(`SELECT id FROM "Folder" WHERE kind = 'note' LIMIT 1`).get();
 db.close();
 
 const token = await new SignJWT({ userId: user.id, role: user.role })
@@ -31,6 +34,17 @@ const token = await new SignJWT({ userId: user.id, role: user.role })
 
 writeFileSync(
   "ctx.json",
-  JSON.stringify({ token, userId: user.id, email: user.email, deckId: deck.id, folderId: folder?.id ?? null }, null, 2),
+  JSON.stringify(
+    {
+      token,
+      userId: user.id,
+      email: user.email,
+      deckId: deck.id,
+      folderId: folder?.id ?? null,
+      noteFolderId: noteFolder?.id ?? null,
+    },
+    null,
+    2,
+  ),
 );
 console.log("ctx.json régénéré —", user.email, "| paquet", deck.id, "| dossier", folder?.id ?? "(aucun)");

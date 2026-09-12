@@ -1,24 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
-  Circle,
-  Crosshair,
-  Eraser,
-  Highlighter,
-  Lasso,
-  Maximize2,
-  Minus as LineIcon,
-  Pen,
-  PenOff,
-  Redo2,
-  Ruler as RulerIcon,
-  Shapes,
-  Square as RectIcon,
-  Trash2,
-  Undo2,
-  X,
-} from "lucide-react";
+import { Circle, Crosshair, Eraser, Highlighter, Lasso, Maximize2, Minus as LineIcon, Pen, PenOff, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
 
 import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
 import { PAPERS, type Paper } from "@/lib/notes";
@@ -85,6 +68,7 @@ export type PaletteProps = {
   paper: Paper;
   /** La gomme ne retire-t-elle que les surlignages ? */
   eraseHighlightsOnly: boolean;
+  erasePrecise: boolean;
   /** Le doigt n'écrit jamais, même avant qu'un stylet ait servi. */
   penOnly: boolean;
   penDetected: boolean;
@@ -97,6 +81,7 @@ export type PaletteProps = {
   onShape: (shape: Shape) => void;
   onPaper: (paper: Paper) => void;
   onEraseHighlightsOnly: (value: boolean) => void;
+  onErasePrecise: (value: boolean) => void;
   onPenOnly: (value: boolean) => void;
   onDeleteSelection: () => void;
   onUndo: () => void;
@@ -116,6 +101,7 @@ export function InkPalette(props: PaletteProps) {
     shape,
     paper,
     eraseHighlightsOnly,
+    erasePrecise,
     penOnly,
     penDetected,
     selection,
@@ -308,6 +294,38 @@ export function InkPalette(props: PaletteProps) {
 
         {tool === "eraser" ? (
           <Group label="Gomme">
+            {/* Rayer un mot d'un geste, ou reprendre le détail d'une lettre :
+                deux besoins opposés, deux gommes. */}
+            <button
+              type="button"
+              onClick={() => props.onErasePrecise(false)}
+              aria-pressed={!erasePrecise}
+              className={cn(
+                "flex min-h-11 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+                erasePrecise
+                  ? "text-on-surface-variant hover:text-on-surface"
+                  : "bg-primary-container text-on-primary-container",
+              )}
+              title="Effacer le trait entier d'un seul passage"
+            >
+              <Eraser className="size-4" />
+              Trait entier
+            </button>
+            <button
+              type="button"
+              onClick={() => props.onErasePrecise(true)}
+              aria-pressed={erasePrecise}
+              className={cn(
+                "flex min-h-11 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+                erasePrecise
+                  ? "bg-primary-container text-on-primary-container"
+                  : "text-on-surface-variant hover:text-on-surface",
+              )}
+              title="Couper le trait sous la pointe, sans emporter le reste"
+            >
+              <Scissors className="size-4" />
+              Précise
+            </button>
             <button
               type="button"
               onClick={() => props.onEraseHighlightsOnly(!eraseHighlightsOnly)}

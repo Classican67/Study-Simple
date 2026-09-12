@@ -213,3 +213,117 @@ export function rulerDegrees(ruler: Ruler): number {
   while (deg < -90) deg += 180;
   return Math.round(deg);
 }
+
+/**
+ * Gomme précise : ce qui reste d'un trait après le passage d'une gomme ronde.
+ *
+ * La gomme ordinaire retire le trait entier dès qu'on l'effleure. C'est ce
+ * qu'on veut pour rayer un mot, jamais pour corriger la queue d'un « g » au
+ * milieu d'une ligne d'écriture — toute la ligne disparaît.
+ *
+ * Celle-ci **coupe** : le trait est rendu en morceaux, et l'on rend les
+ * morceaux qui survivent. Le calcul se fait segment par segment, pas point par
+ * point : une droite tracée à la règle ne compte que deux points, et les
+ * comparer à la gomme ne trouverait jamais rien à effacer entre les deux.
+ *
+ * Renvoie le tableau d'origine, tel quel, quand la gomme ne touche à rien —
+ * l'appelant peut s'y fier pour savoir qu'il n'y a rien à enregistrer.
+ */
+export function eraseStroke(flat: number[], point: Point, radius: number): number[][] {
+  const n = Math.floor(flat.length / 3);
+  if (n === 0) return [];
+
+  // Rejet rapide : la gomme passe sur des centaines de traits à chaque geste.
+  const bounds = boundsOf(flat);
+  if (
+    !bounds ||
+    point.x < bounds.minX - radius ||
+    point.x > bounds.maxX + radius ||
+    point.y < bounds.minY - radius ||
+    point.y > bounds.maxY + radius
+  ) {
+    return [flat];
+  }
+
+  const dedans = (i: number) => {
+    const dx = flat[i * 3] - point.x;
+    const dy = flat[i * 3 + 1] - point.y;
+    return dx * dx + dy * dy <= radius * radius;
+  };
+
+  if (n === 1) return dedans(0) ? [] : [flat];
+
+  const morceaux: number[][] = [];
+  let courant: number[] = [];
+  let touche = false;
+
+  const pousser = (i: number) => courant.push(flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]);
+  const interpoler = (i: number, j: number, t: number) => {
+    for (let k = 0; k < 3; k++) {
+      courant.push(flat[i * 3 + k] + (flat[j * 3 + k] - flat[i * 3 + k]) * t);
+    }
+  };
+  const clore = () => {
+    // Un point isolé ne se dessine pas : il n'a pas de direction.
+    if (courant.length >= 6) morceaux.push(courant);
+    courant = [];
+  };
+
+  if (!dedans(0)) pousser(0);
+  else touche = true;
+
+  for (let i = 0; i + 1 < n; i++) {
+    const coupe = segmentInCircle(
+      { x: flat[i * 3], y: flat[i * 3 + 1] },
+      { x: flat[(i + 1) * 3], y: flat[(i + 1) * 3 + 1] },
+      point,
+      radius,
+    );
+    if (!coupe) {
+      pousser(i + 1);
+      continue;
+    }
+    touche = true;
+    const [t0, t1] = coupe;
+    if (t0 > 0) interpoler(i, i + 1, t0);
+    clore();
+    if (t1 < 1) {
+      interpoler(i, i + 1, t1);
+      pousser(i + 1);
+    }
+  }
+  clore();
+
+  return touche ? morceaux : [flat];
+}
+
+/**
+ * Portion d'un segment située dans un disque, en paramètre de 0 à 1.
+ *
+ * Résolution du second degré `|a + t·(b − a) − centre|² = r²`, bornée au
+ * segment. `null` quand il n'en traverse rien.
+ */
+function segmentInCircle(
+  a: Point,
+  b: Point,
+  centre: Point,
+  radius: number,
+): [number, number] | null {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const fx = a.x - centre.x;
+  const fy = a.y - centre.y;
+
+  const A = dx * dx + dy * dy;
+  if (A === 0) return fx * fx + fy * fy <= radius * radius ? [0, 1] : null;
+
+  const B = 2 * (fx * dx + fy * dy);
+  const C = fx * fx + fy * fy - radius * radius;
+  const discriminant = B * B - 4 * A * C;
+  if (discriminant < 0) return null;
+
+  const racine = Math.sqrt(discriminant);
+  const t0 = Math.max(0, (-B - racine) / (2 * A));
+  const t1 = Math.min(1, (-B + racine) / (2 * A));
+  return t0 <= t1 ? [t0, t1] : null;
+}

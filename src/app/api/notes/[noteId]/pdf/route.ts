@@ -5,7 +5,8 @@ import { PDFDocument, rgb } from "pdf-lib";
 
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { parseDrawing, UNTITLED } from "@/lib/notes";
+import { boundsOf, translateStroke } from "@/lib/ink";
+import { pageAtY, pageBands, parseDrawing, UNTITLED, type PageBand, type Stroke } from "@/lib/notes";
 import {
   inkRgb,
   strokeOpacity,
@@ -56,8 +57,41 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
   });
   if (!note) return NextResponse.json({ error: "Note introuvable." }, { status: 404 });
 
-  const pages = note.blocks.map((b) => parseDrawing(b.content));
-  if (pages.length === 0) {
+  const blocs = note.blocks.map((b) => parseDrawing(b.content));
+
+  /*
+   * Les feuilles du PDF à produire.
+   *
+   * Un bloc manuscrit qui porte un document importé vaut **plusieurs** pages :
+   * elles sont empilées sur une même surface, et les traits qu'on y a posés
+   * sont repérés d'un bout à l'autre de la pile. Chaque trait revient donc à
+   * la page où il tombe, ramené dans le repère de celle-ci — sinon tout ce qui
+   * est écrit après la première page sortirait du papier.
+   */
+  const feuilles: { band: PageBand | null; ratio: number; strokes: Stroke[] }[] = [];
+  for (const bloc of blocs) {
+    const bandes = pageBands(bloc.pages);
+    if (bandes.length === 0) {
+      feuilles.push({ band: null, ratio: bloc.ratio, strokes: bloc.strokes });
+      continue;
+    }
+
+    const parPage: Stroke[][] = bandes.map(() => []);
+    for (const stroke of bloc.strokes) {
+      const boite = boundsOf(stroke.points);
+      if (!boite) continue;
+      // Un trait à cheval sur deux pages revient à celle où il est le plus :
+      // c'est son milieu qui décide, et le papier rogne le débord.
+      const index = pageAtY(bandes, (boite.minY + boite.maxY) / 2);
+      parPage[index].push({
+        ...stroke,
+        points: translateStroke(stroke.points, 0, -bandes[index].top),
+      });
+    }
+    bandes.forEach((band, index) => feuilles.push({ band, ratio: band.ratio, strokes: parPage[index] }));
+  }
+
+  if (feuilles.length === 0) {
     return NextResponse.json(
       { error: "Cette note ne contient aucune page manuscrite." },
       { status: 400 },
@@ -82,13 +116,13 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
     return doc;
   };
 
-  for (const page of pages) {
+  for (const page of feuilles) {
     let cible;
 
-    if (page.backdrop) {
+    if (page.band) {
       try {
-        const source = await ouvrir(page.backdrop.file);
-        const index = page.backdrop.page - 1;
+        const source = await ouvrir(page.band.file);
+        const index = page.band.page - 1;
         if (index < 0 || index >= source.getPageCount()) continue;
         const [copiee] = await sortie.copyPages(source, [index]);
         cible = sortie.addPage(copiee);

@@ -38,6 +38,10 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node hauteur.mjs` | La révision tient dans l'écran, sur cinq tailles d'appareil |
 | `node notes-e2e.mjs` | Notes : texte, tableau calculé, croquis au stylet, persistance |
 | `node notes-avancees-e2e.mjs` | Notes : dossiers, recherche par mots-clés et filtres, page manuscrite plein écran |
+| `node dossiers-e2e.mjs` | Dossiers séparés entre paquets et notes, et portée de la recherche |
+| `node pages-e2e.mjs` | Pages d'une note : gomme précise, duplication, volet de pages |
+| `node regard.mjs` | Captures ciblées du document empilé et du volet, en clair et en sombre |
+| `node vignettes-e2e.mjs` | Liste des notes : vignettes, tailles d'affichage, tri, et poids de la liste |
 | `node palette-e2e.mjs` | Barre d'outils : réglages contextuels, mémoire par outil, verrou stylet, gomme sélective, navigation entre pages |
 | `node export-pdf-e2e.mjs` | Export PDF : aplati et annotations Ink conformes, document d'origine intact, PDF relisible |
 | `node document-e2e.mjs` | Import d'un PDF : une page annotable par page, annotation conservée, refus des formats inconnus |

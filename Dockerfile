@@ -33,6 +33,18 @@ COPY package.json package-lock.json ./
 # données, cas où il faut de toute façon régénérer.
 COPY prisma ./prisma
 
+# La version de npm, lue dans package.json.
+#
+# Deux npm différents n'écrivent pas le même verrou : celui de npm 11 omet des
+# dépendances de paquets optionnels (`@emnapi/runtime`, réclamé par
+# `@img/sharp-wasm32`) que le npm 10 livré avec l'image exige, et `npm ci`
+# s'arrête ici sur « Missing: … from lock file ». Le déploiement a échoué deux
+# fois là-dessus.
+#
+# On impose donc la version déclarée dans `packageManager`, et c'est npm 11 :
+# il relit sans broncher un verrou écrit par npm 10, l'inverse n'est pas vrai.
+RUN npm install -g "npm@$(node -p "require('./package.json').packageManager.split('@')[1]")"
+
 RUN npm ci
 
 COPY . .

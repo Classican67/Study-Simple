@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { parsePreview, UNTITLED, type NotePreview } from "@/lib/notes";
 import { searchTerms } from "@/lib/search";
 
 /**
@@ -16,7 +17,16 @@ export type NoteSummary = {
   title: string;
   updatedAt: Date;
   kinds: string[];
+  preview: NotePreview;
 };
+
+/** Ordre d'affichage des notes. */
+export const NOTE_SORTS = ["updated", "created", "title"] as const;
+export type NoteSort = (typeof NOTE_SORTS)[number];
+
+export function isNoteSort(value: unknown): value is NoteSort {
+  return typeof value === "string" && (NOTE_SORTS as readonly string[]).includes(value);
+}
 
 export type NoteFolder = {
   id: string;
@@ -42,6 +52,8 @@ export type NoteFilters = {
   has?: "drawing" | "table" | "text" | null;
   /** Chercher dans toute l'arborescence plutôt que dans le dossier courant. */
   everywhere?: boolean;
+  /** Ordre d'affichage. Par défaut, la dernière modifiée d'abord. */
+  sort?: NoteSort;
 };
 
 export async function getNotesView(
@@ -50,7 +62,8 @@ export async function getNotesView(
   filters: NoteFilters = {},
 ): Promise<NotesView | null> {
   const folders = await prisma.folder.findMany({
-    where: { ownerId: userId },
+    // Seuls les dossiers de notes : les paquets ont leur propre classement.
+    where: { ownerId: userId, kind: "note" },
     select: { id: true, name: true, color: true, parentId: true },
     orderBy: { name: "asc" },
   });
@@ -85,14 +98,26 @@ export async function getNotesView(
   const [notes, total] = await Promise.all([
     prisma.note.findMany({
       where,
-      orderBy: { updatedAt: "desc" },
+      /*
+       * Le tri par titre est fait après coup, en mémoire.
+       *
+       * SQLite compare les chaînes octet par octet : « Écrite » se retrouve
+       * après « Note », parce que « É » s'encode sur deux octets dont le
+       * premier vaut plus que « N ». Aucune collation française n'est
+       * disponible sans extension. Le listing étant borné à deux cents notes,
+       * trier ici coûte moins qu'installer ICU.
+       */
+      orderBy: filters.sort === "created" ? { createdAt: "desc" } : { updatedAt: "desc" },
       take: 200,
       select: {
         id: true,
         title: true,
         updatedAt: true,
-        // De quoi annoncer le contenu sans charger les blocs : un croquis pèse
-        // des centaines de kilooctets.
+        // L'aperçu est une copie compacte, enregistrée avec la note : on ne
+        // charge jamais le contenu des blocs pour dessiner une vignette.
+        preview: true,
+        // De quoi annoncer le contenu sans charger les blocs : une page
+        // manuscrite pèse des centaines de kilooctets.
         blocks: { select: { kind: true } },
       },
     }),
@@ -104,6 +129,23 @@ export async function getNotesView(
   // vide alors qu'il mène quelque part.
   const enfants = folders.filter((f) => f.parentId === (folderId ?? null));
   const counts = await notesParSousArbre(userId, folders);
+
+  /*
+   * Les notes sans titre vont à la fin.
+   *
+   * Une liste alphabétique ne s'interrompt pas au milieu par un tas de « Note
+   * sans titre » : ce ne sont pas des noms, ce sont des notes qu'on n'a pas
+   * encore nommées.
+   */
+  const ordonnees =
+    filters.sort === "title"
+      ? [...notes].sort((a, b) =>
+          (a.title.trim() || "\uffff").localeCompare(b.title.trim() || "\uffff", "fr", {
+            sensitivity: "base",
+            numeric: true,
+          }),
+        )
+      : notes;
 
   return {
     current: current ? { id: current.id, name: current.name, color: current.color } : null,
@@ -119,11 +161,12 @@ export async function getNotesView(
           color: f.color,
           noteCount: counts.get(f.id) ?? 0,
         })),
-    notes: notes.map((note) => ({
+    notes: ordonnees.map((note) => ({
       id: note.id,
       title: note.title,
       updatedAt: note.updatedAt,
       kinds: note.blocks.map((b) => b.kind),
+      preview: parsePreview(note.preview),
     })),
     total,
   };
@@ -166,7 +209,7 @@ async function notesParSousArbre(
 /** Dossiers proposés au rangement d'une note, avec leur chemin complet. */
 export async function listNoteFolders(userId: string): Promise<{ id: string; path: string }[]> {
   const folders = await prisma.folder.findMany({
-    where: { ownerId: userId },
+    where: { ownerId: userId, kind: "note" },
     select: { id: true, name: true, parentId: true },
     orderBy: { name: "asc" },
   });
@@ -184,4 +227,55 @@ export async function listNoteFolders(userId: string): Promise<{ id: string; pat
       return { id: folder.id, path: parts.join(" / ") };
     })
     .sort((a, b) => a.path.localeCompare(b.path, "fr"));
+}
+
+/** Une note trouvée par la recherche globale. */
+export type NoteSearchResult = {
+  noteId: string;
+  title: string;
+  folder: string | null;
+  excerpt: string;
+};
+
+/**
+ * Recherche des notes par mots, dans tout le compte.
+ *
+ * Même principe que pour les cartes : la base filtre grossièrement sur
+ * `searchText`, déjà normalisé, et l'extrait est découpé ensuite autour du
+ * premier mot trouvé — c'est ce qui permet de reconnaître la bonne note sans
+ * l'ouvrir.
+ */
+export async function searchNotes(userId: string, query: string): Promise<NoteSearchResult[]> {
+  const terms = searchTerms(query);
+  if (terms.length === 0) return [];
+
+  const notes = await prisma.note.findMany({
+    where: {
+      ownerId: userId,
+      AND: terms.map((mot) => ({ searchText: { contains: mot } })),
+    },
+    select: {
+      id: true,
+      title: true,
+      searchText: true,
+      folder: { select: { name: true } },
+    },
+    orderBy: { updatedAt: "desc" },
+    take: 40,
+  });
+
+  return notes.map((note) => ({
+    noteId: note.id,
+    title: note.title.trim() || UNTITLED,
+    folder: note.folder?.name ?? null,
+    excerpt: extrait(note.searchText, terms[0]),
+  }));
+}
+
+/** Quelques mots autour de la première occurrence, pour situer la note. */
+function extrait(texte: string, mot: string, largeur = 90): string {
+  const at = texte.indexOf(mot);
+  if (at === -1) return texte.slice(0, largeur);
+  const debut = Math.max(0, at - Math.floor(largeur / 3));
+  return (debut > 0 ? "…" : "") + texte.slice(debut, debut + largeur).trim() + "…";
 }

@@ -12,14 +12,13 @@ import { FolderForm } from "../folder-form";
 /**
  * Crée un dossier depuis la section Notes.
  *
- * C'est le même arbre que celui des paquets — un cours a ses cartes et ses
- * notes au même endroit — mais on doit pouvoir le créer d'ici : ranger ses
- * notes par thème n'a pas à passer par une autre section.
+ * Les notes ont leur propre classement, distinct de celui des paquets : ranger
+ * ses notes par thème ne doit pas encombrer la liste des paquets.
  */
 export function NewNoteFolderButton({ parentId }: { parentId: string | null }) {
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
-  const action = React.useMemo(() => createFolder.bind(null, parentId), [parentId]);
+  const action = React.useMemo(() => createFolder.bind(null, parentId, "note"), [parentId]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

@@ -1,8 +1,9 @@
 /*
  * Import d'un document à annoter.
  *
- * Un PDF de deux pages doit produire deux pages manuscrites, au bon format,
- * annotables, et l'annotation doit survivre au rechargement. La conversion
+ * Un PDF de deux pages doit produire **une seule** surface annotable portant
+ * ses deux pages, au bon format, et l'annotation doit survivre au
+ * rechargement. La conversion
  * Word passe par LibreOffice : elle ne peut pas être éprouvée ici, seulement
  * son refus propre en son absence.
  */
@@ -40,12 +41,16 @@ await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test
 await page.waitForTimeout(6000);
 
 const blocs = await page.locator("section[aria-label^='Bloc']").count();
-// Sans recharger : les pages doivent apparaître tout de suite, sinon on
+// Sans recharger : la surface doit apparaître tout de suite, sinon on
 // réimporte le document en croyant que rien ne s'est passé.
-check(blocs === blocsAvant + 2, `le PDF de deux pages donne deux pages annotables`, `${blocsAvant} → ${blocs}`);
+check(
+  blocs === blocsAvant + 1,
+  "le document entier tient dans un seul bloc, pas un par page",
+  `${blocsAvant} → ${blocs}`,
+);
 
 const toiles = page.locator('[data-testid="drawing-canvas"]');
-check((await toiles.count()) === 2, "deux canevas manuscrits");
+check((await toiles.count()) === 1, "un seul canevas manuscrit", `${await toiles.count()}`);
 
 // --- Le document est affiché sous les annotations ----------------------------
 section("rendu du document");
@@ -64,12 +69,31 @@ const peint = await pdfCanvas.evaluate((el) => {
 });
 check(peint.encre > 100, "et elle contient bien du texte dessiné", JSON.stringify(peint));
 
-// Le format de la page suit celui du document : A4 fait environ 1,414.
-const format = await toiles.first().evaluate((el) => {
-  const p = el.parentElement;
-  return Number((p.clientHeight / p.clientWidth).toFixed(2));
+// La surface fait la hauteur des deux pages, chacune au format du document :
+// un A4 vaut environ 1,414 de large, deux en valent le double et des poussières.
+const format = await page.locator("[data-ink-scroll] > div").first().evaluate((el) => {
+  const parent = el.parentElement;
+  return Number((el.clientHeight / parent.clientWidth).toFixed(2));
 });
-check(Math.abs(format - 1.41) < 0.06, `la page est au format du document (${format})`);
+check(
+  Math.abs(format - 2.85) < 0.12,
+  `la surface porte les deux pages du document (${format})`,
+  "attendu ≈ 2,85",
+);
+
+// Et les deux pages y sont bien, l'une sous l'autre.
+const pages = await page.locator('canvas[aria-label^="Page "][aria-label*="du document"]').evaluateAll((els) =>
+  els.map((el) => ({
+    label: el.getAttribute("aria-label"),
+    haut: Math.round(el.getBoundingClientRect().top),
+  })),
+);
+check(pages.length === 2, "les deux pages sont rendues sur la même surface", JSON.stringify(pages));
+check(
+  pages.length === 2 && pages[1].haut > pages[0].haut,
+  "la seconde est sous la première",
+  JSON.stringify(pages),
+);
 
 // --- On annote par-dessus, et ça tient ---------------------------------------
 section("annotation");

@@ -16,7 +16,7 @@ export function NewFolderButton({
   className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
-  const action = React.useMemo(() => createFolder.bind(null, parentId), [parentId]);
+  const action = React.useMemo(() => createFolder.bind(null, parentId, "deck"), [parentId]);
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>

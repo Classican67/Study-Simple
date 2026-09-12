@@ -7,9 +7,12 @@ import { prisma } from "@/lib/prisma";
 import { toPlainText } from "@/components/rich-text";
 import { normalizeForSearch } from "@/lib/search";
 import {
+  buildPreview,
   defaultContent,
+  documentRatio,
   isBlockKind,
   MAX_BLOCK_BYTES,
+  MAX_DOCUMENT_PAGES,
   MAX_RATIO,
   noteSearchText,
   type BlockKind,
@@ -59,7 +62,10 @@ export async function createNote(folderId?: string | null): Promise<string | nul
 
   // Un dossier d'un autre compte ne doit pas pouvoir servir de rangement.
   const dossier = folderId
-    ? await prisma.folder.findFirst({ where: { id: folderId, ownerId: user.id }, select: { id: true } })
+    ? await prisma.folder.findFirst({
+        where: { id: folderId, ownerId: user.id, kind: "note" },
+        select: { id: true },
+      })
     : null;
 
   // Une note neuve n'est pas vide : elle commence par un bloc de texte, prêt à
@@ -147,6 +153,48 @@ export async function addBlock(
   return block;
 }
 
+/**
+ * Duplique un bloc, juste après l'original.
+ *
+ * Le geste des cahiers : refaire un schéma en variante, reprendre une page de
+ * polycopié pour l'annoter autrement, sans perdre la première lecture.
+ *
+ * Le contenu est copié tel quel — pour une page de document, la copie
+ * **désigne le même fichier** que l'original. C'est sans danger ici : rien
+ * n'efface jamais un document importé, ni la suppression d'un bloc ni celle
+ * de la note. Le jour où l'on ramassera ces fichiers, il faudra compter les
+ * blocs qui les désignent avant d'en effacer un.
+ */
+export async function duplicateBlock(blockId: string) {
+  const user = await requireUser();
+  const source = await prisma.noteBlock.findFirst({
+    where: { id: blockId, note: { ownerId: user.id } },
+    select: { noteId: true, kind: true, content: true, position: true },
+  });
+  if (!source) return null;
+
+  const block = await prisma.$transaction(async (tx) => {
+    await tx.noteBlock.updateMany({
+      where: { noteId: source.noteId, position: { gt: source.position } },
+      data: { position: { increment: 1 } },
+    });
+    return tx.noteBlock.create({
+      data: {
+        noteId: source.noteId,
+        kind: source.kind,
+        position: source.position + 1,
+        content: source.content,
+      },
+      select: { id: true, kind: true, content: true, position: true },
+    });
+  });
+
+  // La copie se glisse *après* l'original : le premier bloc ne change pas,
+  // donc l'aperçu de la note non plus.
+  await touch(source.noteId);
+  return block;
+}
+
 export async function updateBlock(blockId: string, content: string): Promise<NoteResult> {
   const user = await requireUser();
 
@@ -158,11 +206,28 @@ export async function updateBlock(blockId: string, content: string): Promise<Not
 
   const block = await prisma.noteBlock.findFirst({
     where: { id: blockId, note: { ownerId: user.id } },
-    select: { noteId: true },
+    select: { noteId: true, kind: true },
   });
   if (!block) return { ok: false, error: "Bloc introuvable." };
 
   await prisma.noteBlock.update({ where: { id: blockId }, data: { content } });
+
+  // L'aperçu de la note est celui de sa PREMIÈRE page manuscrite : on ne le
+  // recalcule que si c'est elle qu'on vient d'enregistrer, et à partir du
+  // contenu déjà en main — jamais en relisant le bloc.
+  const premiere = await prisma.noteBlock.findFirst({
+    where: { noteId: block.noteId, kind: "drawing" },
+    orderBy: { position: "asc" },
+    select: { id: true },
+  });
+  if (premiere?.id === blockId) {
+    const apercu = buildPreview(block.kind, content);
+    await prisma.note.update({
+      where: { id: block.noteId },
+      data: { preview: apercu ? JSON.stringify(apercu) : "" },
+    });
+  }
+
   await touch(block.noteId);
   return { ok: true };
 }
@@ -206,8 +271,10 @@ export async function moveNote(noteId: string, folderId: string | null): Promise
   const user = await requireUser();
 
   if (folderId) {
+    // Un dossier de paquets n'accueille pas de notes : les deux classements
+    // sont séparés, et une note qui y atterrirait deviendrait invisible.
     const dossier = await prisma.folder.findFirst({
-      where: { id: folderId, ownerId: user.id },
+      where: { id: folderId, ownerId: user.id, kind: "note" },
       select: { id: true },
     });
     if (!dossier) return { ok: false, error: "Dossier introuvable." };
@@ -265,41 +332,65 @@ export async function addDocumentBlocks(
   const user = await requireUser();
   if (!(await ownsNote(noteId, user.id))) return { ok: false, error: "Note introuvable." };
   if (ratios.length === 0) return { ok: false, error: "Document sans page." };
-  if (ratios.length > 200) return { ok: false, error: "Document trop long (200 pages maximum)." };
+  if (ratios.length > MAX_DOCUMENT_PAGES) {
+    return { ok: false, error: `Document trop long (${MAX_DOCUMENT_PAGES} pages maximum).` };
+  }
+
+  /*
+   * Le document entier tient dans **un seul** bloc.
+   *
+   * Une page par bloc donnait une palette, un cadre et un menu par page : on
+   * annotait un polycopié de quarante pages dans quarante fenêtres. Ici les
+   * pages sont empilées sur la même surface — on fait défiler, on annote à
+   * cheval, et la palette ne bouge pas.
+   */
+  const pages = ratios.map((ratio, index) => ({
+    file,
+    page: index + 1,
+    // Le format de chaque page suit celui du document : annoter une page A4
+    // sur une feuille carrée décalerait tout.
+    ratio: Math.min(MAX_RATIO, Math.max(0.2, ratio)),
+  }));
 
   const last = await prisma.noteBlock.findFirst({
     where: { noteId },
     orderBy: { position: "desc" },
     select: { position: true },
   });
-  let position = (last?.position ?? -1) + 1;
 
-  const premierRang = position;
-  await prisma.noteBlock.createMany({
-    data: ratios.map((ratio, index) => ({
+  const bloc = await prisma.noteBlock.create({
+    data: {
       noteId,
       kind: "drawing",
-      position: position++,
+      position: (last?.position ?? -1) + 1,
       content: JSON.stringify({
         strokes: [],
-        // Le format de la page suit celui du document : annoter une page A4 sur
-        // une feuille carrée décalerait tout.
-        ratio: Math.min(MAX_RATIO, Math.max(0.2, ratio)),
+        ratio: documentRatio(pages),
         paper: "blank",
-        backdrop: { file, page: index + 1 },
+        pages,
       }),
-    })),
+    },
+    select: { id: true, kind: true, content: true },
   });
 
-  await touch(noteId);
-
-  // Les blocs créés sont renvoyés pour que l'éditeur les affiche aussitôt.
-  // Sans cela rien n'apparaissait, et l'on réimportait le document en croyant
-  // que l'import avait échoué.
-  const blocks = await prisma.noteBlock.findMany({
-    where: { noteId, position: { gte: premierRang } },
+  // La première page importée sert d'aperçu, s'il n'y en avait pas déjà une.
+  const premiere = await prisma.noteBlock.findFirst({
+    where: { noteId, kind: "drawing" },
     orderBy: { position: "asc" },
     select: { id: true, kind: true, content: true },
   });
-  return { ok: true, blocks };
+  if (premiere) {
+    const apercu = buildPreview(premiere.kind, premiere.content);
+    await prisma.note.update({
+      where: { id: noteId },
+      data: { preview: apercu ? JSON.stringify(apercu) : "" },
+    });
+  }
+
+  await touch(noteId);
+
+  // Le bloc créé est renvoyé pour que l'éditeur l'affiche aussitôt. Sans cela
+  // rien n'apparaissait, et l'on réimportait le document en croyant que
+  // l'import avait échoué.
+  return { ok: true, blocks: [bloc] };
 }

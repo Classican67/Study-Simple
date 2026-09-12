@@ -2,18 +2,23 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CornerDownLeft, Layers, Loader2, Search, X } from "lucide-react";
+import { CornerDownLeft, Layers, Loader2, NotebookPen, Search, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
-import { search } from "@/app/(app)/search/actions";
+import { search, type SearchAnswer } from "@/app/(app)/search/actions";
 import type { SearchResult } from "@/lib/decks";
+import type { NoteSearchResult } from "@/lib/note-queries";
 import { deckColor } from "@/lib/deck-colors";
-import { excerpt, highlight, searchTerms } from "@/lib/search";
+import { excerpt, highlight, searchTerms, type SearchScope } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
 /**
- * Recherche de cartes — globale, ou restreinte à un paquet.
+ * Recherche — dans les cartes ou dans les notes, au choix.
+ *
+ * Les deux ne se cherchent pas pareil : on cherche un terme à réviser, ou un
+ * cours à relire. Mêler les deux listes obligerait à trier du regard ce qu'on
+ * sait déjà en tapant.
  *
  * Ouverte au clavier par Ctrl/⌘ + K, la convention des applications modernes.
  * La liste se parcourt aux flèches et se valide par Entrée : sur un paquet
@@ -65,11 +70,11 @@ export function SearchDialog({
       </DialogTrigger>
 
       <DialogContent
-        title={deckTitle ? `Rechercher dans « ${deckTitle} »` : "Rechercher une carte"}
+        title={deckTitle ? `Rechercher dans « ${deckTitle} »` : "Rechercher"}
         description={
           deckTitle
-            ? "Dans ce paquet uniquement."
-            : "Dans tous tes paquets. Les accents et la casse sont ignorés."
+            ? "Dans ce paquet, ou dans toutes tes notes."
+            : "Dans tes paquets ou dans tes notes. Les accents et la casse sont ignorés."
         }
         className="sm:max-w-2xl"
       >
@@ -77,6 +82,17 @@ export function SearchDialog({
       </DialogContent>
     </Dialog>
   );
+}
+
+/** Une ligne de résultat, carte ou note : la liste en mêle les deux formes. */
+type Ligne =
+  | { kind: "card"; card: SearchResult }
+  | { kind: "note"; note: NoteSearchResult };
+
+function lignes(answer: SearchAnswer): Ligne[] {
+  return answer.scope === "notes"
+    ? answer.notes.map((note) => ({ kind: "note" as const, note }))
+    : answer.cards.map((card) => ({ kind: "card" as const, card }));
 }
 
 function SearchPanel({
@@ -88,17 +104,19 @@ function SearchPanel({
 }) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
+  const [scope, setScope] = React.useState<SearchScope>("cards");
   const [active, setActive] = React.useState(0);
 
   /**
-   * Les résultats sont conservés AVEC la requête qui les a produits. Tout le
-   * reste — « en cours », « rien trouvé », liste affichée — s'en déduit au
-   * rendu, au lieu d'être recopié dans des états qu'il faudrait remettre à
-   * zéro depuis un effet à chaque frappe.
+   * Les résultats sont conservés AVEC la requête et la portée qui les ont
+   * produits. Tout le reste — « en cours », « rien trouvé », liste affichée —
+   * s'en déduit au rendu, au lieu d'être recopié dans des états qu'il faudrait
+   * remettre à zéro depuis un effet à chaque frappe.
    */
   const [found, setFound] = React.useState<{
     query: string;
-    items: SearchResult[];
+    scope: SearchScope;
+    items: Ligne[];
     failed?: boolean;
   } | null>(null);
 
@@ -107,7 +125,7 @@ function SearchPanel({
   const requestId = React.useRef(0);
 
   const tooShort = query.trim().length < 2;
-  const fresh = found !== null && found.query === query;
+  const fresh = found !== null && found.query === query && found.scope === scope;
   const results = fresh ? found.items : [];
   const failed = fresh && found.failed === true;
   const pending = !tooShort && !fresh;
@@ -125,25 +143,26 @@ function SearchPanel({
       // Une panne serveur ne doit pas se déguiser en « aucun résultat » : ce
       // sont deux situations opposées, et les confondre fait chercher un
       // problème de contenu là où il y a un problème d'application.
-      const outcome = await search(deckId, query).then(
-        (items) => ({ query, items }),
-        () => ({ query, items: [] as SearchResult[], failed: true }),
+      const outcome = await search(scope, deckId, query).then(
+        (answer) => ({ query, scope, items: lignes(answer) }),
+        () => ({ query, scope, items: [] as Ligne[], failed: true }),
       );
       if (id !== requestId.current) return;
       setFound(outcome);
     }, DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
-  }, [query, deckId, tooShort]);
+  }, [query, scope, deckId, tooShort]);
 
   const terms = React.useMemo(() => searchTerms(query), [query]);
   // Les résultats ont pu raccourcir depuis le dernier déplacement au clavier.
   const activeIndex = results.length === 0 ? 0 : Math.min(active, results.length - 1);
 
-  function go(result: SearchResult) {
+  function go(ligne: Ligne) {
     onNavigate();
     // L'ancre amène directement sur la carte dans l'éditeur du paquet.
-    router.push(`/decks/${result.deckId}#card-${result.cardId}`);
+    if (ligne.kind === "card") router.push(`/decks/${ligne.card.deckId}#card-${ligne.card.cardId}`);
+    else router.push(`/notes/${ligne.note.noteId}`);
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
@@ -162,6 +181,39 @@ function SearchPanel({
 
   return (
     <div className="space-y-4">
+      {/* Où l'on cherche. Au-dessus du champ : le choix précède la frappe. */}
+      <div
+        role="group"
+        aria-label="Chercher dans"
+        className="flex gap-1 rounded-full bg-surface-high p-1"
+      >
+        {(
+          [
+            { value: "cards", label: deckId ? "Ce paquet" : "Paquets", icon: Layers },
+            { value: "notes", label: "Notes", icon: NotebookPen },
+          ] as const
+        ).map(({ value, label, icon: Icon }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => {
+              setScope(value);
+              setActive(0);
+            }}
+            aria-pressed={scope === value}
+            className={cn(
+              "flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+              scope === value
+                ? "bg-primary-container text-on-primary-container"
+                : "text-on-surface-variant hover:text-on-surface",
+            )}
+          >
+            <Icon className="size-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="relative">
         <Search className="pointer-events-none absolute left-4 top-1/2 size-5 -translate-y-1/2 text-on-surface-variant" />
         <input
@@ -178,7 +230,7 @@ function SearchPanel({
           enterKeyHint="search"
           autoComplete="off"
           spellCheck={false}
-          placeholder="Terme, définition…"
+          placeholder={scope === "notes" ? "Titre, contenu…" : "Terme, définition…"}
           aria-label="Rechercher"
           className="h-14 w-full rounded-full bg-surface-high pl-12 pr-12 m3-body-large text-on-surface placeholder:text-on-surface-variant/70 focus:outline-none focus:ring-2 focus:ring-primary"
         />
@@ -209,7 +261,8 @@ function SearchPanel({
 
       {!pending && searched && !failed && results.length === 0 ? (
         <p className="py-8 text-center m3-body-medium text-on-surface-variant">
-          Aucune carte ne contient {terms.length > 1 ? "tous ces mots" : "ce mot"}.
+          Aucune {scope === "notes" ? "note" : "carte"} ne contient{" "}
+          {terms.length > 1 ? "tous ces mots" : "ce mot"}.
         </p>
       ) : null}
 
@@ -222,37 +275,60 @@ function SearchPanel({
               le champ, pas au Tab — c'est le motif attendu par les lecteurs
               d'écran pour une recherche à suggestions. */}
           <ul role="listbox" aria-label="Résultats" className="scroll-slim max-h-[45dvh] space-y-1 overflow-y-auto">
-            {results.map((result, index) => (
-              <li key={result.cardId}>
+            {results.map((ligne, index) => (
+              <li key={ligne.kind === "card" ? ligne.card.cardId : ligne.note.noteId}>
                 <button
                   type="button"
                   role="option"
                   aria-selected={index === activeIndex}
-                  onClick={() => go(result)}
+                  onClick={() => go(ligne)}
                   onMouseEnter={() => setActive(index)}
                   className={cn(
                     "state-layer flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors",
                     index === activeIndex ? "bg-surface-high" : "bg-transparent",
                   )}
                 >
-                  <span
-                    className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-sm text-white"
-                    style={{ backgroundColor: deckColor(result.deckColor) }}
-                  >
-                    <Layers className="size-4" />
-                  </span>
+                  {ligne.kind === "card" ? (
+                    <span
+                      className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-sm text-white"
+                      style={{ backgroundColor: deckColor(ligne.card.deckColor) }}
+                    >
+                      <Layers className="size-4" />
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-sm bg-secondary-container text-on-secondary-container">
+                      <NotebookPen className="size-4" />
+                    </span>
+                  )}
 
                   <span className="min-w-0 flex-1">
                     <span className="block truncate m3-title-small text-on-surface">
-                      <Highlighted text={result.term} terms={terms} />
+                      <Highlighted
+                        text={ligne.kind === "card" ? ligne.card.term : ligne.note.title}
+                        terms={terms}
+                      />
                     </span>
                     <span className="mt-0.5 block line-clamp-2 m3-body-small text-on-surface-variant">
-                      <Highlighted text={excerpt(result.definition, terms)} terms={terms} />
+                      <Highlighted
+                        text={
+                          ligne.kind === "card"
+                            ? excerpt(ligne.card.definition, terms)
+                            : ligne.note.excerpt
+                        }
+                        terms={terms}
+                      />
                     </span>
-                    {/* Le paquet n'a d'intérêt qu'en recherche globale. */}
-                    {deckId === null ? (
+                    {/* D'où vient le résultat : le paquet n'a d'intérêt qu'en
+                        recherche globale, le dossier que s'il y en a un. */}
+                    {ligne.kind === "card" ? (
+                      deckId === null ? (
+                        <span className="mt-1 block truncate m3-label-small text-on-surface-variant/80">
+                          {ligne.card.deckTitle}
+                        </span>
+                      ) : null
+                    ) : ligne.note.folder ? (
                       <span className="mt-1 block truncate m3-label-small text-on-surface-variant/80">
-                        {result.deckTitle}
+                        {ligne.note.folder}
                       </span>
                     ) : null}
                   </span>

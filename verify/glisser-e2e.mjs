@@ -69,14 +69,24 @@ async function glisser(poignee, cible) {
   await page.waitForTimeout(1500);
 }
 
-// --- Préparer un dossier ------------------------------------------------------
+// --- Préparer un dossier de chaque côté ---------------------------------------
+//
+// Les notes et les paquets ont chacun leur classement : un dossier créé dans
+// les notes n'apparaît pas dans les paquets, et réciproquement.
 section("préparation");
+const creerDossier = async (nom) => {
+  await page.getByRole("button", { name: "Dossier", exact: true }).click();
+  await page.waitForSelector('[role="dialog"]');
+  await page.locator('[role="dialog"] input[name="name"]').fill(nom);
+  await page.locator('[role="dialog"] button[type="submit"]').click();
+  await page.waitForTimeout(1800);
+};
+
+const DOSSIER_PAQUETS = `${DOSSIER} paquets`;
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
-await page.getByRole("button", { name: "Dossier", exact: true }).click();
-await page.waitForSelector('[role="dialog"]');
-await page.locator('[role="dialog"] input[name="name"]').fill(DOSSIER);
-await page.locator('[role="dialog"] button[type="submit"]').click();
-await page.waitForTimeout(1800);
+await creerDossier(DOSSIER);
+await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+await creerDossier(DOSSIER_PAQUETS);
 
 // Une note à nous, reconnaissable.
 const TITRE = `À glisser ${Date.now()}`;
@@ -133,11 +143,12 @@ const poigneePaquet = page.getByRole("button", { name: /^Déplacer / }).first();
 check(await poigneePaquet.count() === 1, "les paquets ont une poignée");
 const nomPaquet = (await poigneePaquet.getAttribute("aria-label")).replace("Déplacer ", "").split(" —")[0];
 
-const cible = page.locator(`[data-drop-folder]`).filter({ hasText: DOSSIER }).first();
+const cible = page.locator(`[data-drop-folder]`).filter({ hasText: DOSSIER_PAQUETS }).first();
 check(await cible.count() >= 1, "le dossier est une cible sur l'accueil");
+const idDossierPaquets = await cible.getAttribute("data-drop-folder");
 await glisser(poigneePaquet, cible);
 
-await page.goto(`${BASE}/folders/${idDossier}`, { waitUntil: "networkidle" });
+await page.goto(`${BASE}/folders/${idDossierPaquets}`, { waitUntil: "networkidle" });
 check(
   (await page.locator("a", { hasText: nomPaquet }).count()) >= 1,
   `« ${nomPaquet} » est dans le dossier`,

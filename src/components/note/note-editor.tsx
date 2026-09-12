@@ -1,7 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { ChevronDown, ChevronUp, Loader2, Maximize2, PenLine, Table2, Trash2, Type, X } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Loader2,
+  Maximize2,
+  PenLine,
+  Table2,
+  Trash2,
+  Type,
+  X,
+} from "lucide-react";
 
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ExportPdf } from "@/components/note/export-pdf";
@@ -21,7 +32,14 @@ import {
   type TextContent,
 } from "@/lib/notes";
 import { cn } from "@/lib/utils";
-import { addBlock, deleteBlock, renameNote, reorderBlocks, updateBlock } from "@/app/(app)/notes/actions";
+import {
+  addBlock,
+  deleteBlock,
+  duplicateBlock,
+  renameNote,
+  reorderBlocks,
+  updateBlock,
+} from "@/app/(app)/notes/actions";
 
 export type EditableBlock = { id: string; kind: BlockKind; content: string };
 
@@ -54,6 +72,9 @@ export function NoteEditor({
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(0);
+  // Une page manuscrite ouverte en plein écran pose sa palette en bas de
+  // l'écran : le repère de page doit lui laisser la place.
+  const [canvasFull, setCanvasFull] = React.useState(false);
 
   async function persist(blockId: string, content: string) {
     setSaving((n) => n + 1);
@@ -76,6 +97,22 @@ export function NoteEditor({
       if (!afterBlockId) return [...current, block];
       const at = current.findIndex((b) => b.id === afterBlockId);
       return at === -1 ? [...current, block] : [...current.slice(0, at + 1), block, ...current.slice(at + 1)];
+    });
+  }
+
+  async function duplicate(blockId: string) {
+    setBusy(blockId);
+    const created = await duplicateBlock(blockId);
+    setBusy(null);
+    if (!created) {
+      setError("Impossible de dupliquer ce bloc.");
+      return;
+    }
+    setError(null);
+    setBlocks((current) => {
+      const at = current.findIndex((b) => b.id === blockId);
+      const copie = { id: created.id, kind: created.kind as BlockKind, content: created.content };
+      return at === -1 ? [...current, copie] : [...current.slice(0, at + 1), copie, ...current.slice(at + 1)];
     });
   }
 
@@ -123,7 +160,9 @@ export function NoteEditor({
                 current.map((b) => (b.id === block.id ? { ...b, content } : b)),
               )
             }
+            onCanvasFull={setCanvasFull}
             onAdd={(kind) => add(kind, block.id)}
+            onDuplicate={() => duplicate(block.id)}
             onMove={(direction) => move(index, direction)}
             onDelete={() => remove(block.id)}
           />
@@ -162,9 +201,20 @@ export function NoteEditor({
       {/* Repère de page, flottant : un polycopié de quarante pages devient
           quarante blocs, et retrouver la page 27 demanderait sinon de faire
           défiler à l'aveugle. */}
-      <div className="pointer-events-none fixed bottom-24 left-1/2 z-30 -translate-x-1/2 md:bottom-6">
+      {/* Au-dessus du plein écran (z-40) : c'est justement là qu'on annote un
+          polycopié, et le repère y devenait inaccessible. */}
+      <div
+        className={cn(
+          "pointer-events-none fixed left-1/2 z-50 -translate-x-1/2 transition-[bottom]",
+          canvasFull ? "bottom-40" : "bottom-24 md:bottom-6",
+        )}
+      >
         <div className="pointer-events-auto rounded-full border border-outline-variant bg-surface-container px-1 elevation-2">
-          <PageNavigator pages={blocks.filter((b) => b.kind === "drawing").map((b) => b.id)} />
+          <PageNavigator
+            pages={blocks
+              .filter((b) => b.kind === "drawing")
+              .map((b) => ({ id: b.id, content: b.content }))}
+          />
         </div>
       </div>
 
@@ -230,7 +280,9 @@ function BlockCard({
   busy,
   onSave,
   onLocalChange,
+  onCanvasFull,
   onAdd,
+  onDuplicate,
   onMove,
   onDelete,
 }: {
@@ -240,7 +292,9 @@ function BlockCard({
   busy: boolean;
   onSave: (content: string) => void;
   onLocalChange: (content: string) => void;
+  onCanvasFull: (full: boolean) => void;
   onAdd: (kind: BlockKind) => void;
+  onDuplicate: () => void;
   onMove: (direction: -1 | 1) => void;
   onDelete: () => void;
 }) {
@@ -303,6 +357,16 @@ function BlockCard({
         <Button
           variant="text"
           size="icon"
+          onClick={onDuplicate}
+          disabled={busy}
+          aria-label={`Dupliquer le bloc ${index + 1}`}
+          title="Dupliquer — la copie se place juste en dessous"
+        >
+          {busy ? <Loader2 className="animate-spin" /> : <Copy />}
+        </Button>
+        <Button
+          variant="text"
+          size="icon"
           onClick={() => onMove(-1)}
           disabled={index === 0}
           aria-label={`Monter le bloc ${index + 1}`}
@@ -346,7 +410,7 @@ function BlockCard({
           Bloc ouvert en plein écran
         </div>
       ) : (
-        <BlockBody block={block} onChange={schedule} />
+        <BlockBody block={block} onChange={schedule} onCanvasFull={onCanvasFull} />
       )}
 
       {full ? (
@@ -363,7 +427,7 @@ function BlockCard({
             </Button>
           </div>
           <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-            <BlockBody block={block} onChange={schedule} />
+            <BlockBody block={block} onChange={schedule} onCanvasFull={onCanvasFull} />
           </div>
         </div>
       ) : null}
@@ -396,9 +460,11 @@ function BlockCard({
 function BlockBody({
   block,
   onChange,
+  onCanvasFull,
 }: {
   block: EditableBlock;
   onChange: (content: string) => void;
+  onCanvasFull?: (full: boolean) => void;
 }) {
   if (block.kind === "table") {
     const content: TableContent = parseTable(block.content);
@@ -406,7 +472,14 @@ function BlockBody({
   }
   if (block.kind === "drawing") {
     const content: DrawingContent = parseDrawing(block.content);
-    return <DrawingBlock content={content} onChange={(next) => onChange(JSON.stringify(next))} />;
+    return (
+      <DrawingBlock
+        content={content}
+        scrollId={block.id}
+        onFullChange={onCanvasFull}
+        onChange={(next) => onChange(JSON.stringify(next))}
+      />
+    );
   }
   const content: TextContent = parseText(block.content);
   return <TextBlock content={content} onChange={(next) => onChange(JSON.stringify(next))} />;

@@ -50,7 +50,9 @@ export async function GET(request: Request) {
   // Chemin complet de chaque dossier, « Sciences / Biologie » : sans lui, un
   // export de deux dossiers homonymes serait ambigu à la relecture.
   const folders = await prisma.folder.findMany({
-    where: { ownerId: user.id },
+    // L'export porte sur les paquets : seuls leurs dossiers ont un chemin à
+    // reconstituer.
+    where: { ownerId: user.id, kind: "deck" },
     select: { id: true, name: true, parentId: true },
   });
   const byId = new Map(folders.map((f) => [f.id, f]));

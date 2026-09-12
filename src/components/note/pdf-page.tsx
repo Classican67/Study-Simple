@@ -100,7 +100,10 @@ export function PdfPage({
         // Document supprimé, illisible, ou pdf.js indisponible : la page
         // manuscrite reste utilisable, simplement sans son fond.
         if (!annule) {
-          console.error("[pdf] rendu impossible :", cause);
+          console.error(
+            "[pdf] rendu impossible :",
+            cause instanceof Error ? `${cause.name}: ${cause.message}` : cause,
+          );
           setError(true);
         }
       }

@@ -5,6 +5,7 @@ import { getStroke } from "perfect-freehand";
 
 import {
   boundsOf,
+  eraseStroke,
   snapShape,
   snapStrokeToRuler,
   strokeInLasso,
@@ -14,7 +15,16 @@ import {
   type Ruler,
   type Shape,
 } from "@/lib/ink";
-import { DEFAULT_RATIO, MAX_RATIO, type DrawingContent, type Paper, type Stroke, type Tool } from "@/lib/notes";
+import {
+  DEFAULT_RATIO,
+  MAX_RATIO,
+  pageAtY,
+  pageBands,
+  type DrawingContent,
+  type Paper,
+  type Stroke,
+  type Tool,
+} from "@/lib/notes";
 import { PdfPage } from "@/components/note/pdf-page";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +90,8 @@ export function InkCanvas({
   ruler = null,
   onRuler,
   eraseHighlightsOnly = false,
+  scrollId,
+  erasePrecise = false,
   penOnly = false,
 }: {
   content: DrawingContent;
@@ -129,6 +141,10 @@ export function InkCanvas({
   onRuler?: (ruler: Ruler) => void;
   /** La gomme ne retire que les surlignages, en laissant l'écriture. */
   eraseHighlightsOnly?: boolean;
+  /** La gomme coupe le trait au lieu de le retirer entier. */
+  erasePrecise?: boolean;
+  /** Repère de la surface, pour que le volet de pages sache où défiler. */
+  scrollId?: string;
   /** Le doigt n'écrit jamais, même avant qu'un stylet ait servi. */
   penOnly?: boolean;
 }) {
@@ -179,10 +195,35 @@ export function InkCanvas({
 
   const ratio = content.ratio || DEFAULT_RATIO;
   const paper = content.paper ?? "blank";
-  const backdrop = content.backdrop ?? null;
+  // Les pages du document importé, placées les unes sous les autres.
+  const bands = pageBands(content.pages ?? []);
   // Hauteur totale de la page, et hauteur de la fenêtre qui la montre.
   const pageHeight = Math.round(width * ratio);
   const viewport = height ?? Math.min(pageHeight, 900);
+
+  /*
+   * Seules les pages proches de l'écran sont rendues.
+   *
+   * Un polycopié de deux cents pages ferait sinon deux cents canevas de pdf.js
+   * en mémoire, soit plusieurs gigaoctets : l'onglet meurt avant d'avoir fini.
+   * On en garde une de part et d'autre pour que le défilement ne montre jamais
+   * de trou.
+   */
+  const [fenetre, setFenetre] = React.useState({ premiere: 0, derniere: 1 });
+
+  function majFenetre() {
+    const conteneur = scrollRef.current;
+    if (!conteneur || bands.length === 0 || width === 0) return;
+    const haut = conteneur.scrollTop / width;
+    const bas = (conteneur.scrollTop + conteneur.clientHeight) / width;
+    const premiere = Math.max(0, pageAtY(bands, haut) - 1);
+    const derniere = Math.min(bands.length - 1, pageAtY(bands, bas) + 1);
+    setFenetre((f) => (f.premiere === premiere && f.derniere === derniere ? f : { premiere, derniere }));
+  }
+
+  // Après chaque rendu : la fenêtre suit aussi bien le défilement que l'arrivée
+  // du document ou un changement de largeur.
+  React.useEffect(majFenetre);
 
   const bump = React.useCallback(() => {
     setVersion((v) => v + 1);
@@ -571,17 +612,55 @@ export function InkCanvas({
      * exactement ce qu'on ne sait jamais.
      */
     const bas = maxY(final);
-    const nouveauRatio = growable && bas > ratio - 0.12 ? Math.min(MAX_RATIO, bas + 0.45) : ratio;
+    // Une surface qui porte un document ne s'allonge pas : sa hauteur est celle
+    // de ses pages, et la relecture la recalculerait de toute façon.
+    const nouveauRatio =
+      growable && bands.length === 0 && bas > ratio - 0.12
+        ? Math.min(MAX_RATIO, bas + 0.45)
+        : ratio;
     commit(nouveauRatio);
   }
 
-  /** Gomme : retire le trait dont un point passe sous la pointe. */
+  /**
+   * Gomme.
+   *
+   * Deux gestes différents sous le même outil : retirer le trait qu'on
+   * effleure — pour rayer un mot d'un geste — ou **couper** ce qui passe sous
+   * la pointe, pour reprendre la queue d'une lettre sans emporter la ligne.
+   */
   function eraseAt(point: number[]) {
     const seuil = 0.018;
-    const kept = strokes.current.filter((stroke) => {
+    const protege = (stroke: Stroke) =>
       // Gomme sélective : on surligne beaucoup et on se trompe souvent ;
       // effacer l'écriture par la même occasion est rageant.
-      if (eraseHighlightsOnly && stroke.tool !== "highlighter") return true;
+      eraseHighlightsOnly && stroke.tool !== "highlighter";
+
+    if (erasePrecise) {
+      const restants: Stroke[] = [];
+      let touche = false;
+      for (const stroke of strokes.current) {
+        if (protege(stroke)) {
+          restants.push(stroke);
+          continue;
+        }
+        const morceaux = eraseStroke(stroke.points, { x: point[0], y: point[1] }, seuil);
+        // `eraseStroke` rend le tableau d'origine quand elle n'a rien touché.
+        if (morceaux.length === 1 && morceaux[0] === stroke.points) {
+          restants.push(stroke);
+          continue;
+        }
+        touche = true;
+        for (const points of morceaux) restants.push({ ...stroke, points });
+      }
+      if (!touche) return;
+      strokes.current = restants;
+      bump();
+      commit();
+      return;
+    }
+
+    const kept = strokes.current.filter((stroke) => {
+      if (protege(stroke)) return true;
       for (let i = 0; i < stroke.points.length; i += 3) {
         const dx = stroke.points[i] - point[0];
         const dy = stroke.points[i + 1] - point[1];
@@ -614,24 +693,57 @@ export function InkCanvas({
      */
     <div
       ref={scrollRef}
-      onScroll={() => repaint()}
+      data-ink-scroll={scrollId}
+      onScroll={() => {
+        repaint();
+        majFenetre();
+      }}
       className={cn("scroll-slim relative overflow-y-auto overscroll-contain", className)}
       style={{ height: viewport }}
     >
       <div
-        className={cn("relative w-full bg-surface-lowest", backdrop ? null : paperClass(paper))}
+        className={cn(
+          "relative w-full",
+          // Le fond de la pile est plus sombre que le papier : sans ce contraste
+          // la gouttière entre deux pages ne se voit pas, et l'on ne sait plus
+          // où l'une finit.
+          bands.length > 0
+            ? "bg-surface-container-high"
+            : cn("bg-surface-lowest", paperClass(paper)),
+        )}
         style={{ height: `${pageHeight}px` }}
       >
-        {/* Le document importé, sous les annotations. Il défile avec la page,
-            et le fond de cahier s'efface : on n'annote pas un document sur du
-            papier quadrillé. */}
-        {backdrop ? (
-          <PdfPage
-            file={backdrop.file}
-            page={backdrop.page}
-            className="pointer-events-none absolute inset-0"
-          />
-        ) : null}
+        {/* Le document importé, sous les annotations : toutes ses pages sur la
+            même surface, comme un polycopié qu'on fait défiler d'un geste. Le
+            fond de cahier s'efface — on n'annote pas un document sur du papier
+            quadrillé. */}
+        {bands.map((band, index) =>
+          index >= fenetre.premiere && index <= fenetre.derniere ? (
+            <div
+              key={`${band.file}-${band.page}`}
+              aria-hidden
+              className="pointer-events-none absolute left-0 w-full bg-surface-lowest elevation-1"
+              style={{
+                top: `${Math.round(band.top * width)}px`,
+                height: `${Math.round(band.ratio * width)}px`,
+              }}
+            >
+              <PdfPage file={band.file} page={band.page} className="absolute inset-0" />
+            </div>
+          ) : (
+            // La place est gardée même quand la page n'est pas rendue : sans
+            // cela le document se replierait dès qu'on s'en éloigne.
+            <div
+              key={`${band.file}-${band.page}`}
+              aria-hidden
+              className="pointer-events-none absolute left-0 w-full bg-surface-lowest"
+              style={{
+                top: `${Math.round(band.top * width)}px`,
+                height: `${Math.round(band.ratio * width)}px`,
+              }}
+            />
+          ),
+        )}
         <canvas
           ref={canvasRef}
           data-testid="drawing-canvas"

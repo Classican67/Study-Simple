@@ -258,6 +258,7 @@
    dans l'app native.
    ========================================================================== */
 @layer components {
+
   /* --- Fonds de page manuscrite -------------------------------------------
      Dessinés en CSS et non au canevas : ils ne font pas partie du contenu,
      n'ont pas à être enregistrés, et suivent le thème tout seuls. */

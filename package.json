@@ -1,6 +1,7 @@
 {
   "name": "fiches",
   "version": "0.1.0",
+  "packageManager": "npm@11.6.1",
   "private": true,
   "scripts": {
     "predev": "prisma generate && node scripts/copy-pdf-worker.mjs",

@@ -20,10 +20,16 @@ export function DrawingBlock({
   content,
   onChange,
   readOnly = false,
+  scrollId,
+  onFullChange,
 }: {
   content: DrawingContent;
   onChange: (next: DrawingContent) => void;
   readOnly?: boolean;
+  /** Repère du bloc, pour que le volet de pages sache où défiler. */
+  scrollId?: string;
+  /** Prévient la page qu'on écrit — ou non — en plein écran. */
+  onFullChange?: (full: boolean) => void;
 }) {
   const [tool, setTool] = React.useState<InkTool>("pen");
   /*
@@ -39,6 +45,7 @@ export function DrawingBlock({
   // La gomme peut ne retirer que les surlignages : on surligne beaucoup, on se
   // trompe souvent, et effacer l'écriture par la même occasion est rageant.
   const [eraseHighlightsOnly, setEraseHighlightsOnly] = React.useState(false);
+  const [erasePrecise, setErasePrecise] = React.useState(false);
   // Verrou : le doigt n'écrit pas, même avant qu'un stylet ait servi. Utile
   // quand on pose la main sur l'écran avant d'approcher le stylet.
   const [penOnly, setPenOnly] = React.useState(false);
@@ -137,6 +144,16 @@ export function DrawingBlock({
 
   const reglages = tool === "highlighter" ? highlighter : pen;
 
+  /*
+   * Le reste de la page a besoin de savoir qu'on écrit en plein écran.
+   *
+   * Le repère de page flotte en bas de l'écran, là où la palette s'installe :
+   * sans cela il se poserait dessus.
+   */
+  React.useEffect(() => {
+    onFullChange?.(full);
+  }, [full, onFullChange]);
+
   const palette = (
     <InkPalette
       tool={tool}
@@ -145,18 +162,20 @@ export function DrawingBlock({
       shape={shape}
       paper={content.paper}
       eraseHighlightsOnly={eraseHighlightsOnly}
+      erasePrecise={erasePrecise}
       penOnly={penOnly}
       penDetected={penMode}
       selection={selection.length}
       zoom={zoom}
       full={full}
-      hasBackdrop={Boolean(content.backdrop)}
+      hasBackdrop={content.pages.length > 0}
       ruler={ruler}
       onTool={setTool}
       onSettings={tool === "highlighter" ? setHighlighter : setPen}
       onShape={setShape}
       onPaper={(paper) => onChange({ ...content, paper })}
       onEraseHighlightsOnly={setEraseHighlightsOnly}
+      onErasePrecise={setErasePrecise}
       onPenOnly={setPenOnly}
       onDeleteSelection={deleteSelection}
       onUndo={undo}
@@ -182,6 +201,8 @@ export function DrawingBlock({
       color={reglages.color}
       size={reglages.size}
       eraseHighlightsOnly={eraseHighlightsOnly}
+      erasePrecise={erasePrecise}
+      scrollId={scrollId}
       penOnly={penOnly}
       readOnly={readOnly}
       growable={full}

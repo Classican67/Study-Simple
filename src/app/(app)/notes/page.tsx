@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronRight, FileText, Folder as FolderIcon, Home, NotebookPen, PenLine, Table2, Type } from "lucide-react";
+import { ChevronRight, Folder as FolderIcon, Home, NotebookPen, PenLine, Table2, Type } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/panel";
 import { DropZone } from "@/components/drag-move";
@@ -9,9 +9,12 @@ import { NewNoteButton } from "./new-note-button";
 import { NoteDragHandle } from "./note-drag-handle";
 import { NewNoteFolderButton } from "./new-note-folder-button";
 import { NoteSearch } from "./note-search";
+import { NoteViewOptions } from "./note-view-options";
+import { NoteThumbnail } from "@/components/note/note-thumbnail";
 import { requireUser } from "@/lib/auth";
 import { deckColor } from "@/lib/deck-colors";
-import { getNotesView, type NoteFilters } from "@/lib/note-queries";
+import { getNotesView, isNoteSort, type NoteFilters } from "@/lib/note-queries";
+import { isNoteView, type NoteView } from "@/lib/note-views";
 import { UNTITLED } from "@/lib/notes";
 import { describeAgo } from "@/lib/scheduling";
 
@@ -27,15 +30,24 @@ export default async function NotesPage(props: PageProps<"/notes">) {
   const has = ["drawing", "table", "text"].includes(String(params.has))
     ? (params.has as NoteFilters["has"])
     : null;
+  const vue: NoteView = isNoteView(params.vue) ? params.vue : "large";
+  const tri = isNoteSort(params.tri) ? params.tri : "updated";
 
-  const view = await getNotesView(user.id, folderId, { query, has });
+  const view = await getNotesView(user.id, folderId, { query, has, sort: tri });
   // Dossier inexistant et dossier d'un autre compte donnent la même réponse.
   if (!view) notFound();
 
   const cherche = query.trim().length > 0 || Boolean(has);
   const href = (extra: Record<string, string | null>) => {
     const url = new URLSearchParams();
-    const base = { folder: folderId, q: query || null, has: has ?? null, ...extra };
+    const base = {
+      folder: folderId,
+      q: query || null,
+      has: has ?? null,
+      vue: vue === "large" ? null : vue,
+      tri: tri === "updated" ? null : tri,
+      ...extra,
+    };
     for (const [k, v] of Object.entries(base)) if (v) url.set(k, v);
     const qs = url.toString();
     return qs ? `/notes?${qs}` : "/notes";
@@ -74,7 +86,12 @@ export default async function NotesPage(props: PageProps<"/notes">) {
         </div>
       </header>
 
-      {view.total > 0 ? <NoteSearch query={query} has={has ?? null} folderId={folderId} /> : null}
+      {view.total > 0 ? (
+        <div className="space-y-3">
+          <NoteSearch query={query} has={has ?? null} folderId={folderId} />
+          <NoteViewOptions view={vue} sort={tri} />
+        </div>
+      ) : null}
 
       {view.total === 0 ? (
         <EmptyState
@@ -121,31 +138,66 @@ export default async function NotesPage(props: PageProps<"/notes">) {
       ) : null}
 
       {view.notes.length > 0 ? (
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul
+          className={
+            vue === "list"
+              ? "space-y-2"
+              : vue === "small"
+                ? "grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
+                : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          }
+        >
           {view.notes.map((note) => (
             <li key={note.id} className="relative">
-              {/* La poignée est hors du lien : un lien ne peut pas contenir de
-                  bouton, et le glissement ne doit pas déclencher la navigation. */}
               <div className="absolute right-2 top-2 z-10">
                 <NoteDragHandle noteId={note.id} title={note.title.trim() || UNTITLED} />
               </div>
-              <Link
-                href={`/notes/${note.id}`}
-                className="state-layer flex h-full flex-col gap-3 rounded-xl border border-outline-variant bg-surface-container p-5 elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
-              >
-                <span className="grid size-11 shrink-0 place-items-center rounded-2xl bg-primary-container text-on-primary-container">
-                  <FileText className="size-5" />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate m3-title-medium text-on-surface">
-                    {note.title.trim() || UNTITLED}
+
+              {vue === "list" ? (
+                <Link
+                  href={`/notes/${note.id}`}
+                  className="state-layer flex items-center gap-4 rounded-xl border border-outline-variant bg-surface-container p-3 pr-14 transition-all hover:elevation-2"
+                >
+                  <NoteThumbnail
+                    preview={note.preview}
+                    className="h-14 w-11 shrink-0 rounded-lg border border-outline-variant"
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate m3-title-small text-on-surface">
+                      {note.title.trim() || UNTITLED}
+                    </span>
+                    <span className="mt-0.5 block m3-body-small text-on-surface-variant">
+                      Modifiée {describeAgo(note.updatedAt)}
+                    </span>
                   </span>
-                  <span className="mt-1 block m3-body-small text-on-surface-variant">
-                    Modifiée {describeAgo(note.updatedAt)}
+                  <Composition kinds={note.kinds} />
+                </Link>
+              ) : (
+                <Link
+                  href={`/notes/${note.id}`}
+                  className="state-layer flex h-full flex-col overflow-hidden rounded-xl border border-outline-variant bg-surface-container elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
+                >
+                  {/* La vignette d'abord, et grande : deux notes de cours se
+                      ressemblent jusqu'à ce qu'on voie leur première page. */}
+                  <NoteThumbnail
+                    preview={note.preview}
+                    className={
+                      vue === "small"
+                        ? "aspect-[3/4] w-full border-b border-outline-variant"
+                        : "aspect-[4/3] w-full border-b border-outline-variant"
+                    }
+                  />
+                  <span className="flex min-w-0 flex-1 flex-col gap-1 p-4">
+                    <span className="block truncate m3-title-small text-on-surface">
+                      {note.title.trim() || UNTITLED}
+                    </span>
+                    <span className="block m3-body-small text-on-surface-variant">
+                      Modifiée {describeAgo(note.updatedAt)}
+                    </span>
+                    <Composition kinds={note.kinds} />
                   </span>
-                </span>
-                <Composition kinds={note.kinds} />
-              </Link>
+                </Link>
+              )}
             </li>
           ))}
         </ul>

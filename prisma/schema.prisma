@@ -37,9 +37,17 @@ model User {
 // La profondeur n'est pas limitée par le schéma ; l'interface la borne pour
 // éviter des fils d'Ariane illisibles.
 model Folder {
-  id        String   @id @default(cuid())
-  ownerId   String
-  parentId  String?
+  id       String  @id @default(cuid())
+  ownerId  String
+  parentId String?
+
+  /// À quelle section appartient ce dossier : « deck » ou « note ».
+  ///
+  /// Les deux sections rangeaient leurs affaires dans le même arbre : créer un
+  /// dossier pour ses notes en faisait apparaître un dans les paquets. Ce sont
+  /// deux classements différents, ils ne se mélangent pas.
+  kind String @default("deck")
+
   name      String
   color     String   @default("slate")
   createdAt DateTime @default(now())
@@ -53,7 +61,7 @@ model Folder {
   decks    Deck[]
   notes    Note[]
 
-  @@index([ownerId, parentId])
+  @@index([ownerId, kind, parentId])
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +224,14 @@ model Note {
   // Copie normalisée du titre et du texte des blocs, pour la recherche. Même
   // mécanique que `Card.searchText` : SQLite ne sait pas retirer les accents.
   searchText String  @default("")
+  // Aperçu de la première page, en JSON compact et borné : soit la page d'un
+  // document importé, soit quelques traits échantillonnés.
+  //
+  // Recalculé à l'enregistrement du bloc concerné, à partir du contenu qu'on
+  // a déjà en main — jamais relu pour l'occasion. Une page dense pèse des
+  // centaines de kilooctets : la recharger pour afficher une vignette
+  // rendrait la liste des notes plus lourde que les notes elles-mêmes.
+  preview   String   @default("")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
