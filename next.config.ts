@@ -18,6 +18,27 @@ const extraDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? "")
   .filter(Boolean);
 
 const nextConfig: NextConfig = {
+  experimental: {
+    serverActions: {
+      /*
+       * Le corps d'une action serveur est plafonné à **un mégaoctet** par
+       * défaut, et Next refuse la requête avant d'appeler quoi que ce soit :
+       * la promesse rendue au client est rejetée, sans message utile.
+       *
+       * Deux choses de l'app passent au-dessus de ce mégaoctet :
+       *
+       * - **Une page manuscrite dense.** `MAX_BLOCK_BYTES` vaut deux
+       *   mégaoctets ; un cours entier au stylet les atteint. L'enregistrement
+       *   automatique échouait alors en silence, et le travail était perdu.
+       * - **Une photo de fiche.** `MAX_UPLOAD_BYTES` vaut huit mégaoctets.
+       *
+       * La limite couvre donc le plus gros des deux, plus la marge que le
+       * `multipart/form-data` ajoute pour ses frontières et ses en-têtes.
+       */
+      bodySizeLimit: "10mb",
+    },
+  },
+
   allowedDevOrigins: [
     // Noms MagicDNS de Tailscale : tous les tailnets servent sous .ts.net.
     "**.ts.net",

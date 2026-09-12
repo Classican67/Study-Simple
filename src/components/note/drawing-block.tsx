@@ -17,8 +17,8 @@ import { MAX_RATIO, type DrawingContent, type Stroke } from "@/lib/notes";
  */
 
 export function DrawingBlock({
-  content,
-  onChange,
+  content: recu,
+  onChange: remonter,
   readOnly = false,
   scrollId,
   onFullChange,
@@ -31,6 +31,31 @@ export function DrawingBlock({
   /** Prévient la page qu'on écrit — ou non — en plein écran. */
   onFullChange?: (full: boolean) => void;
 }) {
+  /*
+   * La page vit ici, et le parent n'en est prévenu qu'après un temps de repos.
+   *
+   * L'enregistrement est différé de sept cents millisecondes : sans état local,
+   * la palette et l'annulation travailleraient pendant tout ce temps sur la
+   * version précédente — on annulait un trait et c'est l'avant-dernier qui
+   * partait.
+   */
+  const [content, setContent] = React.useState(recu);
+  // Notre propre écho, pour ne pas se remettre à zéro dessus.
+  const mien = React.useRef<DrawingContent | null>(null);
+  React.useEffect(() => {
+    if (recu === mien.current) return;
+    setContent(recu);
+  }, [recu]);
+
+  const onChange = React.useCallback(
+    (next: DrawingContent) => {
+      mien.current = next;
+      setContent(next);
+      remonter(next);
+    },
+    [remonter],
+  );
+
   const [tool, setTool] = React.useState<InkTool>("pen");
   /*
    * Le stylo et le surligneur retiennent chacun leur couleur et leur épaisseur.
@@ -234,7 +259,7 @@ export function DrawingBlock({
           Page ouverte en plein écran
         </div>
 
-        <div ref={surfaceRef} className="fixed inset-0 z-40 flex flex-col bg-surface">
+        <div ref={surfaceRef} className="ink-surface fixed inset-0 z-40 flex flex-col bg-surface">
           {/* Pleine largeur, sans marge : la feuille doit occuper l'écran, pas
               flotter au milieu. Le défilement sert à descendre dans la page,
               qui s'allonge à mesure qu'on écrit. */}

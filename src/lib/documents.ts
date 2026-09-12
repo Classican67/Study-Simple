@@ -27,10 +27,20 @@ import {
  */
 
 export type ImportError = { error: string };
-export type ImportOk = { file: string };
+/**
+ * Le format de chaque page est relevé **ici**, à l'import.
+ *
+ * Il l'était dans le navigateur, juste après l'envoi : pdf.js retéléchargeait
+ * alors le document entier pour n'en lire que les dimensions. Sur iPad, un
+ * polycopié scanné de trente mégaoctets repartait donc du serveur aussitôt
+ * après y être monté — l'import restait en « Conversion… » sans fin. Le serveur
+ * a le fichier en main, il le mesure lui-même.
+ */
+export type ImportOk = { file: string; ratios: number[] };
 
 export async function importDocument(file: File): Promise<ImportOk | ImportError> {
-  if (!isDocumentType(file.type)) {
+  const type = documentType(file);
+  if (!type) {
     return { error: "Format non pris en charge. Importe un PDF ou un document Word." };
   }
   if (file.size > MAX_DOCUMENT_BYTES) {
@@ -40,8 +50,8 @@ export async function importDocument(file: File): Promise<ImportOk | ImportError
   const entree = Buffer.from(await file.arrayBuffer());
 
   let pdf: Buffer;
-  if (needsConversion(file.type)) {
-    const converti = await toPdf(entree, DOCUMENT_TYPES[file.type]);
+  if (needsConversion(type)) {
+    const converti = await toPdf(entree, DOCUMENT_TYPES[type]);
     if ("error" in converti) return converti;
     pdf = converti.buffer;
   } else {
@@ -53,9 +63,66 @@ export async function importDocument(file: File): Promise<ImportOk | ImportError
     pdf = entree;
   }
 
+  const ratios = await pageRatios(pdf);
+  if ("error" in ratios) return ratios;
+
   const nom = `${randomUUID()}.pdf`;
   await writeFile(path.join(UPLOAD_DIR, nom), pdf);
-  return { file: nom };
+  return { file: nom, ratios: ratios.ratios };
+}
+
+/**
+ * Type du document, déduit de l'en-tête HTTP **ou** de l'extension.
+ *
+ * iOS n'annonce pas toujours de type : un PDF ouvert depuis l'app Fichiers ou
+ * reçu par AirDrop arrive régulièrement en `application/octet-stream`, parfois
+ * avec un type vide. Se fier au seul en-tête faisait refuser sur iPad des
+ * fichiers que le même navigateur acceptait sur Mac. L'extension ne prouve
+ * rien non plus — mais un PDF est ensuite vérifié à ses octets, et tout le
+ * reste passe par LibreOffice, qui refuse ce qu'il ne sait pas lire.
+ */
+function documentType(file: File): string | null {
+  if (isDocumentType(file.type)) return file.type;
+  const point = file.name.lastIndexOf(".");
+  const extension = point === -1 ? "" : file.name.slice(point).toLowerCase();
+  const trouve = Object.entries(DOCUMENT_TYPES).find(([, ext]) => ext === extension);
+  return trouve?.[0] ?? null;
+}
+
+/**
+ * Format de chaque page : hauteur rapportée à la largeur.
+ *
+ * Deux pièges, qui donnent des pages à l'envers ou décalées quand on les
+ * oublie :
+ *
+ * - **La rotation.** Un scan est souvent stocké à l'horizontale avec un
+ *   `/Rotate 90`. pdf.js affiche la page tournée ; mesurer la boîte sans tenir
+ *   compte de l'angle donne le format couché pour une page qui s'affiche
+ *   debout.
+ * - **La boîte de rognage.** C'est la `CropBox` qui est affichée, pas la
+ *   `MediaBox` : un document imposé pour l'impression porte des fonds perdus
+ *   que le lecteur ne montre pas.
+ */
+async function pageRatios(pdf: Buffer): Promise<{ ratios: number[] } | ImportError> {
+  try {
+    const { PDFDocument } = await import("pdf-lib");
+    // `ignoreEncryption` : beaucoup de PDF portent un chiffrement vide qui
+    // n'interdit rien mais fait refuser le chargement.
+    const doc = await PDFDocument.load(new Uint8Array(pdf), { ignoreEncryption: true });
+    const ratios = doc.getPages().map((page) => {
+      const { width, height } = page.getCropBox();
+      const angle = ((page.getRotation().angle % 360) + 360) % 360;
+      const couche = angle === 90 || angle === 270;
+      const l = couche ? height : width;
+      const h = couche ? width : height;
+      return l > 0 ? Number((h / l).toFixed(4)) : 1;
+    });
+    if (ratios.length === 0) return { error: "Ce PDF ne contient aucune page." };
+    return { ratios };
+  } catch (error) {
+    console.error("[documents] lecture des pages impossible :", error);
+    return { error: "Ce PDF n'a pas pu être lu." };
+  }
 }
 
 /**

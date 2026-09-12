@@ -40,6 +40,15 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node vignettes-e2e.mjs` — liste des notes : la vignette montre la première
   page, les tailles d'affichage et le tri vivent dans l'adresse, et la liste
   reste légère malgré les aperçus
+- `node ecriture-e2e.mjs` — **fluidité et netteté du manuscrit** : résolution
+  de l'encre au zoom, coût d'un trait sur page vide *puis* sur page dense,
+  appui maintenu qui ne sélectionne rien, et encre qui ne se redessine pas
+  quand on défile. Les mesures passent par un espion posé sur
+  `CanvasRenderingContext2D` : rien n'est ajouté à l'app pour se laisser
+  observer
+- `node regard-ecriture.mjs` — captures de l'écriture à 1× et agrandie, en
+  clair et en sombre. À **ouvrir** : la mesure dit que le trait fait la bonne
+  épaisseur, pas qu'il a l'air d'une encre
 - `node palette-e2e.mjs` — barre d'outils de la page manuscrite : les réglages
   suivent l'outil courant, chaque outil retient les siens, le verrou du stylet
   et la gomme sélective font ce qu'ils annoncent
@@ -112,6 +121,54 @@ du verrou npm.
   serveur : on n'y reçoit qu'une référence, et l'appeler échoue à l'exécution
   sur un « includes is not a function » peu parlant. Les tableaux et listes
   partagés vont dans un module neutre de `src/lib/`.
+- **Compter des traits ne dit rien de leur forme.** Les contours ont été
+  calculés un temps sur des coordonnées comprises entre 0 et 1 — ce qui
+  paraissait naturel, les coordonnées l'étant déjà. Mais `getStroke` n'est
+  **pas** invariant d'échelle : à cette taille, ses seuils internes de distance
+  écartent presque tous les points et le trait devient une tache large de la
+  moitié de la page — 881 unités de haut pour un trait qui en fait 1,6. Toutes
+  les vérifications passaient : elles comptaient des traits, pas des pixels.
+  Tout se calcule donc dans `INK_REF` (mille unités), et `ecriture-e2e.mjs`
+  mesure désormais la **forme** d'un trait droit — longueur, épaisseur,
+  surface — contre ce qu'elle devrait être.
+- **Le zoom passe par la mise en page, jamais par `transform: scale()`.**
+  Agrandir le canevas en CSS multiplie des pixels déjà tracés : l'écriture
+  devenait crénelée dès trois fois. Le zoom change la **largeur de la page** ;
+  les tuiles sont rasterisées à la taille affichée. La sonde mesure le rapport
+  entre résolution et taille affichée : il doit rester égal à la densité de
+  l'écran, alors qu'un agrandissement CSS le divise par le facteur de zoom
+  (0,33 mesuré à 6×).
+- **L'encre déjà posée vit dans la page, pas dans la fenêtre.** Un canevas
+  collant redessiné à chaque événement de défilement fait disparaître
+  l'écriture pendant le geste, puis la fait revenir rognée : la fenêtre bouge,
+  le dessin non. Les traits vivent donc sur des **tuiles** placées en
+  coordonnées de page, qui glissent avec le papier — faire défiler ne redessine
+  rien, et `ecriture-e2e.mjs` exige **zéro** remplissage pendant un défilement.
+  Le trait en cours, lui, est seul sur sa couche et ne repeint que sa queue :
+  son coût par image ne dépend plus de sa longueur.
+- **Le corps d'une action serveur est plafonné à un mégaoctet.** Next refuse la
+  requête *avant* d'appeler le code : la promesse est rejetée, et un appel non
+  protégé laisse l'interface en chargement pour toujours. C'est ce qui bloquait
+  l'import de PDF sur iPad — un scan dépasse le mégaoctet dès deux pages — et
+  ce qui perdait en silence l'enregistrement d'une page manuscrite dense
+  (`MAX_BLOCK_BYTES` vaut deux mégaoctets). Le plafond est relevé dans
+  `next.config.ts`, l'import passe par une route (`POST
+  /api/notes/<id>/document`) qui n'en a pas et dont l'envoi se mesure en XHR, et
+  **tout appel d'action est désormais protégé** : une promesse rejetée doit
+  rendre la main.
+- **Un PDF servi sans `Accept-Ranges` est téléchargé en entier.** pdf.js ne
+  demande que ce qu'il affiche — si le serveur répond 206. Sans cela, ouvrir un
+  polycopié scanné de trente mégaoctets attend les trente mégaoctets avant la
+  première page, ce qui ressemble à un blocage. Et le format des pages se relève
+  **au serveur**, à l'import : le faire dans le navigateur retéléchargeait le
+  document entier juste après l'avoir envoyé.
+- **iPadOS sélectionne le texte sur un appui maintenu.** Au milieu d'une
+  phrase, toute la page passait en surbrillance. Il faut `user-select: none`,
+  `-webkit-touch-callout: none` (classe `.ink-surface`) **et**
+  `preventDefault()` dès `pointerdown` : la décision du geste est prise avant le
+  premier mouvement. Chromium ne connaît pas `-webkit-touch-callout` : il la
+  jette à l'analyse, donc elle est invisible au style calculé comme à
+  `cssText` — la sonde relit la feuille **telle qu'elle est livrée**.
 - **Un document importé est *une* surface.** Ses pages sont empilées sur le
   même canevas, pas une par bloc : on fait défiler d'un geste, on annote à
   cheval, et la palette ne bouge pas. Les traits sont donc repérés d'un bout à

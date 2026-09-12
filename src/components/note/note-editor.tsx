@@ -23,7 +23,6 @@ import { TableBlock } from "@/components/note/table-block";
 import { TextBlock } from "@/components/note/text-block";
 import { Button } from "@/components/ui/button";
 import {
-  parseDrawing,
   parseTable,
   parseText,
   type BlockKind,
@@ -31,6 +30,7 @@ import {
   type TableContent,
   type TextContent,
 } from "@/lib/notes";
+import { analyserDessin, souvenirDessin } from "@/lib/drawing-cache";
 import { cn } from "@/lib/utils";
 import {
   addBlock,
@@ -78,10 +78,27 @@ export function NoteEditor({
 
   async function persist(blockId: string, content: string) {
     setSaving((n) => n + 1);
-    const result = await updateBlock(blockId, content);
-    setSaving((n) => n - 1);
-    if (!result.ok) setError(result.error ?? "Enregistrement impossible.");
-    else setError(null);
+    try {
+      const result = await updateBlock(blockId, content);
+      if (!result.ok) setError(result.error ?? "Enregistrement impossible.");
+      else setError(null);
+    } catch (cause) {
+      /*
+       * Une action serveur peut être **rejetée**, pas seulement répondre non.
+       *
+       * Une page manuscrite dense dépasse le mégaoctet du corps d'une action :
+       * Next refusait alors la requête avant tout appel de code, la promesse
+       * était rejetée, et comme personne ne l'attrapait, le compteur
+       * d'enregistrement restait bloqué — l'app affichait « Enregistrement… »
+       * pour toujours et le travail était perdu sans un mot. Le plafond est
+       * relevé dans `next.config.ts`, mais le réseau peut couper aussi : on le
+       * dit.
+       */
+      console.error("[notes] enregistrement impossible :", cause);
+      setError("Enregistrement impossible — vérifie ta connexion. Ne quitte pas la page.");
+    } finally {
+      setSaving((n) => n - 1);
+    }
   }
 
   async function add(kind: BlockKind, afterBlockId: string | null) {
@@ -327,10 +344,51 @@ function BlockCard({
     [onLocalChange, onSave],
   );
 
-  // Un départ de page ne doit pas emporter la dernière modification.
-  React.useEffect(() => () => {
-    if (timer.current) window.clearTimeout(timer.current);
-  }, []);
+  /*
+   * Page manuscrite : la sérialisation attend, elle aussi.
+   *
+   * Le canevas rend un objet. Le transformer en texte tout de suite, puis le
+   * renvoyer dans l'état de l'éditeur, refaisait analyser et repeindre la page
+   * entière au lever de chaque lettre. Le contenu est donc gardé tel quel, et
+   * converti une seule fois, au moment d'enregistrer.
+   */
+  const enAttente = React.useRef<DrawingContent | null>(null);
+
+  const vidanger = React.useCallback(() => {
+    const next = enAttente.current;
+    enAttente.current = null;
+    if (!next) return;
+    const raw = JSON.stringify(next);
+    // L'écho reviendra à l'identique : cf. `souvenirDessin`.
+    souvenirDessin(raw, next);
+    onLocalChange(raw);
+    onSave(raw);
+  }, [onLocalChange, onSave]);
+
+  const scheduleDrawing = React.useCallback(
+    (next: DrawingContent) => {
+      enAttente.current = next;
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(vidanger, SAVE_DELAY);
+    },
+    [vidanger],
+  );
+
+  // Un départ de page ne doit pas emporter la dernière modification : on
+  // enregistre ce qui attendait au lieu de l'abandonner. Le minuteur seul était
+  // annulé, et les traits des sept dernières centaines de millisecondes
+  // partaient avec lui.
+  const dernier = React.useRef(vidanger);
+  React.useEffect(() => {
+    dernier.current = vidanger;
+  }, [vidanger]);
+  React.useEffect(
+    () => () => {
+      if (timer.current) window.clearTimeout(timer.current);
+      dernier.current();
+    },
+    [],
+  );
 
   return (
     <section
@@ -410,7 +468,7 @@ function BlockCard({
           Bloc ouvert en plein écran
         </div>
       ) : (
-        <BlockBody block={block} onChange={schedule} onCanvasFull={onCanvasFull} />
+        <BlockBody block={block} onChange={schedule} onDrawing={scheduleDrawing} onCanvasFull={onCanvasFull} />
       )}
 
       {full ? (
@@ -427,7 +485,7 @@ function BlockCard({
             </Button>
           </div>
           <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-            <BlockBody block={block} onChange={schedule} onCanvasFull={onCanvasFull} />
+            <BlockBody block={block} onChange={schedule} onDrawing={scheduleDrawing} onCanvasFull={onCanvasFull} />
           </div>
         </div>
       ) : null}
@@ -457,13 +515,23 @@ function BlockCard({
 }
 
 /** Rend le bloc selon son type, en lui donnant son contenu déjà analysé. */
-function BlockBody({
+const BlockBody = React.memo(function BlockBody({
   block,
   onChange,
+  onDrawing,
   onCanvasFull,
 }: {
   block: EditableBlock;
   onChange: (content: string) => void;
+  /**
+   * Chemin réservé à la page manuscrite : elle rend un **objet**, pas du texte.
+   *
+   * Sérialiser une page dense prend quelques dizaines de millisecondes ; le
+   * faire au lever du stylet se voyait comme un accroc à la fin de chaque
+   * lettre. La conversion est repoussée dans l'enregistrement différé, qui
+   * arrive de toute façon après.
+   */
+  onDrawing: (next: DrawingContent) => void;
   onCanvasFull?: (full: boolean) => void;
 }) {
   if (block.kind === "table") {
@@ -471,16 +539,15 @@ function BlockBody({
     return <TableBlock content={content} onChange={(next) => onChange(JSON.stringify(next))} />;
   }
   if (block.kind === "drawing") {
-    const content: DrawingContent = parseDrawing(block.content);
     return (
       <DrawingBlock
-        content={content}
+        content={analyserDessin(block.content)}
         scrollId={block.id}
         onFullChange={onCanvasFull}
-        onChange={(next) => onChange(JSON.stringify(next))}
+        onChange={onDrawing}
       />
     );
   }
   const content: TextContent = parseText(block.content);
   return <TextBlock content={content} onChange={(next) => onChange(JSON.stringify(next))} />;
-}
+});

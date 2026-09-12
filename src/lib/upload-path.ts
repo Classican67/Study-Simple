@@ -67,3 +67,37 @@ export function contentTypeFor(fileName: string): string {
   const match = Object.entries(ALLOWED_TYPES).find(([, value]) => value === extension);
   return match?.[0] ?? "application/octet-stream";
 }
+
+/**
+ * Interprète un en-tête `Range`.
+ *
+ * On ne gère que la forme à une seule plage : c'est la seule que pdf.js
+ * émette, et répondre du multipart pour les autres coûterait plus que de les
+ * ignorer — un client qui demande mieux se contente très bien d'un 200.
+ */
+export function parseRange(
+  header: string | null,
+  taille: number,
+): { debut: number; fin: number } | null | "invalide" {
+  if (!header) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match) return null;
+  const [, brutDebut, brutFin] = match;
+  if (brutDebut === "" && brutFin === "") return "invalide";
+
+  // `bytes=-500` : les cinq cents derniers octets.
+  if (brutDebut === "") {
+    const longueur = Number(brutFin);
+    if (longueur === 0) return "invalide";
+    return { debut: Math.max(0, taille - longueur), fin: taille - 1 };
+  }
+
+  const debut = Number(brutDebut);
+  if (debut >= taille) return "invalide";
+  // Une fin absente, ou au-delà du fichier, est ramenée au dernier octet :
+  // c'est ce que demande la RFC, et pdf.js s'appuie dessus pour la dernière
+  // plage d'un document.
+  const fin = brutFin === "" ? taille - 1 : Math.min(Number(brutFin), taille - 1);
+  if (fin < debut) return "invalide";
+  return { debut, fin };
+}

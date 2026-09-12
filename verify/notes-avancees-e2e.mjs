@@ -266,11 +266,28 @@ async function pincer(ecart) {
 }
 
 const traitsAvant = await apres.getAttribute("aria-label");
+// Largeur de la page **en mise en page** avant le geste : c'est elle que le
+// zoom change désormais, et non un `transform` CSS. Agrandir par transformation
+// étirait des pixels déjà tracés — l'écriture devenait crénelée.
+const largeurAvant = await apres.evaluate(
+  (el) => el.parentElement.getBoundingClientRect().width,
+);
 await pincer(300);
-await page.waitForTimeout(400);
+await page.waitForTimeout(500);
 
-const transform = await apres.evaluate((el) => el.style.transform);
-check(/scale\((?!1\))/.test(transform), "écarter deux doigts agrandit la page", transform);
+const largeurApres = await apres.evaluate(
+  (el) => el.parentElement.getBoundingClientRect().width,
+);
+check(
+  largeurApres > largeurAvant * 1.2,
+  "écarter deux doigts agrandit la page",
+  `${Math.round(largeurAvant)} → ${Math.round(largeurApres)} px`,
+);
+check(
+  (await apres.evaluate((el) => el.style.transform)) === "",
+  "et sans transformation CSS, qui étirerait les pixels au lieu de les refaire",
+  await apres.evaluate((el) => el.style.transform),
+);
 check(
   (await page.getByRole("button", { name: /Zoom \d+ %/ }).count()) === 1,
   "le facteur de zoom s'affiche",

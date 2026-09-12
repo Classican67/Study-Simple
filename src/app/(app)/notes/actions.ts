@@ -290,28 +290,14 @@ export async function moveNote(noteId: string, folderId: string | null): Promise
   return { ok: true };
 }
 
-export type ImportResult = { ok: true; file: string } | { ok: false; error: string };
-
-/**
- * Importe un document à annoter et renvoie le PDF stocké.
+/*
+ * L'import d'un document ne passe plus par une action serveur.
  *
- * Le comptage des pages est laissé au client : il doit de toute façon charger
- * le PDF pour l'afficher, et le faire aussi ici obligerait à embarquer un
- * moteur PDF côté serveur pour un renseignement qu'on a déjà.
+ * Le corps d'une action est plafonné à un mégaoctet : un PDF scanné était
+ * refusé par Next avant que le code ne soit appelé, et l'interface restait
+ * bloquée sur « Conversion… ». Il passe par `POST /api/notes/<id>/document`,
+ * qui n'a pas ce plafond et dont l'envoi se mesure en XHR.
  */
-export async function importNoteDocument(formData: FormData): Promise<ImportResult> {
-  await requireUser();
-
-  const file = formData.get("document");
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, error: "Aucun fichier reçu." };
-  }
-
-  const { importDocument } = await import("@/lib/documents");
-  const result = await importDocument(file);
-  if ("error" in result) return { ok: false, error: result.error };
-  return { ok: true, file: result.file };
-}
 
 /**
  * Ajoute une page manuscrite par page du document, d'un seul coup.

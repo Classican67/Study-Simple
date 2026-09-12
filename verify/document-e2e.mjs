@@ -151,6 +151,34 @@ check(
   reponse.headers()["content-type"],
 );
 
+/*
+ * Les plages, sans lesquelles pdf.js télécharge tout avant la première page.
+ *
+ * C'est ce qui faisait qu'un polycopié scanné mettait une minute à s'ouvrir sur
+ * iPad, l'écran blanc jusqu'à la fin du téléchargement. pdf.js n'y recourt que
+ * si le serveur les annonce **et** répond 206.
+ */
+check(
+  (reponse.headers()["accept-ranges"] ?? "") === "bytes",
+  "le serveur annonce savoir servir des plages",
+  reponse.headers()["accept-ranges"],
+);
+const taille = Number(reponse.headers()["content-length"]);
+const morceau = await page.request.get(`${BASE}/api/uploads/${pdfs[0]}`, {
+  headers: { Range: "bytes=0-63" },
+});
+check(morceau.status() === 206, "et il en sert une pour de vrai", `HTTP ${morceau.status()}`);
+check(
+  morceau.headers()["content-range"] === `bytes 0-63/${taille}`,
+  "en annonçant exactement ce qu'il envoie",
+  morceau.headers()["content-range"],
+);
+check((await morceau.body()).length === 64, "et pas un octet de plus", String((await morceau.body()).length));
+const horsBornes = await page.request.get(`${BASE}/api/uploads/${pdfs[0]}`, {
+  headers: { Range: `bytes=${taille + 10}-` },
+});
+check(horsBornes.status() === 416, "une plage hors du fichier est refusée proprement", `HTTP ${horsBornes.status()}`);
+
 // --- Refus propre d'un format non pris en charge ----------------------------
 section("refus");
 await page.goto(url, { waitUntil: "networkidle" });
@@ -167,6 +195,119 @@ check(
   alerte.includes("Format non pris en charge"),
   "un format inconnu est refusé, avec un message clair",
   alerte,
+);
+
+// --- Ce qui bloquait l'import sur iPad -------------------------------------
+/*
+ * Trois obstacles, dans cet ordre, et aucun ne se voyait sur un poste de
+ * développement avec un PDF de deux pages :
+ *
+ * 1. **Le mégaoctet.** L'import passait par une action serveur, dont le corps
+ *    est plafonné à 1 Mo. Next refusait la requête avant tout appel de code, la
+ *    promesse était rejetée sans être attrapée, et le bouton restait sur
+ *    « Conversion… » indéfiniment. Un PDF scanné dépasse le mégaoctet dès deux
+ *    pages : c'était donc *toujours* le cas sur iPad.
+ * 2. **Le type manquant.** iOS annonce régulièrement `application/octet-stream`
+ *    pour un fichier venu de l'app Fichiers ou d'AirDrop. Se fier au seul
+ *    en-tête faisait refuser sur iPad ce que le même navigateur acceptait
+ *    ailleurs.
+ * 3. **L'absence de sortie.** Rien ne permettait d'interrompre, et rien ne
+ *    disait où en était l'envoi.
+ */
+section("import lourd, et type manquant");
+
+const { createRequire } = await import("node:module");
+const requerir = createRequire(new URL("../package.json", import.meta.url));
+const { PDFDocument, PDFRawStream, PDFName } = requerir("pdf-lib");
+
+/**
+ * Un PDF valide de quelques mégaoctets, comme un cours scanné.
+ *
+ * Le poids vient d'un flux de données brut enregistré dans le document — pas
+ * d'un remplissage après `%%EOF`, qui ferait un fichier que les lecteurs
+ * tolèrent mais dont rien ne garantit qu'il reste lisible.
+ */
+async function grosPdf(mo) {
+  const doc = await PDFDocument.create();
+  doc.addPage([595, 842]).drawText("Cours scanné", { x: 60, y: 760, size: 24 });
+  doc.addPage([595, 842]);
+  const bruit = Buffer.alloc(mo * 1024 * 1024);
+  for (let i = 0; i < bruit.length; i++) bruit[i] = i & 0xff;
+  const flux = PDFRawStream.of(
+    doc.context.obj({ Type: "EmbeddedFile", Length: bruit.length }),
+    bruit,
+  );
+  doc.catalog.set(PDFName.of("FichesBruit"), doc.context.register(flux));
+  return Buffer.from(await doc.save({ useObjectStreams: false }));
+}
+
+const lourd = await grosPdf(3);
+check(lourd.length > 1024 * 1024, "le PDF d'essai dépasse le plafond d'une action serveur", `${(lourd.length / 1024 / 1024).toFixed(1)} Mo`);
+
+await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Nouvelle note" }).click();
+await page.waitForURL(/\/notes\/[a-z0-9]+/);
+const avantLourd = await page.locator('[data-testid="drawing-canvas"]').count();
+
+const debutLourd = Date.now();
+await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles({
+  name: "scan.pdf",
+  // Le type qu'iOS envoie quand il ne sait pas : c'est le cas à éprouver.
+  mimeType: "application/octet-stream",
+  buffer: lourd,
+});
+
+// La sortie de secours est offerte pendant l'envoi, pas seulement après.
+const interrompre = page.getByRole("button", { name: "Interrompre l'import" });
+check(
+  await interrompre.isVisible().catch(() => false) ||
+    (await page.locator("text=/Envoi \\d+ %|Conversion…/").count()) > 0,
+  "l'envoi s'annonce, et peut être interrompu",
+);
+
+await page
+  .locator('[data-testid="drawing-canvas"]')
+  .nth(avantLourd)
+  .waitFor({ timeout: 90000 })
+  .catch(() => {});
+const secondes = (Date.now() - debutLourd) / 1000;
+console.log(`   import de ${(lourd.length / 1024 / 1024).toFixed(1)} Mo : ${secondes.toFixed(1)} s`);
+
+check(
+  (await page.locator('[data-testid="drawing-canvas"]').count()) > avantLourd,
+  "un PDF de plusieurs mégaoctets s'importe, sans type MIME reconnaissable",
+  await page.locator('[role="alert"]').first().innerText().catch(() => ""),
+);
+// Et surtout : l'interface est revenue au repos, quoi qu'il arrive.
+await page.getByRole("button", { name: "Document" }).waitFor({ timeout: 30000 });
+check(true, "et le bouton revient à son état de repos — jamais de chargement sans fin");
+
+// --- Refus immédiat d'un fichier hors limite -------------------------------
+section("trop lourd");
+await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
+await page.getByRole("button", { name: "Nouvelle note" }).click();
+await page.waitForURL(/\/notes\/[a-z0-9]+/);
+const debutRefus = Date.now();
+await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles({
+  name: "enorme.pdf",
+  mimeType: "application/pdf",
+  buffer: Buffer.alloc(41 * 1024 * 1024),
+});
+const refus = await page
+  .locator('[role="alert"]')
+  .first()
+  .innerText({ timeout: 15000 })
+  .catch(() => "");
+const delaiRefus = Date.now() - debutRefus;
+check(/trop lourd/i.test(refus), "un document hors limite est refusé, avec sa taille", refus);
+check(
+  delaiRefus < 10000,
+  "et refusé tout de suite, sans avoir envoyé quarante mégaoctets",
+  `${(delaiRefus / 1000).toFixed(1)} s`,
+);
+check(
+  (await page.getByRole("button", { name: "Document" }).count()) === 1,
+  "le bouton reste utilisable",
 );
 
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);

@@ -1,7 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 
 import {
+  INK_REF,
   boundsOf,
   eraseStroke,
   pointInPolygon,
@@ -282,5 +285,40 @@ describe("eraseStroke — la gomme précise", () => {
 
   it("ne renvoie rien pour un trait vide", () => {
     assert.deepEqual(eraseStroke([], { x: 0, y: 0 }, 0.1), []);
+  });
+});
+
+/**
+ * Les réglages du trait n'existent qu'en un seul endroit.
+ *
+ * Ils vivaient en double — une copie dans le canevas, une autre dans
+ * l'export PDF — sous un commentaire affirmant que « l'écran et le papier ne
+ * peuvent pas diverger ». Deux copies divergent toujours : il suffit d'en
+ * régler une, et le trait exporté cesse de ressembler au trait tracé, sans que
+ * rien ne le signale.
+ */
+describe("réglages du trait", () => {
+  const sources = ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"];
+
+  it("ne sont déclarés que dans lib/ink.ts", () => {
+    for (const fichier of sources) {
+      const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
+      assert.ok(
+        /INK_OPTIONS/.test(code),
+        `${fichier} doit prendre ses réglages dans lib/ink.ts`,
+      );
+      assert.ok(
+        !/thinning:\s*0\.62/.test(code),
+        `${fichier} redéclare les réglages au lieu de les importer`,
+      );
+    }
+  });
+
+  it("et l'épaisseur se rapporte partout à la même page de référence", () => {
+    assert.equal(INK_REF, 1000);
+    for (const fichier of sources) {
+      const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
+      assert.ok(/INK_REF/.test(code), `${fichier} doit se rapporter à INK_REF`);
+    }
   });
 });

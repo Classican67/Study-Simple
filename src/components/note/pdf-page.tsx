@@ -49,34 +49,70 @@ export function openDocument(file: string) {
   return promise;
 }
 
-/** Format de chaque page du document : hauteur rapportée à la largeur. */
-export async function pageRatios(file: string): Promise<number[]> {
-  const doc = await openDocument(file);
-  const ratios: number[] = [];
-  for (let n = 1; n <= doc.numPages; n++) {
-    const page = await doc.getPage(n);
-    const { width, height } = page.getViewport({ scale: 1 });
-    ratios.push(Number((height / width).toFixed(4)));
-  }
-  return ratios;
+/*
+ * Le format des pages est relevé **par le serveur**, à l'import.
+ *
+ * Il l'était ici : pdf.js retéléchargeait le document entier juste après
+ * l'envoi, pour n'en lire que les dimensions. Sur iPad, un polycopié de trente
+ * mégaoctets repartait donc du serveur aussitôt après y être monté, et l'import
+ * n'en sortait jamais. Cf. `pageRatios` dans `src/lib/documents.ts`.
+ */
+
+/** Limite de Safari pour un côté de canevas. Au-delà, il ne peint plus rien. */
+const SIDE_MAX = 4096;
+
+/**
+ * Palier de résolution.
+ *
+ * Le zoom se règle en continu, mais rerendre la page à chaque image du geste
+ * refait tout le travail de pdf.js pour une netteté qui ne se voit pas. On ne
+ * change de résolution que par bonds d'un tiers, et **jamais vers le bas** :
+ * revenir en arrière rendrait le fond flou en dézoomant, alors que les pixels
+ * étaient déjà là.
+ */
+function palier(largeur: number): number {
+  return Math.pow(1.33, Math.ceil(Math.log(Math.max(1, largeur)) / Math.log(1.33)));
 }
 
 export function PdfPage({
   file,
   page,
+  width,
   className,
 }: {
   file: string;
   page: number;
+  /**
+   * Largeur d'affichage, en pixels CSS.
+   *
+   * Elle suit le zoom : sans elle, la page était rasterisée une fois pour
+   * toutes à deux fois sa largeur d'origine, et agrandir quatre fois donnait un
+   * fond aussi crénelé que l'encre l'était.
+   */
+  width?: number;
   className?: string;
 }) {
   const ref = React.useRef<HTMLCanvasElement>(null);
   const [error, setError] = React.useState(false);
+  // Résolution déjà obtenue, et pour quelle page : on ne redescend jamais, et
+  // on ne remonte que par paliers. La page est retenue avec elle, sinon un
+  // changement de document hériterait de la résolution du précédent et ne
+  // redessinerait pas.
+  const rendu = React.useRef({ cle: "", largeur: 0 });
+  const cle = `${file}#${page}`;
+
+  // `window` n'existe pas au rendu serveur : la densité y est supposée à deux,
+  // ce que l'effet corrigera au montage si besoin.
+  const densite = typeof window === "undefined" ? 2 : Math.min(window.devicePixelRatio || 1, 2);
+  const cible = palier((width ?? 0) * densite || 1600);
 
   React.useEffect(() => {
     let annule = false;
     const canvas = ref.current;
     if (!canvas) return;
+
+    // Une nouvelle page : la résolution acquise ne vaut plus.
+    let tache: { cancel: () => void } | null = null;
 
     (async () => {
       try {
@@ -85,34 +121,40 @@ export function PdfPage({
         const pdfPage = await doc.getPage(page);
         if (annule) return;
 
-        const largeur = canvas.clientWidth || 800;
         const base = pdfPage.getViewport({ scale: 1 });
-        // Deux fois la largeur affichée : net sur un écran à haute densité,
-        // sans faire de chaque page plusieurs mégaoctets.
-        const viewport = pdfPage.getViewport({ scale: (largeur * 2) / base.width });
+        const voulue = Math.min(cible, SIDE_MAX, (SIDE_MAX * base.width) / base.height);
+        if (rendu.current.cle === cle && voulue <= rendu.current.largeur) return;
 
+        const viewport = pdfPage.getViewport({ scale: voulue / base.width });
         canvas.width = Math.round(viewport.width);
         canvas.height = Math.round(viewport.height);
         const context = canvas.getContext("2d");
         if (!context) return;
-        await pdfPage.render({ canvas, canvasContext: context, viewport }).promise;
+        const rendre = pdfPage.render({ canvas, canvasContext: context, viewport });
+        tache = rendre;
+        await rendre.promise;
+        if (!annule) rendu.current = { cle, largeur: voulue };
       } catch (cause) {
+        // Un rendu annulé n'est pas une panne : on change de résolution en
+        // cours de route dès qu'on zoome.
+        if (annule || (cause instanceof Error && cause.name === "RenderingCancelledException")) return;
         // Document supprimé, illisible, ou pdf.js indisponible : la page
         // manuscrite reste utilisable, simplement sans son fond.
-        if (!annule) {
-          console.error(
-            "[pdf] rendu impossible :",
-            cause instanceof Error ? `${cause.name}: ${cause.message}` : cause,
-          );
-          setError(true);
-        }
+        console.error(
+          "[pdf] rendu impossible :",
+          cause instanceof Error ? `${cause.name}: ${cause.message}` : cause,
+        );
+        setError(true);
       }
     })();
 
     return () => {
       annule = true;
+      // Un rendu laissé en cours garde le canevas occupé : pdf.js refuse alors
+      // le suivant sur la même page, et le fond reste blanc.
+      tache?.cancel();
     };
-  }, [file, page]);
+  }, [file, page, cle, cible]);
 
   if (error) {
     return (

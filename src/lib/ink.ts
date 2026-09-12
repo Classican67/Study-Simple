@@ -327,3 +327,31 @@ function segmentInCircle(
   const t1 = Math.min(1, (-B + racine) / (2 * A));
   return t0 <= t1 ? [t0, t1] : null;
 }
+
+/**
+ * Réglages de `perfect-freehand`, partagés par l'écran et le papier.
+ *
+ * Ils vivaient en double — une copie dans le canevas, une autre dans
+ * `lib/pdf-export.ts` — sous un commentaire affirmant que « l'écran et le
+ * papier ne peuvent pas diverger ». Deux copies divergent toujours : il suffit
+ * d'en régler une. Elles sont ici, et `tests/ink.test.ts` vérifie qu'il n'en
+ * reste pas d'autre.
+ */
+export const INK_OPTIONS = {
+  pen: { thinning: 0.62, smoothing: 0.5, streamline: 0.42 },
+  // Un surligneur ne varie pas d'épaisseur et ne s'effile pas : c'est un feutre
+  // à pointe biseautée, pas une plume.
+  highlighter: { thinning: 0, smoothing: 0.62, streamline: 0.5 },
+} as const;
+
+/**
+ * Repère de calcul des contours : une page large de mille unités.
+ *
+ * `getStroke` n'est **pas** invariant d'échelle : sur des coordonnées comprises
+ * entre 0 et 1, ses seuils internes de distance écartent presque tous les
+ * points et le contour dégénère en une tache large de la moitié de la page —
+ * mesuré à 881 unités de haut pour un trait qui en fait 1,6. Tout se calcule
+ * donc dans un repère de mille unités, où la bibliothèque se comporte comme
+ * prévu, et c'est aussi la convention de `strokeWidth` à l'export.
+ */
+export const INK_REF = 1000;

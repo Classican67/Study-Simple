@@ -1,5 +1,6 @@
 import { getStroke } from "perfect-freehand";
 
+import { INK_OPTIONS, INK_REF } from "@/lib/ink";
 import type { Stroke } from "@/lib/notes";
 
 /**
@@ -27,11 +28,6 @@ export function toPdfPoint(
   return { x: x * page.width, y: page.height - y * page.width };
 }
 
-const OPTIONS = {
-  pen: { thinning: 0.62, smoothing: 0.5, streamline: 0.42 },
-  highlighter: { thinning: 0, smoothing: 0.62, streamline: 0.5 },
-} as const;
-
 /**
  * Contour d'un trait, en chemin SVG et en coordonnées PDF.
  *
@@ -53,14 +49,14 @@ export function strokeOutline(stroke: Stroke, page: PageSize): number[][] {
   return getStroke(points, {
     // L'épaisseur est en proportion de la largeur, comme les coordonnées.
     size: strokeWidth(stroke, page),
-    ...OPTIONS[tool],
+    ...INK_OPTIONS[tool],
     last: true,
   });
 }
 
 /** Épaisseur du trait, en points PDF. */
 export function strokeWidth(stroke: Stroke, page: PageSize): number {
-  return stroke.size * (stroke.tool === "highlighter" ? 4 : 1) * (page.width / 1000);
+  return stroke.size * (stroke.tool === "highlighter" ? 4 : 1) * (page.width / INK_REF);
 }
 
 export function strokeToSvgPath(stroke: Stroke, page: PageSize): string | null {

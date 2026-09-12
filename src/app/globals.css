@@ -295,8 +295,28 @@
   .paper-ruled,
   .paper-grid,
   .paper-dots {
-    /* Interligne d'un cahier, ramené à l'écran. */
+    /* Interligne d'un cahier, ramené à l'écran.
+
+       La surface d'écriture la redéfinit en proportion de la largeur de page,
+       pour que l'interligne grossisse avec le zoom comme le fait l'écriture :
+       un pas figé en rem laissait des lignes serrées sur une page agrandie six
+       fois, et l'on n'écrivait plus entre elles. Cette valeur reste le repli
+       pour les vignettes et l'aperçu, où il n'y a pas de zoom. */
     --paper-step: 1.75rem;
+  }
+
+  /* --- Surface d'écriture --------------------------------------------------
+     iPadOS déclenche sa sélection de texte sur un appui maintenu : au milieu
+     d'une phrase, toute la page passait en surbrillance bleue, comme si l'on
+     avait appuyé fort sur du texte. Rien n'est sélectionnable sur une feuille,
+     et la loupe de sélection n'y a rien à faire non plus.
+
+     Dans `components` : un utilitaire `select-text` doit pouvoir l'emporter. */
+  .ink-surface {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    -webkit-tap-highlight-color: transparent;
   }
 
   /* Couches d'état de Material 3 : au survol et à l'appui, un voile de la
