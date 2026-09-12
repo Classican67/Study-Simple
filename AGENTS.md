@@ -77,6 +77,13 @@ Un test de régression qui n'a jamais échoué ne garantit rien. Réintroduire l
 défaut, constater que le test le signale, puis restaurer. Une sonde ajoutée à
 `audit.mjs` a été validée ainsi : au premier essai elle ne voyait rien.
 
+Docker n'est pas installé sur la machine de développement. Les trois derniers
+échecs de déploiement ne se voyaient qu'au build de l'image ; on les reproduit
+maintenant **sans Docker**, en rejouant les étapes du `Dockerfile` dans un
+dossier temporaire — copier ce qu'il copie, `npm ci`, `npm run build`,
+`npm ci --omit=dev` — puis en démarrant le serveur ainsi obtenu. Trois minutes,
+et cela dit ce qu'un test ne dira jamais.
+
 Les vérifications qui tiennent sans navigateur vont dans `tests/` — ordre des
 couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`, cohérence
 du verrou npm.
@@ -132,6 +139,11 @@ du verrou npm.
   `postinstall` et exige que chaque chemin qui y figure soit copié avant
   l'installation : ajouter un script sans toucher au Dockerfile fait échouer le
   test, pas le serveur.
+- **`npm prune` trébuche sur les paquets d'une autre plateforme.** Il parcourt
+  l'arbre du verrou et s'arrête sur ce qui y figure sans être sur le disque —
+  `ENOENT: lstat …/@tailwindcss/oxide-wasm32-wasi`, le repli WebAssembly que
+  Linux n'installe pas. L'image obtient donc son arbre de production par
+  `npm ci --omit=dev`, qui repart du verrou au lieu de retrancher.
 - **Verrou npm et version de npm.** Deux npm différents n'écrivent pas le même
   `package-lock.json` : npm 11 omet des dépendances de paquets optionnels —
   `@emnapi/runtime`, réclamé par `@img/sharp-wasm32` — que npm 10 exige. Le

@@ -66,9 +66,22 @@ RUN DATABASE_URL="file:/app/data/app.db" \
     SESSION_SECRET="secret-de-build-uniquement-jamais-utilise-au-runtime" \
     sh -c "npx prisma generate && npm run build"
 
-# On dégraisse : eslint, typescript et les typings n'ont plus d'utilité.
-# Le CLI prisma, lui, est en `dependencies` car l'entrypoint l'appelle.
-RUN npm prune --omit=dev && npm cache clean --force
+# On dégraisse : eslint, typescript et les typings n'ont plus d'utilité une
+# fois le build fait. Le CLI prisma, lui, est en `dependencies` car
+# l'entrypoint l'appelle.
+#
+# Réinstallation plutôt qu'élagage. `npm prune` parcourt l'arbre du verrou et
+# s'arrête sur les paquets optionnels d'une autre plateforme, absents du disque
+# mais présents dans le verrou :
+#
+#   ENOENT: lstat '/app/node_modules/@tailwindcss/oxide-wasm32-wasi'
+#
+# C'est le repli WebAssembly de Tailwind, que Linux n'installe pas — il prend
+# le binaire natif. `npm ci --omit=dev` repart du verrou au lieu de retrancher
+# d'un arbre existant : rien à retrouver sur le disque, et c'est la voie que
+# npm documente pour obtenir un arbre de production. Le `postinstall` y
+# régénère le client Prisma et le worker de pdf.js.
+RUN npm ci --omit=dev && npm cache clean --force
 
 ENV NODE_ENV=production
 ENV PORT=3000

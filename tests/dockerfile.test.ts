@@ -78,6 +78,24 @@ for (const file of ["Dockerfile", "Dockerfile.dev"]) {
       }
     });
 
+    it("n'élague pas l'arbre avec `npm prune`", () => {
+      /*
+       * `npm prune` parcourt l'arbre du verrou et s'arrête sur les paquets
+       * optionnels d'une autre plateforme — présents dans le verrou, absents
+       * du disque :
+       *
+       *   ENOENT: lstat '/app/node_modules/@tailwindcss/oxide-wasm32-wasi'
+       *
+       * Le déploiement a échoué là-dessus. `npm ci --omit=dev` repart du
+       * verrou au lieu de retrancher d'un arbre existant.
+       */
+      assert.equal(
+        lineOf(content, /^RUN\s+npm prune\b/),
+        -1,
+        "`npm prune` échoue sur les paquets optionnels d'une autre plateforme",
+      );
+    });
+
     it("copie prisma/ avant d'installer les dépendances", () => {
       const copyPrisma = lineOf(content, /^COPY\s+prisma\b/);
       const install = lineOf(content, /^RUN\s+npm ci\b/);
