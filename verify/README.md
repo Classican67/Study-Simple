@@ -51,6 +51,8 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node fonds-e2e.mjs` | Pages ajoutées dans un document, quatre fonds, interligne au zoom, réglage à l'export |
 | `node regard-fonds.mjs` | Captures des quatre fonds, en clair et en sombre |
 | `node regard-export.mjs` | Le PDF exporté, relu par l'application et photographié |
+| `node import-e2e.mjs` | Import système : dépôt d'un fichier, dossier de destination, titre, refus, réponse au partage |
+| `node regard-depot.mjs` | Capture du voile de dépôt, en clair et en sombre |
 | `node palette-e2e.mjs` | Barre d'outils : réglages contextuels, mémoire par outil, verrou stylet, gomme sélective, navigation entre pages |
 | `node export-pdf-e2e.mjs` | Export PDF : aplati et annotations Ink conformes, document d'origine intact, PDF relisible |
 | `node document-e2e.mjs` | Import d'un PDF : une page annotable par page, annotation conservée, refus des formats inconnus |

@@ -58,6 +58,11 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node regard-fonds.mjs` — captures des quatre fonds, en clair et en sombre
 - `node regard-export.mjs` — le PDF exporté, relu par l'application et
   photographié page par page
+- `node import-e2e.mjs` — **importer un document depuis le système** : dépôt
+  d'un fichier sur la liste des notes, rangement dans le dossier ouvert, titre
+  repris du nom de fichier, refus d'un autre format, et la réponse attendue par
+  la feuille de partage — une redirection, pas du JSON
+- `node regard-depot.mjs` — capture du voile de dépôt, en clair et en sombre
 - `node palette-e2e.mjs` — barre d'outils de la page manuscrite : les réglages
   suivent l'outil courant, chaque outil retient les siens, le verrou du stylet
   et la gomme sélective font ce qu'ils annoncent
@@ -130,6 +135,23 @@ du verrou npm.
   serveur : on n'y reçoit qu'une référence, et l'appeler échoue à l'exécution
   sur un « includes is not a function » peu parlant. Les tableaux et listes
   partagés vont dans un module neutre de `src/lib/`.
+- **Un PWA ne peut pas figurer dans la feuille de partage d'iOS.** Ni
+  `share_target` ni `file_handlers` n'existent sur iOS ni iPadOS : Safari ne
+  sait pas faire d'une application web la destination d'un partage ou d'un
+  « Ouvrir avec ». Les déclarer ne coûte rien — Android, ChromeOS et les
+  navigateurs de bureau s'en servent — mais il ne faut pas les annoncer comme
+  une solution sur iPad. Ce qui marche là-bas, c'est le **glisser-déposer
+  depuis Fichiers**, disponible depuis iPadOS 15 et limité à des types
+  « standard » qui comprennent justement `.pdf`, `.docx` et `.doc`.
+  `DepotDocument` écoute donc la **fenêtre** — viser un rectangle avec un
+  fichier au bout du doigt est une épreuve d'adresse inutile — et refuse le
+  comportement par défaut du survol, sans quoi le navigateur ouvre le PDF au
+  lieu de nous le donner.
+- **Une feuille de partage navigue, elle n'appelle pas.** Elle envoie le
+  fichier et attend **une page** ; le glisser-déposer, lui, appelle en XHR et
+  attend du JSON. La même route sert les deux et les distingue à l'en-tête
+  `Accept` — répondre du JSON à un partage laisserait la personne devant une
+  réponse brute au lieu de sa note, y compris en cas de refus.
 - **Un tracé qui s'interrompt a trois causes, et aucune n'est dans le code du
   tracé.** Elles se cumulaient, et aucune ne se reproduit sur un navigateur de
   bureau :

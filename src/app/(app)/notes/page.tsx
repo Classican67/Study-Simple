@@ -5,6 +5,7 @@ import { ChevronRight, Folder as FolderIcon, Home, NotebookPen, PenLine, Table2,
 
 import { EmptyState } from "@/components/ui/panel";
 import { DropZone } from "@/components/drag-move";
+import { DepotDocument } from "./depot-document";
 import { NewNoteButton } from "./new-note-button";
 import { NoteDragHandle } from "./note-drag-handle";
 import { NewNoteFolderButton } from "./new-note-folder-button";
@@ -54,6 +55,15 @@ export default async function NotesPage(props: PageProps<"/notes">) {
   };
 
   return (
+    /*
+     * Toute la liste reçoit les documents qu'on y dépose.
+     *
+     * Un PDF tiré depuis Fichiers devient une note, rangée dans le dossier
+     * ouvert. C'est le seul chemin d'import « natif » qui existe sur iPad :
+     * Safari ne sait pas faire d'une application web la destination d'une
+     * feuille de partage. Cf. `DepotDocument`.
+     */
+    <DepotDocument folderId={folderId} nomDossier={view.current?.name}>
     <div className="space-y-6">
       {view.breadcrumb.length > 0 ? <Breadcrumb trail={view.breadcrumb} /> : null}
 
@@ -203,6 +213,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
         </ul>
       ) : null}
     </div>
+    </DepotDocument>
   );
 }
 
