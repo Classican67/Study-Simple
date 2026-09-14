@@ -5,7 +5,18 @@ import * as React from "react";
 import { InkCanvas, type InkTool } from "@/components/note/ink-canvas";
 import { InkPalette, type InkSettings } from "@/components/note/ink-palette";
 import type { Ruler, Shape } from "@/lib/ink";
-import { MAX_RATIO, type DrawingContent, type Stroke } from "@/lib/notes";
+import {
+  MAX_DOCUMENT_PAGES,
+  MAX_RATIO,
+  insertPage,
+  isBackdropPage,
+  pageBands,
+  removePage,
+  type BlankPage,
+  type DrawingContent,
+  type Paper,
+  type Stroke,
+} from "@/lib/notes";
 
 /**
  * Page manuscrite : le canevas, ses outils, et le plein écran.
@@ -89,6 +100,14 @@ export function DrawingBlock({
   // Remonter le canevas remet la vue à sa position d'origine : il n'y a rien à
   // réinitialiser à la main, les traits venant du contenu.
   const [viewKey, setViewKey] = React.useState(0);
+  /*
+   * Page courante : celle qui occupe le milieu de la fenêtre.
+   *
+   * Une surface peut porter quarante pages. « Ajouter une page » ne veut donc
+   * rien dire sans savoir **après laquelle**, et le choix du fond porte sur la
+   * page qu'on a sous les yeux, pas sur toute la pile.
+   */
+  const [pageIndex, setPageIndex] = React.useState(0);
 
   // Pile d'annulation, à part du contenu : ce qu'on vient de retirer n'a pas à
   // être enregistré, seulement à pouvoir revenir.
@@ -121,6 +140,59 @@ export function DrawingBlock({
     if (content.strokes.length === 0) return;
     undone.current = [...content.strokes].reverse();
     onChange({ ...content, strokes: [] });
+  }
+
+  /*
+   * Ce que la palette peut proposer, selon la page qu'on regarde.
+   *
+   * Trois cas, et ils ne se confondent pas : une surface d'une seule page —
+   * dont le fond appartient à la surface elle-même — une page du document
+   * importé, dont l'image **est** le fond, et une page ajoutée, qui porte le
+   * sien.
+   */
+  const pages = content.pages;
+  const courante = pages[Math.min(pageIndex, pages.length - 1)];
+  const surDocument = Boolean(courante) && isBackdropPage(courante);
+  const ajoutee = Boolean(courante) && !isBackdropPage(courante);
+  const fond = ajoutee ? (courante as BlankPage).paper : content.paper;
+
+  function choisirFond(paper: Paper) {
+    if (!ajoutee) {
+      onChange({ ...content, paper });
+      return;
+    }
+    onChange({
+      ...content,
+      pages: pages.map((p, i) => (i === pageIndex && !isBackdropPage(p) ? { ...p, paper } : p)),
+    });
+  }
+
+  /**
+   * Glisse une feuille après la page courante, et l'amène sous les yeux.
+   *
+   * Sans le défilement, la page apparaît hors de l'écran : rien ne bouge, et
+   * l'on appuie une deuxième fois en croyant que ça n'a pas marché.
+   */
+  function ajouterPage() {
+    if (pages.length === 0 || pages.length >= MAX_DOCUMENT_PAGES) return;
+    const suivant = insertPage(content, pageIndex, fond);
+    if (suivant === content) return;
+    onChange(suivant);
+    const bandes = pageBands(suivant.pages);
+    const arrivee = bandes[Math.min(pageIndex + 1, bandes.length - 1)];
+    setPageIndex(Math.min(pageIndex + 1, suivant.pages.length - 1));
+    // Après le rendu : la surface n'a pas encore sa nouvelle hauteur.
+    requestAnimationFrame(() => {
+      const surface = document.querySelector<HTMLElement>(`[data-ink-scroll="${scrollId}"]`);
+      if (surface) surface.scrollTop = arrivee.top * surface.clientWidth;
+    });
+  }
+
+  function supprimerPage() {
+    const suivant = removePage(content, pageIndex);
+    if (suivant === content) return;
+    setPageIndex(Math.max(0, Math.min(pageIndex, suivant.pages.length - 1)));
+    onChange(suivant);
   }
 
   const surfaceRef = React.useRef<HTMLDivElement>(null);
@@ -185,7 +257,7 @@ export function DrawingBlock({
       pen={pen}
       highlighter={highlighter}
       shape={shape}
-      paper={content.paper}
+      paper={fond}
       eraseHighlightsOnly={eraseHighlightsOnly}
       erasePrecise={erasePrecise}
       penOnly={penOnly}
@@ -193,12 +265,16 @@ export function DrawingBlock({
       selection={selection.length}
       zoom={zoom}
       full={full}
-      hasBackdrop={content.pages.length > 0}
+      paperEditable={!surDocument}
+      canAddPage={pages.length > 0 && pages.length < MAX_DOCUMENT_PAGES}
+      canRemovePage={ajoutee && pages.length > 1}
       ruler={ruler}
       onTool={setTool}
       onSettings={tool === "highlighter" ? setHighlighter : setPen}
       onShape={setShape}
-      onPaper={(paper) => onChange({ ...content, paper })}
+      onPaper={choisirFond}
+      onAddPage={ajouterPage}
+      onRemovePage={supprimerPage}
       onEraseHighlightsOnly={setEraseHighlightsOnly}
       onErasePrecise={setErasePrecise}
       onPenOnly={setPenOnly}
@@ -233,6 +309,7 @@ export function DrawingBlock({
       growable={full}
       onPenMode={setPenMode}
       onView={setZoom}
+      onPage={setPageIndex}
       shape={shape}
       selection={selection}
       onSelect={setSelection}

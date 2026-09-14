@@ -14,6 +14,10 @@ cd verify
 ./bootstrap.sh          # installe Playwright si besoin, régénère ctx.json
 ```
 
+**Après chaque `npm run build`, relancer le serveur du port 3100** : `next start`
+sert le build qu'il a trouvé au démarrage, et reconstruire sous lui ne change
+rien à ce qu'il répond.
+
 `bootstrap.sh` lit `.env` et `data/dev.db` du projet pour fabriquer un cookie de
 session valide. Un jeton périmé fait rediriger vers `/login` : les scripts
 mesurent alors l'écran de connexion en annonçant que tout va bien. Devant un
@@ -44,6 +48,9 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node vignettes-e2e.mjs` | Liste des notes : vignettes, tailles d'affichage, tri, et poids de la liste |
 | `node ecriture-e2e.mjs` | Manuscrit : netteté au zoom, coût d'un trait sur page dense, appui maintenu, encre qui ne se redessine pas en défilant |
 | `node regard-ecriture.mjs` | Captures de l'écriture à 1× et agrandie, en clair et en sombre |
+| `node fonds-e2e.mjs` | Pages ajoutées dans un document, quatre fonds, interligne au zoom, réglage à l'export |
+| `node regard-fonds.mjs` | Captures des quatre fonds, en clair et en sombre |
+| `node regard-export.mjs` | Le PDF exporté, relu par l'application et photographié |
 | `node palette-e2e.mjs` | Barre d'outils : réglages contextuels, mémoire par outil, verrou stylet, gomme sélective, navigation entre pages |
 | `node export-pdf-e2e.mjs` | Export PDF : aplati et annotations Ink conformes, document d'origine intact, PDF relisible |
 | `node document-e2e.mjs` | Import d'un PDF : une page annotable par page, annotation conservée, refus des formats inconnus |

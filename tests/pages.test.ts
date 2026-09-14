@@ -1,0 +1,335 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+import {
+  PAGE_GAP,
+  PAPER_STEPS,
+  insertPage,
+  isBackdropPage,
+  pageBands,
+  parseDrawing,
+  removePage,
+  surfaceRatio,
+  type DrawingContent,
+  type NotePage,
+  type Stroke,
+} from "@/lib/notes";
+import { paperGuides } from "@/lib/pdf-export";
+
+/**
+ * Pages ajoutées dans un document importé.
+ *
+ * C'est la feuille qu'on glisse dans un polycopié quand le cours déborde. Tout
+ * le risque est là : les traits sont repérés d'un bout à l'autre de la pile —
+ * c'est ce qui permet d'annoter à cheval sur deux pages — donc glisser une
+ * feuille au milieu doit **faire descendre avec leur page** toutes les
+ * annotations qui suivent. Sans cela, chacune tombe sur la page d'à côté, et
+ * rien à l'écran ne dit pourquoi.
+ */
+
+/** Un trait horizontal à la hauteur `y`, large de deux centièmes. */
+const trait = (y: number): Stroke => ({
+  color: "default",
+  size: 2,
+  tool: "pen",
+  points: [0.1, y, 0.5, 0.12, y, 0.5],
+});
+
+const contenu = (pages: NotePage[], strokes: Stroke[] = []): DrawingContent => ({
+  strokes,
+  ratio: surfaceRatio(pages),
+  paper: "blank",
+  pages,
+});
+
+const doc = (n: number, ratio = 1.4): NotePage[] =>
+  Array.from({ length: n }, (_, i) => ({ file: "cours.pdf", page: i + 1, ratio }));
+
+describe("insertPage", () => {
+  it("glisse la feuille juste après la page visée", () => {
+    const suivant = insertPage(contenu(doc(3)), 0, "ruled");
+    assert.equal(suivant.pages.length, 4);
+    assert.deepEqual(
+      suivant.pages.map((p) => (isBackdropPage(p) ? `doc${p.page}` : `ajout:${p.paper}`)),
+      ["doc1", "ajout:ruled", "doc2", "doc3"],
+    );
+  });
+
+  it("lui donne le format de sa voisine", () => {
+    // Une feuille glissée dans un polycopié A4 est une feuille A4 : sinon la
+    // pile se met à bégayer d'une page à l'autre.
+    const suivant = insertPage(contenu(doc(2, 1.414)), 0, "grid");
+    assert.equal(suivant.pages[1].ratio, 1.414);
+  });
+
+  it("recalcule la hauteur de la pile", () => {
+    const suivant = insertPage(contenu(doc(2, 1)), 1, "dots");
+    assert.equal(suivant.ratio, 3 + 2 * PAGE_GAP);
+  });
+
+  it("fait descendre les traits des pages suivantes, et seulement eux", () => {
+    const bandes = pageBands(doc(3, 1));
+    // Un trait sur chaque page, repéré dans la pile.
+    const avant = contenu(doc(3, 1), [
+      trait(bandes[0].top + 0.5),
+      trait(bandes[1].top + 0.5),
+      trait(bandes[2].top + 0.5),
+    ]);
+    const suivant = insertPage(avant, 0, "ruled");
+    const decalage = 1 + PAGE_GAP;
+
+    const y = (s: Stroke) => Number(s.points[1].toFixed(4));
+    assert.equal(y(suivant.strokes[0]), y(avant.strokes[0]), "la page 1 ne bouge pas");
+    assert.equal(
+      y(suivant.strokes[1]),
+      Number((y(avant.strokes[1]) + decalage).toFixed(4)),
+      "la page 2 descend d'une page",
+    );
+    assert.equal(
+      y(suivant.strokes[2]),
+      Number((y(avant.strokes[2]) + decalage).toFixed(4)),
+      "la page 3 aussi",
+    );
+  });
+
+  it("laisse chaque trait sur sa page, après comme avant", () => {
+    /*
+     * La vérification qui compte : ce n'est pas le décalage qui nous intéresse,
+     * c'est que le trait reste sur la page où on l'avait posé. On le mesure en
+     * demandant à quelle page il appartient, avant et après.
+     */
+    const pages = doc(4, 1);
+    const bandes = pageBands(pages);
+    const avant = contenu(
+      pages,
+      bandes.map((b) => trait(b.top + 0.5)),
+    );
+    const suivant = insertPage(avant, 1, "grid");
+    const nouvellesBandes = pageBands(suivant.pages);
+
+    const pageDe = (bs: ReturnType<typeof pageBands>, s: Stroke) => {
+      for (let i = 0; i < bs.length; i++) {
+        if (s.points[1] < bs[i].top + bs[i].ratio) return i;
+      }
+      return bs.length - 1;
+    };
+
+    assert.deepEqual(
+      suivant.strokes.map((s) => pageDe(nouvellesBandes, s)),
+      // Les pages 3 et 4 d'origine ont pris les rangs 3 et 4 : la feuille
+      // ajoutée s'est intercalée au rang 2.
+      [0, 1, 3, 4],
+      "chaque trait est resté sur sa page",
+    );
+    assert.deepEqual(
+      avant.strokes.map((s) => pageDe(bandes, s)),
+      [0, 1, 2, 3],
+    );
+  });
+
+  it("glisse une feuille avant la première page", () => {
+    const bandes = pageBands(doc(2, 1));
+    const avant = contenu(doc(2, 1), [trait(bandes[0].top + 0.5)]);
+    const suivant = insertPage(avant, -1, "ruled");
+    assert.equal(isBackdropPage(suivant.pages[0]), false);
+    assert.equal(
+      Number(suivant.strokes[0].points[1].toFixed(4)),
+      Number((0.5 + 1 + PAGE_GAP).toFixed(4)),
+      "le trait de l'ancienne première page descend avec elle",
+    );
+  });
+
+  it("ne fait rien sur une surface sans pages", () => {
+    // Une page simple n'est pas une pile : pour en ajouter une, on ajoute un
+    // bloc — ce que la note sait déjà faire.
+    const simple = contenu([]);
+    assert.equal(insertPage(simple, 0, "ruled"), simple);
+  });
+
+  it("refuse de dépasser le nombre de pages permis", () => {
+    const plein = contenu(doc(200, 1));
+    assert.equal(insertPage(plein, 0, "ruled"), plein);
+  });
+});
+
+describe("removePage", () => {
+  it("retire la page ajoutée et ce qui était écrit dessus", () => {
+    const pages: NotePage[] = [...doc(1, 1), { paper: "ruled", ratio: 1 }, ...doc(1, 1)];
+    const bandes = pageBands(pages);
+    const avant = contenu(pages, [
+      trait(bandes[0].top + 0.5),
+      trait(bandes[1].top + 0.5),
+      trait(bandes[2].top + 0.5),
+    ]);
+    const suivant = removePage(avant, 1);
+
+    assert.equal(suivant.pages.length, 2);
+    assert.equal(suivant.strokes.length, 2, "le trait de la page retirée est parti avec elle");
+    assert.equal(
+      Number(suivant.strokes[1].points[1].toFixed(4)),
+      Number((bandes[2].top + 0.5 - (1 + PAGE_GAP)).toFixed(4)),
+      "la page qui suivait remonte",
+    );
+  });
+
+  it("refuse de retirer une page du document", () => {
+    // La pile resterait en désaccord avec le fichier, et l'export irait
+    // chercher une page qui n'y est plus.
+    const avant = contenu(doc(3));
+    assert.equal(removePage(avant, 1), avant);
+  });
+
+  it("refuse de vider la pile", () => {
+    const avant = contenu([{ paper: "grid", ratio: 1 }]);
+    assert.equal(removePage(avant, 0), avant);
+  });
+
+  it("annule exactement une insertion", () => {
+    const pages = doc(3, 1);
+    const bandes = pageBands(pages);
+    const avant = contenu(
+      pages,
+      bandes.map((b) => trait(b.top + 0.4)),
+    );
+    const apres = removePage(insertPage(avant, 1, "dots"), 2);
+    assert.deepEqual(apres.pages, avant.pages);
+    assert.deepEqual(
+      apres.strokes.map((s) => Number(s.points[1].toFixed(6))),
+      avant.strokes.map((s) => Number(s.points[1].toFixed(6))),
+    );
+  });
+});
+
+describe("relecture d'une pile mêlée", () => {
+  it("relit les pages ajoutées comme les pages de document", () => {
+    const contenuRelu = parseDrawing(
+      JSON.stringify({
+        pages: [
+          { file: "c.pdf", page: 1, ratio: 1.4 },
+          { paper: "ruled", ratio: 1.4 },
+          { paper: "inconnu", ratio: 1 },
+          { paper: "dots" },
+        ],
+      }),
+    );
+    assert.deepEqual(
+      contenuRelu.pages.map((p) => (isBackdropPage(p) ? "doc" : p.paper)),
+      // Le fond inconnu est écarté, comme tout champ non reconnu ; une page
+      // sans format prend celui par défaut.
+      ["doc", "ruled", "dots"],
+    );
+    assert.equal(contenuRelu.pages[2].ratio > 0, true);
+  });
+
+  it("donne à la pile mêlée la hauteur de toutes ses pages", () => {
+    const relu = parseDrawing(
+      JSON.stringify({
+        pages: [
+          { file: "c.pdf", page: 1, ratio: 1 },
+          { paper: "grid", ratio: 1 },
+        ],
+      }),
+    );
+    assert.equal(relu.ratio, 2 + PAGE_GAP);
+  });
+});
+
+/**
+ * Les fonds à l'export.
+ *
+ * Une page à lignes sortait blanche du PDF : l'écran les dessinait en CSS et
+ * l'export les ignorait. Ce qui était écrit entre les lignes se retrouvait
+ * suspendu dans le vide.
+ */
+describe("paperGuides", () => {
+  const page = { width: 595, height: 842 };
+
+  it("ne dessine rien sur du papier uni", () => {
+    const g = paperGuides("blank", page);
+    assert.deepEqual(g.lines, []);
+    assert.deepEqual(g.dots, []);
+  });
+
+  it("compte les lignes depuis le haut de la page", () => {
+    /*
+     * L'origine du PDF est en bas, mais un cahier se remplit du haut : la
+     * première ligne est à un interligne **sous le bord supérieur**. Les
+     * compter depuis le bas décalerait tout le réglage d'un reste de division,
+     * et l'écriture ne tomberait plus entre les lignes.
+     */
+    const g = paperGuides("ruled", page);
+    const pas = PAPER_STEPS.ruled * page.width;
+    assert.equal(Math.abs(g.lines[0][1] - (page.height - pas)) < 1e-9, true);
+    assert.equal(g.lines[0][0], 0);
+    assert.equal(g.lines[0][2], page.width);
+    // Toutes horizontales, et régulièrement espacées.
+    for (const [, y1, , y2] of g.lines) assert.equal(y1, y2);
+    assert.equal(g.lines.length, Math.ceil(page.height / pas) - 1);
+  });
+
+  it("ajoute les verticales pour les carreaux", () => {
+    const g = paperGuides("grid", page);
+    const verticales = g.lines.filter(([x1, , x2]) => x1 === x2);
+    const horizontales = g.lines.filter(([, y1, , y2]) => y1 === y2);
+    assert.equal(horizontales.length > 0, true);
+    assert.equal(verticales.length > 0, true);
+    const pas = PAPER_STEPS.grid * page.width;
+    assert.equal(Math.abs(verticales[0][0] - pas) < 1e-9, true);
+  });
+
+  it("centre les points dans leur carreau, comme le dégradé CSS", () => {
+    // `radial-gradient` centre son point au milieu de sa tuile. Les compter
+    // depuis le coin donnerait une grille décalée d'un demi-carreau par rapport
+    // à l'écran — un défaut qu'on ne voit qu'en superposant les deux.
+    const g = paperGuides("dots", page);
+    const pas = PAPER_STEPS.dots * page.width;
+    assert.equal(g.lines.length, 0);
+    assert.equal(Math.abs(g.dots[0][0] - pas / 2) < 1e-9, true);
+    assert.equal(Math.abs(g.dots[0][1] - (page.height - pas / 2)) < 1e-9, true);
+  });
+
+  it("donne aux traits la finesse d'un pixel sur une page de mille", () => {
+    const g = paperGuides("ruled", page);
+    assert.equal(g.thickness, page.width / 1000);
+  });
+});
+
+/**
+ * L'écran et le papier tirent leurs interlignes de la même source.
+ *
+ * La feuille de style les calcule en CSS, l'export les redessine en PDF : deux
+ * séries de nombres qui se séparent silencieusement, et ce qu'on écrit entre
+ * deux lignes cesse d'être entre les lignes sur le papier.
+ */
+describe("interlignes", () => {
+  const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+
+  it("la feuille de style emploie les fractions de PAPER_STEPS", () => {
+    // Un littéral plutôt qu'une expression construite : les échappements d'une
+    // regex écrite dans une chaîne se trompent d'un niveau sans prévenir, et le
+    // test échoue alors pour une raison qui n'a rien à voir avec la feuille.
+    const pas = new Map<string, number>();
+    const re = /\.paper-(ruled|grid|dots)\s*\{[^}]*--paper-step:\s*calc\(var\(--paper-width\)\s*\*\s*([0-9.]+)\)/g;
+    let trouve: RegExpExecArray | null;
+    while ((trouve = re.exec(css))) pas.set(trouve[1], Number(trouve[2]));
+
+    for (const fond of ["ruled", "grid", "dots"] as const) {
+      const fraction = pas.get(fond);
+      assert.ok(fraction !== undefined, `.paper-${fond} doit tirer son pas de --paper-width`);
+      assert.ok(
+        Math.abs(fraction - PAPER_STEPS[fond]) < 1e-4,
+        `.paper-${fond} : ${fraction} en CSS pour ${PAPER_STEPS[fond]} dans lib/notes.ts`,
+      );
+    }
+  });
+
+  it("et les pas sont ceux d'un vrai cahier sur une page A4", () => {
+    // 210 mm de large : 7 mm pour des lignes, 5 mm pour des carreaux.
+    assert.equal(Math.round(PAPER_STEPS.ruled * 210), 7);
+    assert.equal(Math.round(PAPER_STEPS.grid * 210), 5);
+    assert.equal(Math.round(PAPER_STEPS.dots * 210), 5);
+    assert.equal(PAPER_STEPS.blank, 0);
+  });
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Circle, Crosshair, Eraser, Highlighter, Lasso, Maximize2, Minus as LineIcon, Pen, PenOff, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
+import { Circle, Crosshair, Eraser, FileMinus2, FilePlus2, Highlighter, Lasso, Maximize2, Minus as LineIcon, Pen, PenOff, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
 
 import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
 import { PAPERS, type Paper } from "@/lib/notes";
@@ -75,11 +75,26 @@ export type PaletteProps = {
   selection: number;
   zoom: number;
   full: boolean;
-  hasBackdrop: boolean;
+  /**
+   * Le fond de la page courante peut-il être choisi ?
+   *
+   * Non sur une page du document importé : son image **est** son fond, et
+   * poser du quadrillage par-dessus un polycopié n'a pas de sens.
+   */
+  paperEditable: boolean;
+  /** Peut-on glisser une feuille après la page courante ? */
+  canAddPage: boolean;
+  /** La page courante est-elle une page ajoutée, donc retirable ? */
+  canRemovePage: boolean;
   onTool: (tool: InkTool) => void;
   onSettings: (next: InkSettings) => void;
   onShape: (shape: Shape) => void;
+  /** Change le fond de la page courante — ou de la surface s'il n'y en a qu'une. */
   onPaper: (paper: Paper) => void;
+  /** Glisse une feuille juste après la page courante. */
+  onAddPage: () => void;
+  /** Retire la page courante, et ce qui était écrit dessus. */
+  onRemovePage: () => void;
   onEraseHighlightsOnly: (value: boolean) => void;
   onErasePrecise: (value: boolean) => void;
   onPenOnly: (value: boolean) => void;
@@ -107,7 +122,9 @@ export function InkPalette(props: PaletteProps) {
     selection,
     zoom,
     full,
-    hasBackdrop,
+    paperEditable,
+    canAddPage,
+    canRemovePage,
     ruler,
   } = props;
 
@@ -364,10 +381,12 @@ export function InkPalette(props: PaletteProps) {
           )
         ) : null}
 
-        {/* Le papier n'a pas de sens sur un document importé : on n'annote pas
-            un polycopié sur du quadrillage. */}
-        {!hasBackdrop ? (
-          <Group label="Papier" className="ml-auto">
+        {/* --- La page elle-même ---------------------------------------- */}
+
+        {/* Le fond de la page courante. Sur une page du document importé il n'y
+            a rien à choisir : son image est son fond. */}
+        {paperEditable ? (
+          <Group label="Fond de page" className="ml-auto">
             {PAPERS.map((name) => {
               const entry = PAPER_LABELS[name];
               return (
@@ -380,6 +399,28 @@ export function InkPalette(props: PaletteProps) {
                 />
               );
             })}
+          </Group>
+        ) : null}
+
+        {/* Glisser une feuille dans le document, comme on en glisse une dans un
+            polycopié quand le cours déborde. La nouvelle page reprend le fond de
+            sa voisine — c'est presque toujours ce qu'on veut, et les quatre
+            boutons juste à gauche servent à en changer. */}
+        {canAddPage ? (
+          <Group label="Page" className={cn(!paperEditable && "ml-auto")}>
+            <Tool
+              onClick={props.onAddPage}
+              icon={FilePlus2}
+              label="Ajouter une page après celle-ci"
+            />
+            {canRemovePage ? (
+              <Tool
+                onClick={props.onRemovePage}
+                icon={FileMinus2}
+                label="Supprimer cette page ajoutée"
+                danger
+              />
+            ) : null}
           </Group>
         ) : null}
       </div>

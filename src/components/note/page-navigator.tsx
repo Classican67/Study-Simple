@@ -4,7 +4,15 @@ import * as React from "react";
 import { ChevronLeft, ChevronRight, Layers } from "lucide-react";
 
 import { NoteThumbnail } from "@/components/note/note-thumbnail";
-import { buildPreview, pageBands, parseDrawing, type NotePreview } from "@/lib/notes";
+import {
+  buildPreview,
+  isBackdropPage,
+  pageBands,
+  paperClass,
+  parseDrawing,
+  type NotePreview,
+  type Paper,
+} from "@/lib/notes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,6 +27,14 @@ import { cn } from "@/lib/utils";
  *
  * Naviguer ne change rien au document — c'est un défilement, rien d'autre.
  */
+/** Nom lisible de chaque fond, pour l'étiquette d'une vignette. */
+const PAPER_NAMES: Record<Paper, string> = {
+  blank: "uni",
+  ruled: "à lignes",
+  grid: "à carreaux",
+  dots: "à points",
+};
+
 export function PageNavigator({
   pages,
   className,
@@ -46,16 +62,30 @@ export function PageNavigator({
    * Relire les blocs à chaque rendu coûte une analyse JSON par bloc, et un
    * document entier n'en fait plus qu'un : la dépense est bornée.
    */
-  const entrees: { blockId: string; top: number; ratio: number; page: number | null }[] = [];
+  const entrees: {
+    blockId: string;
+    top: number;
+    ratio: number;
+    /** Numéro de page du document, ou `null` pour une page ajoutée. */
+    page: number | null;
+    /** Fond d'une page ajoutée, pour la montrer telle qu'elle est. */
+    paper: Paper | null;
+  }[] = [];
   for (const bloc of pages) {
     const contenu = parseDrawing(bloc.content);
     const bandes = pageBands(contenu.pages);
     if (bandes.length === 0) {
-      entrees.push({ blockId: bloc.id, top: 0, ratio: contenu.ratio, page: null });
+      entrees.push({ blockId: bloc.id, top: 0, ratio: contenu.ratio, page: null, paper: null });
       continue;
     }
     for (const bande of bandes) {
-      entrees.push({ blockId: bloc.id, top: bande.top, ratio: bande.ratio, page: bande.page });
+      entrees.push({
+        blockId: bloc.id,
+        top: bande.top,
+        ratio: bande.ratio,
+        page: isBackdropPage(bande) ? bande.page : null,
+        paper: isBackdropPage(bande) ? null : bande.paper,
+      });
     }
   }
 
@@ -136,9 +166,14 @@ export function PageNavigator({
     if (entree.page !== null) {
       const bloc = pages.find((b) => b.id === entree.blockId);
       const contenu = bloc ? parseDrawing(bloc.content) : null;
-      const bande = contenu?.pages.find((p) => p.page === entree.page);
+      const bande = contenu?.pages
+        .filter(isBackdropPage)
+        .find((p) => p.page === entree.page);
       if (bande) return { kind: "pdf", file: bande.file, page: bande.page, ratio: bande.ratio };
     }
+    // Une page ajoutée n'a pas d'image : c'est son fond qui la distingue, et
+    // il est dessiné directement dans la vignette.
+    if (entree.paper !== null) return null;
     const bloc = pages.find((b) => b.id === entree.blockId);
     return bloc ? buildPreview("drawing", bloc.content) : null;
   };
@@ -205,14 +240,36 @@ export function PageNavigator({
                   aria-label={`Page ${index + 1}`}
                   className="w-full rounded-xl p-1 text-left transition-colors hover:bg-surface-container-high"
                 >
-                  <NoteThumbnail
-                    preview={previews[index] ?? null}
-                    className={cn(
-                      "w-full rounded-lg border-2 transition-colors",
-                      index === active ? "border-primary" : "border-outline-variant",
-                    )}
-                    style={{ aspectRatio: `1 / ${entree.ratio}` }}
-                  />
+                  {entree.paper !== null ? (
+                    // Une page ajoutée se reconnaît à son fond : on le dessine
+                    // tel quel plutôt que d'afficher l'icône « rien à montrer ».
+                    <div
+                      role="img"
+                      aria-label={`Page ajoutée, fond ${PAPER_NAMES[entree.paper]}`}
+                      className={cn(
+                        "w-full rounded-lg border-2 bg-surface-lowest transition-colors",
+                        paperClass(entree.paper),
+                        index === active ? "border-primary" : "border-outline-variant",
+                      )}
+                      style={
+                        {
+                          aspectRatio: `1 / ${entree.ratio}`,
+                          // La vignette est petite : le pas du fond suit sa
+                          // largeur, sinon les lignes s'y entassent.
+                          "--paper-width": "96px",
+                        } as React.CSSProperties
+                      }
+                    />
+                  ) : (
+                    <NoteThumbnail
+                      preview={previews[index] ?? null}
+                      className={cn(
+                        "w-full rounded-lg border-2 transition-colors",
+                        index === active ? "border-primary" : "border-outline-variant",
+                      )}
+                      style={{ aspectRatio: `1 / ${entree.ratio}` }}
+                    />
+                  )}
                   <span
                     className={cn(
                       "mt-1 block text-center tabular-nums m3-label-small",

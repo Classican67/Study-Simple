@@ -9,7 +9,7 @@ import { normalizeForSearch } from "@/lib/search";
 import {
   buildPreview,
   defaultContent,
-  documentRatio,
+  surfaceRatio,
   isBlockKind,
   MAX_BLOCK_BYTES,
   MAX_DOCUMENT_PAGES,
@@ -351,7 +351,7 @@ export async function addDocumentBlocks(
       position: (last?.position ?? -1) + 1,
       content: JSON.stringify({
         strokes: [],
-        ratio: documentRatio(pages),
+        ratio: surfaceRatio(pages),
         paper: "blank",
         pages,
       }),

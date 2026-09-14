@@ -6,9 +6,20 @@ import { PDFDocument, rgb } from "pdf-lib";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { boundsOf, translateStroke } from "@/lib/ink";
-import { pageAtY, pageBands, parseDrawing, UNTITLED, type PageBand, type Stroke } from "@/lib/notes";
 import {
+  isBackdropPage,
+  pageAtY,
+  pageBands,
+  parseDrawing,
+  UNTITLED,
+  type PageBand,
+  type Paper,
+  type Stroke,
+} from "@/lib/notes";
+import {
+  PAPER_RGB,
   inkRgb,
+  paperGuides,
   strokeOpacity,
   strokeRect,
   strokeToInkList,
@@ -68,11 +79,17 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
    * la page où il tombe, ramené dans le repère de celle-ci — sinon tout ce qui
    * est écrit après la première page sortirait du papier.
    */
-  const feuilles: { band: PageBand | null; ratio: number; strokes: Stroke[] }[] = [];
+  const feuilles: {
+    band: PageBand | null;
+    /** Fond à redessiner, pour une page sans image de document. */
+    paper: Paper;
+    ratio: number;
+    strokes: Stroke[];
+  }[] = [];
   for (const bloc of blocs) {
     const bandes = pageBands(bloc.pages);
     if (bandes.length === 0) {
-      feuilles.push({ band: null, ratio: bloc.ratio, strokes: bloc.strokes });
+      feuilles.push({ band: null, paper: bloc.paper, ratio: bloc.ratio, strokes: bloc.strokes });
       continue;
     }
 
@@ -88,7 +105,16 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
         points: translateStroke(stroke.points, 0, -bandes[index].top),
       });
     }
-    bandes.forEach((band, index) => feuilles.push({ band, ratio: band.ratio, strokes: parPage[index] }));
+    bandes.forEach((band, index) =>
+      feuilles.push({
+        band,
+        // Une page ajoutée porte son propre fond ; une page du document n'en a
+        // pas besoin, son image en tient lieu.
+        paper: isBackdropPage(band) ? "blank" : band.paper,
+        ratio: band.ratio,
+        strokes: parPage[index],
+      }),
+    );
   }
 
   if (feuilles.length === 0) {
@@ -119,10 +145,11 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
   for (const page of feuilles) {
     let cible;
 
-    if (page.band) {
+    if (page.band && isBackdropPage(page.band)) {
+      const band = page.band;
       try {
-        const source = await ouvrir(page.band.file);
-        const index = page.band.page - 1;
+        const source = await ouvrir(band.file);
+        const index = band.page - 1;
         if (index < 0 || index >= source.getPageCount()) continue;
         const [copiee] = await sortie.copyPages(source, [index]);
         cible = sortie.addPage(copiee);
@@ -138,6 +165,27 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
     }
 
     const taille: PageSize = { width: cible.getWidth(), height: cible.getHeight() };
+
+    /*
+     * Le papier, avant l'encre.
+     *
+     * Une page à lignes sortait blanche du PDF : l'écran dessinait ses lignes en
+     * CSS et l'export les ignorait. Ce qui était écrit entre les lignes se
+     * retrouvait suspendu dans le vide.
+     */
+    const repere = paperGuides(page.paper, taille);
+    const grisPapier = rgb(...PAPER_RGB);
+    for (const [x1, y1, x2, y2] of repere.lines) {
+      cible.drawLine({
+        start: { x: x1, y: y1 },
+        end: { x: x2, y: y2 },
+        thickness: repere.thickness,
+        color: grisPapier,
+      });
+    }
+    for (const [x, y] of repere.dots) {
+      cible.drawCircle({ x, y, size: repere.thickness, color: grisPapier, borderWidth: 0 });
+    }
 
     // Les surligneurs d'abord, comme à l'écran : ils passent sous l'encre.
     const ordonnes = [...page.strokes].sort(

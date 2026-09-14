@@ -8,6 +8,10 @@
  * illisible en entier parce qu'un bloc l'est.
  */
 
+// `lib/ink.ts` ne connaît que de la géométrie — points, cadres, polygones — et
+// n'importe rien d'ici : la dépendance ne va que dans ce sens.
+import { boundsOf, translateStroke } from "@/lib/ink";
+
 export const BLOCK_KINDS = ["text", "table", "drawing"] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
 
@@ -106,29 +110,99 @@ export const PAPERS = ["blank", "ruled", "grid", "dots"] as const;
 export type Paper = (typeof PAPERS)[number];
 
 /**
+ * Classe CSS du fond.
+ *
+ * Les lignes sont dessinées par le navigateur, pas au canevas : elles ne font
+ * pas partie du contenu, n'ont pas à être enregistrées, et suivent le thème
+ * toutes seules. L'export PDF les redessine de son côté, depuis
+ * `PAPER_STEPS` — c'est la même géométrie, pas la même technique.
+ *
+ * Dans un module neutre et non dans le canevas : le volet des pages s'en sert
+ * aussi pour montrer une page ajoutée, et une valeur exportée d'un fichier
+ * « use client » n'arrive pas comme une vraie valeur dans un composant serveur.
+ */
+export function paperClass(paper: Paper): string {
+  switch (paper) {
+    case "ruled":
+      return "paper-ruled";
+    case "grid":
+      return "paper-grid";
+    case "dots":
+      return "paper-dots";
+    default:
+      return "";
+  }
+}
+
+/**
+ * Interligne de chaque fond, en proportion de la largeur de la page.
+ *
+ * Ce sont les pas d'un vrai cahier ramenés à une page A4 large de 210 mm :
+ * 7 mm pour des lignes, 5 mm pour des carreaux et des points. Exprimés en
+ * proportion, ils suivent la largeur de la page — donc le zoom — au lieu de se
+ * resserrer sous une écriture devenue six fois plus grande.
+ *
+ * **Une seule source.** L'écran les lit en CSS (`--paper-width`, cf.
+ * `globals.css`) et l'export PDF les redessine à l'identique : deux valeurs
+ * séparées se seraient décalées, et ce qu'on écrit entre deux lignes ne serait
+ * plus entre les lignes sur le papier.
+ */
+export const PAPER_STEPS: Record<Paper, number> = {
+  blank: 0,
+  ruled: 7 / 210,
+  grid: 5 / 210,
+  dots: 5 / 210,
+};
+
+/**
  * Page de document servant de fond, pour l'annoter.
  *
  * `file` est le PDF stocké — tout import est converti en PDF — et `page` le
  * numéro de page, à partir de 1. Le fond n'est pas recopié dans le bloc : un
- * même document sert de fond à toutes ses pages, une par bloc.
+ * même document sert de fond à toutes ses pages.
  */
 export type Backdrop = { file: string; page: number };
 
 /** Une page du document, avec son format à elle. */
 export type BackdropPage = Backdrop & { ratio: number };
 
+/**
+ * Une page ajoutée à la main, avec son fond.
+ *
+ * C'est la feuille qu'on glisse dans un polycopié : le cours s'arrête au milieu
+ * d'un chapitre et il faut de la place pour l'exercice, ou bien le professeur
+ * commente une figure pendant dix minutes. Sans elle, il fallait écrire dans la
+ * marge ou ouvrir un autre bloc — donc perdre le fil du document.
+ */
+export type BlankPage = { paper: Paper; ratio: number };
+
+/** Une page de la surface : celle du document, ou celle qu'on a ajoutée. */
+export type NotePage = BackdropPage | BlankPage;
+
+/** Cette page vient-elle du document importé ? */
+export function isBackdropPage(page: NotePage): page is BackdropPage {
+  return "file" in page;
+}
+
 export type DrawingContent = {
   strokes: Stroke[];
   ratio: number;
+  /**
+   * Fond de la surface, quand elle n'a qu'une page.
+   *
+   * Dès qu'il y a des pages, chacune porte le sien : une page ajoutée au milieu
+   * d'un polycopié est à carreaux ou à lignes indépendamment de ses voisines.
+   */
   paper: Paper;
   /**
-   * Les pages du document importé, dans l'ordre, empilées sur cette surface.
+   * Les pages de la surface, dans l'ordre, empilées les unes sous les autres.
    *
    * Un document est **une** surface, pas une page par bloc : on fait défiler
    * un polycopié d'un geste, on annote une figure à cheval sur deux pages, et
-   * la palette reste la même du début à la fin. Vide pour une page blanche.
+   * la palette reste la même du début à la fin. Vide pour une page blanche
+   * simple, dont la hauteur est alors `ratio` et le fond `paper`.
    */
-  pages: BackdropPage[];
+  pages: NotePage[];
 };
 
 /**
@@ -139,11 +213,11 @@ export type DrawingContent = {
  */
 export const PAGE_GAP = 0.02;
 
-/** Une page du document, placée sur la surface. */
-export type PageBand = BackdropPage & { top: number };
+/** Une page placée sur la surface, avec sa hauteur d'arrivée. */
+export type PageBand = NotePage & { top: number };
 
-/** Où tombe chaque page du document, en proportion de la largeur. */
-export function pageBands(pages: BackdropPage[]): PageBand[] {
+/** Où tombe chaque page, en proportion de la largeur. */
+export function pageBands(pages: NotePage[]): PageBand[] {
   const bands: PageBand[] = [];
   let top = 0;
   for (const page of pages) {
@@ -153,8 +227,8 @@ export function pageBands(pages: BackdropPage[]): PageBand[] {
   return bands;
 }
 
-/** Hauteur totale du document, sans le blanc qui suivrait la dernière page. */
-export function documentRatio(pages: BackdropPage[]): number {
+/** Hauteur totale de la pile, sans le blanc qui suivrait la dernière page. */
+export function surfaceRatio(pages: NotePage[]): number {
   if (pages.length === 0) return DEFAULT_RATIO;
   return pages.reduce((total, page) => total + page.ratio, 0) + PAGE_GAP * (pages.length - 1);
 }
@@ -172,6 +246,81 @@ export function pageAtY(bands: PageBand[], y: number): number {
     if (y < bands[i].top + bands[i].ratio) return i;
   }
   return bands.length - 1;
+}
+
+/**
+ * Insère une page, avec son fond, juste après la page `apres`.
+ *
+ * `apres` vaut -1 pour glisser la feuille **avant** la première page.
+ *
+ * Tout est là : les traits déjà posés plus bas doivent **descendre avec leur
+ * page**. Les traits sont repérés d'un bout à l'autre de la pile — c'est ce qui
+ * permet d'annoter à cheval sur deux pages — donc ajouter une feuille au milieu
+ * d'un polycopié décalerait sinon toutes les annotations qui suivent d'une
+ * hauteur de page, chacune tombant sur la page d'à côté.
+ *
+ * La page appartenance d'un trait se décide par son **milieu**, exactement
+ * comme à l'export : c'est la seule façon de rendre la même réponse ici et sur
+ * le papier.
+ */
+export function insertPage(
+  content: DrawingContent,
+  apres: number,
+  paper: Paper,
+): DrawingContent {
+  const pages = content.pages;
+  if (pages.length === 0 || pages.length >= MAX_DOCUMENT_PAGES) return content;
+
+  const rang = Math.max(-1, Math.min(pages.length - 1, Math.trunc(apres)));
+  // Le format de la voisine : une feuille glissée dans un polycopié A4 est une
+  // feuille A4, sinon la pile se met à bégayer d'une page à l'autre.
+  const voisine = pages[rang] ?? pages[0];
+  const nouvelle: BlankPage = { paper, ratio: voisine.ratio };
+
+  const bandes = pageBands(pages);
+  const decalage = nouvelle.ratio + PAGE_GAP;
+  const strokes = content.strokes.map((stroke) => {
+    const boite = boundsOf(stroke.points);
+    if (!boite) return stroke;
+    const sur = pageAtY(bandes, (boite.minY + boite.maxY) / 2);
+    if (sur <= rang) return stroke;
+    return { ...stroke, points: translateStroke(stroke.points, 0, decalage) };
+  });
+
+  const suivantes = [...pages.slice(0, rang + 1), nouvelle, ...pages.slice(rang + 1)];
+  return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes };
+}
+
+/**
+ * Retire une page de la pile, et ce qui était écrit dessus.
+ *
+ * Réservé aux pages **ajoutées** : retirer une page du document importé
+ * laisserait la pile en désaccord avec le fichier, et l'export irait chercher
+ * une page qui n'est plus là. Les traits des pages suivantes remontent, pour la
+ * raison inverse de `insertPage`.
+ */
+export function removePage(content: DrawingContent, index: number): DrawingContent {
+  const pages = content.pages;
+  const cible = pages[index];
+  // On ne laisse pas une pile vide : une surface sans page n'a plus de hauteur.
+  if (!cible || pages.length < 2 || isBackdropPage(cible)) return content;
+
+  const bandes = pageBands(pages);
+  const decalage = cible.ratio + PAGE_GAP;
+  const strokes: Stroke[] = [];
+  for (const stroke of content.strokes) {
+    const boite = boundsOf(stroke.points);
+    if (!boite) continue;
+    const sur = pageAtY(bandes, (boite.minY + boite.maxY) / 2);
+    // Ce qui était sur la page part avec elle.
+    if (sur === index) continue;
+    strokes.push(
+      sur < index ? stroke : { ...stroke, points: translateStroke(stroke.points, 0, -decalage) },
+    );
+  }
+
+  const suivantes = pages.filter((_, i) => i !== index);
+  return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes };
 }
 
 /** Un polycopié de plus de deux cents pages n'est pas une note. */
@@ -202,25 +351,31 @@ export function parseDrawing(raw: string): DrawingContent {
    * l'application n'a plus qu'une forme à connaître, et les anciennes notes
    * s'ouvrent sans conversion.
    */
-  const page = (brut: unknown, secours: number): BackdropPage | null => {
-    const b = brut as Partial<BackdropPage> | null | undefined;
-    if (!b || typeof b.file !== "string" || !Number.isInteger(b.page) || (b.page as number) < 1) {
-      return null;
-    }
+  const page = (brut: unknown, secours: number): NotePage | null => {
+    const b = brut as (Partial<BackdropPage> & Partial<BlankPage>) | null | undefined;
+    if (!b) return null;
     const r = typeof b.ratio === "number" && b.ratio > 0.1 && b.ratio <= MAX_RATIO ? b.ratio : secours;
-    return { file: b.file.slice(0, 128), page: b.page as number, ratio: r };
+    // Une page de document se reconnaît à son fichier ; tout le reste est une
+    // page ajoutée, et son fond vaut « uni » si l'on n'en reconnaît pas le nom.
+    if (typeof b.file === "string" && Number.isInteger(b.page) && (b.page as number) >= 1) {
+      return { file: b.file.slice(0, 128), page: b.page as number, ratio: r };
+    }
+    if ((PAPERS as readonly unknown[]).includes(b.paper)) {
+      return { paper: b.paper as Paper, ratio: r };
+    }
+    return null;
   };
 
-  const pages: BackdropPage[] = Array.isArray(data?.pages)
+  const pages: NotePage[] = Array.isArray(data?.pages)
     ? (data.pages as unknown[])
         .slice(0, MAX_DOCUMENT_PAGES)
         .map((p) => page(p, DEFAULT_RATIO))
-        .filter((p): p is BackdropPage => p !== null)
-    : [page(data?.backdrop, ratio)].filter((p): p is BackdropPage => p !== null);
+        .filter((p): p is NotePage => p !== null)
+    : [page(data?.backdrop, ratio)].filter((p): p is NotePage => p !== null);
 
   return {
     // La hauteur d'un document est celle de ses pages : elle ne se décide pas.
-    ratio: pages.length > 0 ? documentRatio(pages) : ratio,
+    ratio: pages.length > 0 ? surfaceRatio(pages) : ratio,
     paper,
     pages,
     strokes: strokes
@@ -329,8 +484,9 @@ export function buildPreview(kind: string, content: string): NotePreview {
   const page = parseDrawing(content);
 
   // L'aperçu d'un document, c'est sa première page — celle qu'on reconnaît.
+  // Une page ajoutée n'a pas d'image : on retombe alors sur les traits.
   const premiere = page.pages[0];
-  if (premiere) {
+  if (premiere && isBackdropPage(premiere)) {
     return { kind: "pdf", file: premiere.file, page: premiere.page, ratio: premiere.ratio };
   }
   if (page.strokes.length === 0) return null;

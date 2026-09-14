@@ -5,7 +5,7 @@ import {
   buildPreview,
   DEFAULT_RATIO,
   defaultContent,
-  documentRatio,
+  surfaceRatio,
   isBlockKind,
   MAX_DOCUMENT_PAGES,
   MAX_TABLE_COLS,
@@ -13,6 +13,7 @@ import {
   noteSearchText,
   PAGE_GAP,
   pageAtY,
+  isBackdropPage,
   pageBands,
   parseDrawing,
   parsePreview,
@@ -292,13 +293,13 @@ describe("les pages d'un document sur une même surface", () => {
     );
   });
 
-  it("donne au document la hauteur de ses pages, sans blanc final", () => {
-    assert.equal(documentRatio(doc([1, 1])), 2 + PAGE_GAP);
-    assert.equal(documentRatio(doc([1.4])), 1.4);
+  it("donne à la pile la hauteur de ses pages, sans blanc final", () => {
+    assert.equal(surfaceRatio(doc([1, 1])), 2 + PAGE_GAP);
+    assert.equal(surfaceRatio(doc([1.4])), 1.4);
   });
 
   it("retombe sur une page ordinaire quand il n'y a pas de document", () => {
-    assert.equal(documentRatio([]), DEFAULT_RATIO);
+    assert.equal(surfaceRatio([]), DEFAULT_RATIO);
     assert.deepEqual(pageBands([]), []);
   });
 
@@ -361,7 +362,7 @@ describe("parseDrawing — les notes d'avant", () => {
       }),
     );
     assert.deepEqual(
-      contenu.pages.map((p) => p.page),
+      contenu.pages.filter(isBackdropPage).map((p) => p.page),
       [1, 2],
     );
   });

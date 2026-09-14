@@ -49,6 +49,13 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node regard-ecriture.mjs` — captures de l'écriture à 1× et agrandie, en
   clair et en sombre. À **ouvrir** : la mesure dit que le trait fait la bonne
   épaisseur, pas qu'il a l'air d'une encre
+- `node fonds-e2e.mjs` — **pages ajoutées et fonds de page** : glisser une
+  feuille dans un document importé sans décaler les annotations, les quatre
+  fonds sur la bonne page, l'interligne qui suit le zoom, et le réglage
+  réellement présent dans le PDF exporté
+- `node regard-fonds.mjs` — captures des quatre fonds, en clair et en sombre
+- `node regard-export.mjs` — le PDF exporté, relu par l'application et
+  photographié page par page
 - `node palette-e2e.mjs` — barre d'outils de la page manuscrite : les réglages
   suivent l'outil courant, chaque outil retient les siens, le verrou du stylet
   et la gomme sélective font ce qu'ils annoncent
@@ -169,6 +176,41 @@ du verrou npm.
   premier mouvement. Chromium ne connaît pas `-webkit-touch-callout` : il la
   jette à l'analyse, donc elle est invisible au style calculé comme à
   `cssText` — la sonde relit la feuille **telle qu'elle est livrée**.
+- **Une feuille glissée au milieu décale tout ce qui suit.** Les traits sont
+  repérés d'un bout à l'autre de la pile — c'est ce qui permet d'annoter à
+  cheval sur deux pages — donc ajouter une page au milieu d'un polycopié doit
+  faire **descendre avec leur page** toutes les annotations qui suivent
+  (`insertPage` / `removePage` dans `lib/notes.ts`, et l'inverse au retrait).
+  Sans cela chacune tombe sur la page d'à côté, et rien à l'écran ne le dit.
+  L'appartenance d'un trait se décide par son **milieu**, la même règle qu'à
+  l'export : deux règles différentes donneraient deux réponses.
+- **Le fond d'une page appartient à la page.** Une pile peut mêler des pages du
+  document et des pages ajoutées ; chacune de ces dernières porte son propre
+  fond, et le réglage part du haut de **sa** page. Un fond posé sur la surface
+  entière ne tombait juste que sur la première.
+- **Un fond dessiné en CSS n'existe pas à l'export.** Les lignes de l'écran
+  sont un `repeating-linear-gradient` ; le PDF n'en sait rien, et une page à
+  lignes en sortait blanche, l'écriture suspendue dans le vide. `PAPER_STEPS`
+  (dans `lib/notes.ts`) est la **seule** source des interlignes : la feuille de
+  style en tire ses pas, `paperGuides` les redessine en opérateurs PDF, et
+  `tests/pages.test.ts` vérifie que les deux ne se séparent pas. Attention aux
+  conventions du dégradé : la ligne se pose au **bas** de sa bande, et
+  `radial-gradient` centre son point au **milieu** de sa tuile — compter depuis
+  le coin décale la grille d'un demi-carreau.
+- **Une propriété personnalisée non déclarée n'est pas mesurable.** Sa valeur
+  calculée reste la suite de jetons écrite dans la feuille, pas une longueur :
+  `getComputedStyle` rend `calc(var(--paper-width) * 0.033)`, et une sonde qui
+  lit l'interligne n'y voit que « NaN ». Les deux propriétés du papier sont
+  donc déclarées en `<length>` par `@property`. Et **ne jamais redéclarer sur
+  l'élément une valeur qu'il doit hériter** : `.paper-ruled { --paper-width: … }`
+  l'emportait sur celle que publiait la surface, et l'interligne restait figé
+  au repli quel que soit le zoom. Le repli est l'`initial-value` de la
+  déclaration, qui ne fait de l'ombre à personne.
+- **`next start` sert le build qu'il a trouvé au démarrage.** Reconstruire sous
+  un serveur qui tourne ne change rien à ce qu'il répond : une correction
+  vérifiée en vain pendant une demi-heure, parce que le serveur rendait encore
+  le défaut qu'on venait de réintroduire pour éprouver une sonde. **Relancer le
+  serveur après chaque `npm run build`.**
 - **Un document importé est *une* surface.** Ses pages sont empilées sur le
   même canevas, pas une par bloc : on fait défiler d'un geste, on annote à
   cheval, et la palette ne bouge pas. Les traits sont donc repérés d'un bout à

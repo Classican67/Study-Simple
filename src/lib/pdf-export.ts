@@ -1,7 +1,7 @@
 import { getStroke } from "perfect-freehand";
 
 import { INK_OPTIONS, INK_REF } from "@/lib/ink";
-import type { Stroke } from "@/lib/notes";
+import { PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
 
 /**
  * Conversion des traits manuscrits vers le PDF — géométrie pure, testable.
@@ -154,3 +154,67 @@ export function strokeToPdfOperators(stroke: Stroke, page: PageSize): string | n
   lignes.push("h", "f");
   return lignes.join("\n");
 }
+
+/**
+ * Les repères du papier — lignes, carreaux, points — en coordonnées PDF.
+ *
+ * L'écran les dessine en CSS, et pendant longtemps l'export ne les dessinait
+ * pas du tout : une page à lignes sortait blanche du PDF. Ce qui était écrit
+ * entre les lignes se retrouvait suspendu dans le vide, et une page de cahier
+ * exportée ne ressemblait plus à ce qu'on avait sous les yeux.
+ *
+ * La géométrie vient de `PAPER_STEPS`, la même constante que celle dont la
+ * feuille de style tire ses pas : c'est ce qui garantit qu'une ligne tombe à la
+ * même hauteur sur le papier que sur l'écran.
+ *
+ * L'origine du PDF est en **bas** à gauche : les lignes se comptent donc depuis
+ * `height`, car un cahier se remplit du haut vers le bas et c'est le haut de la
+ * page qui doit coïncider.
+ */
+export type PaperGuides = {
+  /** Segments `[x1, y1, x2, y2]`. */
+  lines: [number, number, number, number][];
+  /** Centres des points. */
+  dots: [number, number][];
+  /** Épaisseur d'un trait, et diamètre d'un point. */
+  thickness: number;
+};
+
+export function paperGuides(paper: Paper, page: PageSize): PaperGuides {
+  // Un pixel d'écran sur une page large de mille : la même finesse qu'en CSS.
+  const thickness = page.width / INK_REF;
+  const guides: PaperGuides = { lines: [], dots: [], thickness };
+
+  const pas = PAPER_STEPS[paper] * page.width;
+  if (!pas || pas <= 0) return guides;
+
+  if (paper === "ruled" || paper === "grid") {
+    // Le dégradé CSS pose son trait au **bas** de chaque bande : la première
+    // ligne est donc à un interligne du haut de la page, pas au ras du bord.
+    for (let y = page.height - pas; y > 0; y -= pas) {
+      guides.lines.push([0, y, page.width, y]);
+    }
+  }
+  if (paper === "grid") {
+    for (let x = pas; x < page.width; x += pas) {
+      guides.lines.push([x, 0, x, page.height]);
+    }
+  }
+  if (paper === "dots") {
+    /*
+     * `radial-gradient` centre son point au milieu de sa tuile : les points
+     * tombent donc à un demi-interligne des bords, et non dessus. Les compter
+     * depuis le coin aurait donné une grille décalée d'un demi-carreau par
+     * rapport à l'écran — un défaut qu'on ne voit qu'en superposant les deux.
+     */
+    for (let y = page.height - pas / 2; y > 0; y -= pas) {
+      for (let x = pas / 2; x < page.width; x += pas) {
+        guides.dots.push([x, y]);
+      }
+    }
+  }
+  return guides;
+}
+
+/** Gris du papier réglé. Sur le papier on est toujours en clair. */
+export const PAPER_RGB: [number, number, number] = [0.84, 0.84, 0.86];

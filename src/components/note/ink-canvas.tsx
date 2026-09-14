@@ -21,10 +21,11 @@ import {
 import {
   DEFAULT_RATIO,
   MAX_RATIO,
+  isBackdropPage,
   pageAtY,
   pageBands,
+  paperClass,
   type DrawingContent,
-  type Paper,
   type Stroke,
   type Tool,
 } from "@/lib/notes";
@@ -240,21 +241,6 @@ function round(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-/** Classe du fond de page. Les lignes sont dessinées en CSS, pas au canevas :
- *  elles ne font pas partie du contenu et ne doivent pas peser à l'export. */
-export function paperClass(paper: Paper): string {
-  switch (paper) {
-    case "ruled":
-      return "paper-ruled";
-    case "grid":
-      return "paper-grid";
-    case "dots":
-      return "paper-dots";
-    default:
-      return "";
-  }
-}
-
 type Tuile = { col: number; row: number; canvas: HTMLCanvasElement; sale: boolean };
 
 export function InkCanvas({
@@ -273,6 +259,7 @@ export function InkCanvas({
   onStrokeCount,
   onPenMode,
   onView,
+  onPage,
   selection = [],
   onSelect,
   ruler = null,
@@ -304,6 +291,15 @@ export function InkCanvas({
    * rendu, pas deux.
    */
   onView?: (scale: number) => void;
+  /**
+   * Page qui occupe le milieu de la fenêtre, par son rang.
+   *
+   * La palette en a besoin : « ajouter une page » ne veut rien dire sans savoir
+   * après laquelle, et le fond se choisit pour la page qu'on a sous les yeux.
+   * Le milieu de l'écran plutôt que le haut : c'est la page qu'on regarde, même
+   * quand la précédente dépasse encore un peu.
+   */
+  onPage?: (index: number) => void;
   /**
    * Traits retenus par le lasso, par leur rang.
    *
@@ -419,6 +415,9 @@ export function InkCanvas({
    * ------------------------------------------------------------------ */
   const [fenetre, setFenetre] = React.useState({ premiere: 0, derniere: 1 });
 
+  // Page annoncée la dernière fois : on ne réveille le parent qu'au changement.
+  const pageDite = React.useRef(-1);
+
   const majFenetre = React.useCallback(() => {
     const conteneur = scrollRef.current;
     const largeur = vue.current.pageW;
@@ -428,7 +427,13 @@ export function InkCanvas({
     const premiere = Math.max(0, pageAtY(bands, haut) - 1);
     const derniere = Math.min(bands.length - 1, pageAtY(bands, bas) + 1);
     setFenetre((f) => (f.premiere === premiere && f.derniere === derniere ? f : { premiere, derniere }));
-  }, [bands]);
+
+    const courante = pageAtY(bands, (haut + bas) / 2);
+    if (courante !== pageDite.current) {
+      pageDite.current = courante;
+      onPage?.(courante);
+    }
+  }, [bands, onPage]);
 
   /* ------------------------------------------------------------------ *
    * La couche fixe : des tuiles placées dans la page.
@@ -1433,47 +1438,62 @@ export function InkCanvas({
           {
             width: pageW || "100%",
             height: `${pageH}px`,
-            // L'interligne suit la largeur de la page : c'est ce qui fait
-            // grossir le cahier avec le zoom, au lieu de resserrer ses lignes
-            // sous une écriture devenue six fois plus grande.
-            "--paper-step": `${Math.max(12, Math.round(pageW * 0.034))}px`,
+            // L'interligne se calcule en CSS depuis cette largeur : c'est ce qui
+            // fait grossir le cahier avec le zoom, au lieu de resserrer ses
+            // lignes sous une écriture devenue six fois plus grande. Chaque fond
+            // a son propre pas — 7 mm pour des lignes, 5 mm pour des carreaux.
+            "--paper-width": `${pageW}px`,
           } as React.CSSProperties
         }
       >
-        {/* Le document importé, sous les annotations : toutes ses pages sur la
-            même surface, comme un polycopié qu'on fait défiler d'un geste. Le
-            fond de cahier s'efface — on n'annote pas un document sur du papier
-            quadrillé. */}
-        {bands.map((band, index) =>
-          index >= fenetre.premiere && index <= fenetre.derniere ? (
+        {/* Les pages, sous les annotations : toutes sur la même surface, comme
+            un polycopié qu'on fait défiler d'un geste. Une page du document
+            montre son image ; une page ajoutée montre son fond de cahier — et
+            ce fond part du haut de **sa** page, pas du haut de la pile, sinon
+            les lignes ne tomberaient au bon endroit que sur la première. */}
+        {bands.map((band, index) => {
+          const cle = isBackdropPage(band) ? `${band.file}-${band.page}` : `ajout-${index}`;
+          const place = {
+            top: `${Math.round(band.top * pageW)}px`,
+            height: `${Math.round(band.ratio * pageW)}px`,
+          };
+          // Hors de la fenêtre, la place est gardée mais rien n'est rendu :
+          // sans cela le document se replierait dès qu'on s'en éloigne.
+          const visible = index >= fenetre.premiere && index <= fenetre.derniere;
+
+          if (!isBackdropPage(band)) {
+            return (
+              <div
+                key={cle}
+                aria-hidden
+                className={cn(
+                  "pointer-events-none absolute left-0 w-full bg-surface-lowest elevation-1",
+                  paperClass(band.paper),
+                )}
+                style={place}
+              />
+            );
+          }
+
+          return (
             <div
-              key={`${band.file}-${band.page}`}
+              key={cle}
               aria-hidden
-              className="pointer-events-none absolute left-0 w-full bg-surface-lowest elevation-1"
-              style={{
-                top: `${Math.round(band.top * pageW)}px`,
-                height: `${Math.round(band.ratio * pageW)}px`,
-              }}
+              className={cn(
+                "pointer-events-none absolute left-0 w-full bg-surface-lowest",
+                visible && "elevation-1",
+              )}
+              style={place}
             >
               {/* La page est rendue à la largeur réellement affichée : au zoom,
                   un fond rasterisé une fois pour toutes serait aussi flou que
                   l'encre l'était. */}
-              <PdfPage file={band.file} page={band.page} width={pageW} className="absolute inset-0" />
+              {visible ? (
+                <PdfPage file={band.file} page={band.page} width={pageW} className="absolute inset-0" />
+              ) : null}
             </div>
-          ) : (
-            // La place est gardée même quand la page n'est pas rendue : sans
-            // cela le document se replierait dès qu'on s'en éloigne.
-            <div
-              key={`${band.file}-${band.page}`}
-              aria-hidden
-              className="pointer-events-none absolute left-0 w-full bg-surface-lowest"
-              style={{
-                top: `${Math.round(band.top * pageW)}px`,
-                height: `${Math.round(band.ratio * pageW)}px`,
-              }}
-            />
-          ),
-        )}
+          );
+        })}
 
         {/* Les tuiles d'encre, posées dans la page. Elles sont créées à la main
             plutôt que rendues par React : leur nombre change à chaque

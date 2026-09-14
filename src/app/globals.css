@@ -208,6 +208,34 @@
 
 }
 
+/* Les deux propriétés du papier sont **déclarées**, et non laissées libres.
+
+   Une propriété personnalisée ordinaire n'a pas de type : sa valeur calculée
+   reste la suite de jetons écrite dans la feuille, `calc(var(--paper-width) *
+   0.0333)`, et non une longueur. Deux conséquences, et la seconde est la plus
+   ennuyeuse :
+
+   - le navigateur ne peut pas l'animer ni la contrôler ;
+   - elle n'est **pas mesurable** : `getComputedStyle` rend le calcul, pas le
+     nombre de pixels. Une vérification qui lit l'interligne pour s'assurer
+     qu'il suit bien la largeur de la page — donc le zoom — n'y lisait que
+     « NaN ».
+
+   Déclarées en `<length>`, elles se calculent en pixels comme n'importe quelle
+   longueur, et `verify/fonds-e2e.mjs` peut les mesurer. */
+@property --paper-width {
+  syntax: "<length>";
+  inherits: true;
+  /* Repli pour la vignette et l'aperçu, où il n'y a pas de zoom. */
+  initial-value: 820px;
+}
+
+@property --paper-step {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
 @layer base {
   * {
     border-color: var(--color-outline-variant);
@@ -292,18 +320,28 @@
     background-image: radial-gradient(var(--color-outline-variant) 1px, transparent 1px);
     background-size: var(--paper-step) var(--paper-step);
   }
-  .paper-ruled,
-  .paper-grid,
-  .paper-dots {
-    /* Interligne d'un cahier, ramené à l'écran.
+  /* Interligne : une proportion de la largeur de la page, jamais une taille
+     figée.
 
-       La surface d'écriture la redéfinit en proportion de la largeur de page,
-       pour que l'interligne grossisse avec le zoom comme le fait l'écriture :
-       un pas figé en rem laissait des lignes serrées sur une page agrandie six
-       fois, et l'on n'écrivait plus entre elles. Cette valeur reste le repli
-       pour les vignettes et l'aperçu, où il n'y a pas de zoom. */
-    --paper-step: 1.75rem;
-  }
+     Un pas en `rem` laissait des lignes serrées sur une page agrandie six fois,
+     et l'on n'écrivait plus entre elles. La surface d'écriture publie sa largeur
+     dans `--paper-width` ; chaque fond en tire son propre pas, celui d'un vrai
+     cahier ramené à une page A4 large de 210 mm — 7 mm pour des lignes, 5 mm
+     pour des carreaux et des points.
+
+     Ces fractions sont les mêmes que `PAPER_STEPS` dans `lib/notes.ts`, dont
+     l'export PDF se sert pour redessiner les mêmes lignes : `tests/styles.test.ts`
+     vérifie qu'elles ne se séparent pas. Sans quoi ce qu'on écrit entre deux
+     lignes ne serait plus entre les lignes sur le papier. */
+  /* Surtout ne pas redéclarer `--paper-width` ici : une déclaration posée sur
+     la page elle-même l'emporte sur celle qu'elle hérite de la surface, et
+     l'interligne restait figé à la valeur de repli quel que soit le zoom —
+     mesuré à 27,3 px là où la page en demandait 35,6. Le repli est
+     l'`initial-value` de la déclaration `@property`, qui ne fait de l'ombre à
+     personne. */
+  .paper-ruled { --paper-step: calc(var(--paper-width) * 0.033333); }
+  .paper-grid  { --paper-step: calc(var(--paper-width) * 0.023810); }
+  .paper-dots  { --paper-step: calc(var(--paper-width) * 0.023810); }
 
   /* --- Surface d'écriture --------------------------------------------------
      iPadOS déclenche sa sélection de texte sur un appui maintenu : au milieu
