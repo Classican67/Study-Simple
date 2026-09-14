@@ -116,17 +116,6 @@ const TILES_MAX = 5;
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
 
-/**
- * Points redessinés à chaque image du trait en cours.
- *
- * Le contour d'un trait dépend des points qui précèdent — le lissage est une
- * moyenne glissante — mais son influence décroît en `streamline` puissance n :
- * au douzième point en arrière elle est sous le millième de pixel. Redessiner
- * une queue qui recouvre les images précédentes donne donc exactement le même
- * trait, à coût constant.
- */
-const LIVE_TAIL = 16;
-
 /** Le point tombe-t-il sur la règle ? */
 function nearRuler(point: number[], ruler: Ruler): boolean {
   const dx = Math.cos(ruler.angle);
@@ -165,17 +154,14 @@ function strokeAlpha(stroke: Stroke): number {
 }
 
 /**
- * Contour d'un trait dans le repère de mille unités, éventuellement d'un
- * morceau.
+ * Contour d'un trait, dans le repère de mille unités.
  *
  * Ne dépendant ni du zoom ni de la taille de l'écran, il est calculé une fois
  * et gardé en cache — c'est ce qui rend le redessin quasiment gratuit.
  */
-function outlineOf(stroke: Stroke, depuis = 0, jusqu = Infinity): number[][] {
+function outlineOf(stroke: Stroke): number[][] {
   const points: number[][] = [];
-  const debut = Math.max(0, depuis) * 3;
-  const fin = Math.min(stroke.points.length, jusqu === Infinity ? stroke.points.length : jusqu * 3);
-  for (let i = debut; i + 2 < fin; i += 3) {
+  for (let i = 0; i + 2 < stroke.points.length; i += 3) {
     points.push([stroke.points[i] * REF, stroke.points[i + 1] * REF, stroke.points[i + 2] ?? 0.5]);
   }
   if (points.length === 0) return [];
@@ -388,8 +374,25 @@ export function InkCanvas({
   // Couleur résolue au poser du stylet : `getComputedStyle` à chaque image du
   // tracé coûte une consultation du style calculé par point tracé.
   const encreVive = React.useRef("#000");
-  // Jusqu'où la couche vive a déjà peint le trait en cours.
-  const livePeint = React.useRef(0);
+
+  /*
+   * Trait interrompu par le navigateur, en attente d'être repris.
+   *
+   * iPadOS annule le pointeur du stylet dans plusieurs situations qui n'ont
+   * rien à voir avec l'intention d'arrêter d'écrire : la main qui se pose et
+   * déclenche le rejet de la paume du système, un geste de bord, une rotation,
+   * une notification. Le navigateur envoie alors `pointercancel`, et la pointe
+   * **reste sur le verre**.
+   *
+   * Traiter cela comme une fin de trait coupait le mot en deux. Le trait est
+   * donc mis de côté : si la pointe redescend aussitôt et au même endroit,
+   * c'est la même intention, et on la poursuit. Les seuils sont serrés —
+   * un huitième de seconde, et un centième de la largeur de page — parce qu'un
+   * geste humain, même rapide, ne repart jamais d'aussi près ni d'aussi vite.
+   */
+  const REPRISE_MS = 140;
+  const REPRISE_DISTANCE = 0.012;
+  const interrompu = React.useRef<{ trait: Stroke; quand: number; minuteur: number } | null>(null);
 
   const penSeen = React.useRef(false);
   const lasso = React.useRef<Point[] | null>(null);
@@ -668,47 +671,50 @@ export function InkCanvas({
     [],
   );
 
-  /** Efface la couche vive et oublie ce qu'elle avait peint. */
+  /** Efface la couche vive. */
   const viderVive = React.useCallback(() => {
     const pret = cadrer(liveRef.current);
     if (!pret) return;
     pret.context.clearRect(0, 0, pret.w, pret.h);
-    livePeint.current = 0;
   }, [cadrer]);
 
   /**
-   * Peint le trait en cours.
+   * Peint le trait en cours, **en entier**, à chaque image.
    *
-   * Le stylo ne repeint que la queue, par-dessus ce qui est déjà là : le coût
-   * par image ne dépend donc pas de la longueur du trait. Le surligneur, lui,
-   * est translucide — le recouvrement s'y verrait comme une tache plus foncée à
-   * chaque jointure — il est donc effacé et repeint en entier.
+   * Il n'en repeignait d'abord que la queue, par-dessus ce qui était déjà là :
+   * le coût par image ne dépendait ainsi pas de la longueur du trait. C'était
+   * une fausse bonne idée, et la cause du tracé intermittent.
+   *
+   * Cette couche demande au navigateur la latence la plus faible possible
+   * (`desynchronized`), ce qui l'autorise à la présenter en **double tampon** :
+   * deux images successives ne sont alors pas peintes sur la même surface, et
+   * rien ne garantit qu'on retrouve d'une image à l'autre ce qu'on y a laissé.
+   * Ne peindre que la queue revenait donc à répartir le trait entre deux
+   * tampons — et à le voir clignoter, en pointillé, tant qu'on n'avait pas
+   * levé la pointe.
+   *
+   * Le coût de tout repeindre est mesuré : un quart de milliseconde pour trois
+   * mille points, soit un sixième d'image à cent vingt hertz. Il n'y avait rien
+   * à gagner.
    */
   const peindreVive = React.useCallback(() => {
-    const trait = drawing.current;
     const pret = cadrer(liveRef.current);
-    if (!pret || !trait) return;
+    if (!pret) return;
     const { context, w, h } = pret;
-    const total = Math.floor(trait.points.length / 3);
-    if (total === 0) return;
+    context.clearRect(0, 0, w, h);
 
-    const translucide = (trait.tool ?? "pen") === "highlighter";
-    if (translucide || livePeint.current === 0) {
-      context.clearRect(0, 0, w, h);
-      livePeint.current = 0;
-    }
-    const depuis = translucide ? 0 : Math.max(0, livePeint.current - LIVE_TAIL);
+    const trait = drawing.current;
+    if (!trait || trait.points.length < 3) return;
 
     context.save();
     placerFenetre(context, 1 / REF);
-    const path = pathOf(outlineOf(trait, depuis, total));
+    const path = pathOf(outlineOf(trait));
     if (path) {
       context.globalAlpha = strokeAlpha(trait);
       context.fillStyle = encreVive.current;
       context.fill(path);
     }
     context.restore();
-    livePeint.current = total;
   }, [cadrer, placerFenetre]);
 
   /** Peint la règle, le lasso et le cadre de sélection. */
@@ -811,7 +817,16 @@ export function InkCanvas({
     () => () => {
       if (attente.current.raf) cancelAnimationFrame(attente.current.raf);
       if (fling.current.raf) cancelAnimationFrame(fling.current.raf);
+      // Un trait interrompu au moment où l'on quitte la page ne doit pas
+      // disparaître avec son minuteur.
+      const laisse = interrompu.current;
+      if (laisse) {
+        window.clearTimeout(laisse.minuteur);
+        interrompu.current = null;
+        poserTrait(laisse.trait);
+      }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -827,6 +842,40 @@ export function InkCanvas({
     observer.observe(scroller);
     mesurer();
     return () => observer.disconnect();
+  }, []);
+
+  /*
+   * Scribble avale des événements de pointeur.
+   *
+   * La reconnaissance d'écriture d'iPadOS surveille le stylet **partout**, pas
+   * seulement dans les champs de texte : quand elle croit reconnaître des
+   * lettres, elle intercepte les contacts pour les analyser, et ils ne
+   * parviennent jamais à la page. Apple l'a reconnu — sur le mot « Hello how
+   * are you », trois `pointerdown` reçus au lieu de quatre — et le
+   * contournement publié est celui-ci : un écouteur `touchmove` **non passif**
+   * qui refuse le comportement par défaut rend la main à l'application.
+   *
+   * C'est la cause d'un tracé qui saute sans que la main touche l'écran, et
+   * elle ne se voit dans aucun navigateur de bureau : c'est le système, pas le
+   * navigateur.
+   *
+   * Il est posé une fois pour toutes, et non pendant le seul tracé : Scribble
+   * décide avant que le premier `pointerdown` ne nous parvienne. Rien n'est
+   * perdu — la surface porte déjà `touch-action: none` et gère elle-même son
+   * défilement.
+   *
+   * `passive: false` est indispensable : un écouteur passif ne peut pas
+   * refuser, et le navigateur l'ignore en silence. React pose les siens en
+   * passif, d'où l'écouteur natif.
+   */
+  React.useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const refuser = (event: TouchEvent) => {
+      if (event.cancelable) event.preventDefault();
+    };
+    scroller.addEventListener("touchmove", refuser, { passive: false });
+    return () => scroller.removeEventListener("touchmove", refuser);
   }, []);
 
   // Le contenu peut venir de l'extérieur : chargement, annulation, duplication.
@@ -1118,15 +1167,18 @@ export function InkCanvas({
 
     // Le stylo, le surligneur et les formes tracent tous de la même façon ;
     // seule la fin du geste diffère.
-    drawing.current = {
-      color,
-      size,
-      tool: tool === "shape" ? "pen" : tool,
-      points: point,
-    };
+    // Le navigateur vient peut-être de nous couper la parole : si la pointe
+    // redescend au même endroit dans la foulée, c'est le même trait.
+    if (!reprendre(point)) {
+      drawing.current = {
+        color,
+        size,
+        tool: tool === "shape" ? "pen" : tool,
+        points: point,
+      };
+    }
     const styles = getComputedStyle(event.currentTarget);
     encreVive.current = styles.getPropertyValue(`--ink-${color}`).trim() || styles.color;
-    livePeint.current = 0;
     demander("vive");
   }
 
@@ -1278,7 +1330,11 @@ export function InkCanvas({
     const trait = drawing.current;
     drawing.current = null;
     if (!trait) return;
+    poserTrait(trait);
+  }
 
+  /** Range un trait terminé sur la page, et enregistre. */
+  function poserTrait(trait: Stroke) {
     // Un simple appui ne laisse rien : une pointe posée par mégarde ne doit pas
     // marquer la page.
     if (trait.points.length < 6) {
@@ -1315,6 +1371,58 @@ export function InkCanvas({
         ? Math.min(MAX_RATIO, bas + 0.45)
         : vue.current.ratio;
     commit(nouveauRatio);
+  }
+
+  /**
+   * Le navigateur nous retire le pointeur.
+   *
+   * `pointercancel`, ou la perte de la capture : dans les deux cas la pointe
+   * est probablement **toujours posée**, et l'on n'a pas fini d'écrire. Le
+   * trait est mis en attente plutôt que rangé ; s'il n'est pas repris très
+   * vite, il est rangé comme un trait ordinaire.
+   */
+  function onPointerInterrompu(event?: React.PointerEvent<HTMLCanvasElement>) {
+    if (event?.pointerType === "touch") {
+      touches.current.delete(event.pointerId);
+      if (touches.current.size < 2) gesture.current = null;
+    }
+
+    const trait = drawing.current;
+    if (!trait || (event && event.pointerType !== "pen" && event.pointerType !== "mouse")) {
+      onPointerUp(event);
+      return;
+    }
+
+    drawing.current = null;
+    penDown.current = false;
+    signalerStylet(false);
+    // La couche vive garde le trait affiché : le faire disparaître le temps de
+    // l'attente serait le clignotement qu'on cherche justement à supprimer.
+    interrompu.current = {
+      trait,
+      quand: Date.now(),
+      minuteur: window.setTimeout(() => {
+        const attente = interrompu.current;
+        interrompu.current = null;
+        if (attente) poserTrait(attente.trait);
+      }, REPRISE_MS),
+    };
+  }
+
+  /** Le trait en attente peut-il se poursuivre à partir de ce point ? */
+  function reprendre(point: number[]): boolean {
+    const attente = interrompu.current;
+    if (!attente) return false;
+    if (Date.now() - attente.quand > REPRISE_MS) return false;
+    const pts = attente.trait.points;
+    const dx = pts[pts.length - 3] - point[0];
+    const dy = pts[pts.length - 2] - point[1];
+    if (Math.hypot(dx, dy) > REPRISE_DISTANCE) return false;
+
+    window.clearTimeout(attente.minuteur);
+    interrompu.current = null;
+    drawing.current = attente.trait;
+    return true;
   }
 
   /**
@@ -1433,10 +1541,6 @@ export function InkCanvas({
       ref={scrollRef}
       data-ink-scroll={scrollId}
       onScroll={() => {
-        // Défiler pendant un tracé — rare, mais possible à la molette : la
-        // couche vive est collée à la fenêtre, sa queue accumulée ne serait
-        // plus au bon endroit. On la refait en entier.
-        if (drawing.current) livePeint.current = 0;
         demander("tuiles");
         demander("repere");
         if (drawing.current) demander("vive");
@@ -1553,8 +1657,8 @@ export function InkCanvas({
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onPointerCancel={onPointerUp}
-          onLostPointerCapture={() => onPointerUp()}
+          onPointerCancel={onPointerInterrompu}
+          onLostPointerCapture={() => onPointerInterrompu()}
           onWheel={onWheel}
           onContextMenu={(event) => event.preventDefault()}
           className={cn(

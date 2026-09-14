@@ -46,7 +46,7 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node pages-e2e.mjs` | Pages d'une note : gomme précise, duplication, volet de pages |
 | `node regard.mjs` | Captures ciblées du document empilé et du volet, en clair et en sombre |
 | `node vignettes-e2e.mjs` | Liste des notes : vignettes, tailles d'affichage, tri, et poids de la liste |
-| `node ecriture-e2e.mjs` | Manuscrit : épaisseur du trait, égalité entre écrire et poser, netteté au zoom, coût sur page dense, main posée sur la barre, appui maintenu, encre qui ne se redessine pas en défilant |
+| `node ecriture-e2e.mjs` | Manuscrit : épaisseur du trait, continuité de la couche vive, reprise après `pointercancel`, contournement de Scribble, netteté au zoom, coût sur page dense, main posée sur la barre, appui maintenu, encre qui ne se redessine pas en défilant |
 | `node regard-ecriture.mjs` | Captures de l'écriture à 1× et agrandie, en clair et en sombre |
 | `node fonds-e2e.mjs` | Pages ajoutées dans un document, quatre fonds, interligne au zoom, réglage à l'export |
 | `node regard-fonds.mjs` | Captures des quatre fonds, en clair et en sombre |

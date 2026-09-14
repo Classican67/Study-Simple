@@ -369,20 +369,31 @@ const traitEnCours = () =>
       g = (g * 1103515245 + 12345) % 2147483648;
       return g / 2147483648;
     };
+    // La couche vive : le canevas collant qui ne reçoit pas les pointeurs.
+    const vive = [...document.querySelectorAll("[data-ink-scroll] canvas")].filter(
+      (cv) => getComputedStyle(cv).position === "sticky",
+    )[0];
+    const ctx = vive.getContext("2d");
+
     let x = 0.08;
     fire("pointerdown", x, VIF_Y, 0.62, 1);
     for (let i = 1; i < 90; i++) {
       x += 0.0005 + tirage() * 0.002;
       fire("pointermove", x, VIF_Y, 0.62 + Math.sin(i / 9) * 0.1, 1);
       if (i % 3 === 0) await new Promise((res) => requestAnimationFrame(res));
+      /*
+       * On efface la couche vive **sous** l'application, au milieu du trait.
+       *
+       * C'est ce que fait un navigateur qui présente cette couche en double
+       * tampon : l'image suivante n'est pas peinte sur la même surface, et ce
+       * qu'on y avait laissé n'y est plus. Safari le fait sur iPad ; Chromium
+       * ne le fait pas, et l'essai ne reproduirait donc jamais le défaut tout
+       * seul. On éprouve l'invariant plutôt que le navigateur : **une image
+       * doit se suffire à elle-même**.
+       */
+      if (i === 45) ctx.clearRect(0, 0, vive.width, vive.height);
     }
     await new Promise((res) => requestAnimationFrame(res));
-
-    // La couche vive : le canevas collant qui ne reçoit pas les pointeurs.
-    const vive = [...document.querySelectorAll("[data-ink-scroll] canvas")].filter(
-      (cv) => getComputedStyle(cv).position === "sticky",
-    )[0];
-    const ctx = vive.getContext("2d");
     const d = ctx.getImageData(0, 0, vive.width, vive.height).data;
     const cols = new Map();
     for (let py = 0; py < vive.height; py++) {
@@ -398,9 +409,30 @@ const traitEnCours = () =>
     const m = coeur.reduce((s, v) => s + v, 0) / (coeur.length || 1);
     const sd = Math.sqrt(coeur.reduce((s, v) => s + (v - m) ** 2, 0) / (coeur.length || 1));
 
+    /*
+     * La **longueur** de ce qui est peint, et ses trous.
+     *
+     * C'est la mesure qui manquait. Une couche vive qui ne garde que la fin du
+     * trait affiche la bonne épaisseur : seule sa longueur la trahit. Et un
+     * trait réparti entre deux tampons d'affichage revient en pointillé — ce
+     * sont les colonnes vides au milieu qui le disent.
+     */
+    const etendue = cles.length ? cles[cles.length - 1] - cles[0] + 1 : 0;
+    let trous = 0;
+    for (let k = cles[0]; k <= cles[cles.length - 1]; k++) if (!cols.has(k)) trous++;
+
     // On lève la pointe : le trait passe sur la couche fixe.
     fire("pointerup", x, VIF_Y, 0, 0);
-    return { epaisseur: m, bruit: m ? (sd / m) * 100 : 0, fin: x };
+    const largeur = el.closest("[data-ink-scroll]").firstElementChild.getBoundingClientRect().width;
+    const densite = vive.width / vive.getBoundingClientRect().width;
+    return {
+      epaisseur: m,
+      bruit: m ? (sd / m) * 100 : 0,
+      etendue,
+      trous,
+      // Longueur voulue, en pixels de rendu : du premier point au dernier.
+      voulue: (x - 0.08) * largeur * densite,
+    };
   }, VIF_Y);
 
 const vif = await traitEnCours();
@@ -429,6 +461,168 @@ check(
   vif.bruit < 14,
   "et il ne grésille pas d'une image à l'autre pendant qu'on écrit",
   `${vif.bruit.toFixed(1)} % de variation`,
+);
+dire(
+  "trait en cours",
+  `${Math.round(vif.etendue)} px peints pour ${Math.round(vif.voulue)} tracés, ${vif.trous} colonne(s) vide(s)`,
+);
+check(
+  vif.etendue > vif.voulue * 0.9,
+  "la couche vive refait le trait entier après avoir été effacée sous elle",
+  `${Math.round(vif.etendue)} px peints pour ${Math.round(vif.voulue)} tracés — une couche qui compte sur l'image précédente perd tout ce qui précède`,
+);
+check(
+  vif.trous === 0,
+  "et sans trou : le trait est continu pendant qu'on écrit",
+  `${vif.trous} colonne(s) sans encre au milieu du trait`,
+);
+
+/*
+ * Le tracé survit à une annulation du système.
+ *
+ * iPadOS retire le pointeur du stylet dans des situations qui n'ont rien à voir
+ * avec l'intention d'arrêter d'écrire : la main qui se pose et déclenche le
+ * rejet de la paume du système, un geste de bord, une rotation, une
+ * notification. Le navigateur envoie `pointercancel` — et la pointe **reste sur
+ * le verre**. Traiter cela comme une fin de trait coupe le mot en deux ; c'est
+ * la cause d'un tracé qui s'interrompt tout seul, avec ou sans la main posée.
+ */
+section("annulation du système");
+
+const compterTraits = async () => {
+  const label = await page
+    .locator('[data-testid="drawing-canvas"]')
+    .last()
+    .getAttribute("aria-label");
+  return Number(/(\d+) trait/.exec(label ?? "")?.[1] ?? -1);
+};
+
+/**
+ * Trace un segment, subit `pointercancel`, puis reprend là où l'on en était.
+ *
+ * `reprise` dit si la pointe redescend aussitôt — le cas réel — ou pas.
+ */
+const traitAnnule = (reprise) =>
+  page.evaluate(async ({ reprise, y }) => {
+    const el = [...document.querySelectorAll('[data-testid="drawing-canvas"]')].at(-1);
+    const r = el.getBoundingClientRect();
+    const envoyer = (type, x, py, p, buttons) =>
+      el.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true, cancelable: true, pointerId: 11, pointerType: "pen",
+          isPrimary: true, pressure: p, buttons,
+          clientX: r.left + r.width * x, clientY: r.top + r.width * py,
+        }),
+      );
+    const image = () => new Promise((res) => requestAnimationFrame(res));
+
+    let x = 0.1;
+    envoyer("pointerdown", x, y, 0.6, 1);
+    for (let i = 0; i < 24; i++) {
+      x += 0.006;
+      envoyer("pointermove", x, y + Math.sin(i / 4) * 0.004, 0.6 + i * 0.004, 1);
+      if (i % 3 === 0) await image();
+    }
+    // Le système nous retire le pointeur, la pointe toujours posée.
+    envoyer("pointercancel", x, y, 0.6, 1);
+    await image();
+
+    if (!reprise) return { x };
+
+    // La pointe redescend immédiatement, au même endroit : c'est le même geste.
+    envoyer("pointerdown", x, y, 0.6, 1);
+    for (let i = 0; i < 24; i++) {
+      x += 0.006;
+      envoyer("pointermove", x, y + Math.sin((i + 24) / 4) * 0.004, 0.6, 1);
+      if (i % 3 === 0) await image();
+    }
+    envoyer("pointerup", x, y, 0, 0);
+    await image();
+    return { x };
+  }, { reprise, y: 0.72 });
+
+const avantAnnulation = await compterTraits();
+await traitAnnule(true);
+await page.waitForTimeout(1400);
+const apresReprise = await compterTraits();
+dire("traits", `${avantAnnulation} → ${apresReprise}`);
+check(
+  apresReprise === avantAnnulation + 1,
+  "une annulation suivie d'une reprise ne fait qu'un seul trait",
+  `${apresReprise - avantAnnulation} trait(s) ajouté(s) — coupé en deux, il y en aurait deux`,
+);
+
+// Et le trait doit couvrir tout le chemin parcouru, pas la moitié.
+const apresForme = await forme({
+  min: 0.72 * (await forme()).largeurRendu - 60,
+  max: 0.72 * (await forme()).largeurRendu + 60,
+});
+const voulueAnnul = (0.006 * 48) * apresForme.largeurRendu;
+dire("longueur", `${apresForme.largeur} px pour ${Math.round(voulueAnnul)} tracés`);
+check(
+  apresForme.largeur > voulueAnnul * 0.9,
+  "et il va d'un bout à l'autre du geste",
+  `${apresForme.largeur} px pour ${Math.round(voulueAnnul)}`,
+);
+
+// Sans reprise, le trait ne doit pas être perdu pour autant.
+const avantSeule = await compterTraits();
+await traitAnnule(false);
+await page.waitForTimeout(1400);
+check(
+  (await compterTraits()) === avantSeule + 1,
+  "une annulation sans reprise garde tout de même ce qui était écrit",
+  `${(await compterTraits()) - avantSeule} trait(s)`,
+);
+
+// Deux gestes délibérés restent deux traits : la reprise ne doit pas souder
+// ce qui ne se touche pas.
+const avantDeux = await compterTraits();
+await tracer(phrase(0.86, 20, 0.1, 0.4));
+await page.waitForTimeout(500);
+await tracer(phrase(0.86, 20, 0.45, 0.75));
+await page.waitForTimeout(1400);
+check(
+  (await compterTraits()) === avantDeux + 2,
+  "deux gestes séparés restent deux traits",
+  `${(await compterTraits()) - avantDeux} trait(s)`,
+);
+
+/*
+ * Le contournement de Scribble.
+ *
+ * La reconnaissance d'écriture d'iPadOS surveille le stylet partout, pas
+ * seulement dans les champs de texte, et **avale** les contacts qu'elle croit
+ * reconnaître comme des lettres : Apple l'a documenté — trois `pointerdown`
+ * reçus au lieu de quatre sur « Hello how are you ». Le trait saute alors sans
+ * que la main touche l'écran.
+ *
+ * Aucun navigateur de bureau ne reproduit cela : c'est le système. Ce qui se
+ * vérifie ici, c'est que le contournement publié par Apple est bien en
+ * place — un écouteur `touchmove` **non passif** qui refuse le comportement
+ * par défaut. Un écouteur passif serait ignoré en silence, et c'est ce que
+ * React pose par défaut.
+ */
+section("contournement de Scribble");
+const refuseTouchmove = await page.evaluate(() => {
+  const surface = document.querySelector("[data-ink-scroll]");
+  const r = surface.getBoundingClientRect();
+  const touche = new Touch({
+    identifier: 42,
+    target: surface,
+    clientX: r.left + r.width / 2,
+    clientY: r.top + 40,
+  });
+  const event = new TouchEvent("touchmove", {
+    bubbles: true, cancelable: true, touches: [touche], targetTouches: [touche], changedTouches: [touche],
+  });
+  surface.dispatchEvent(event);
+  return event.defaultPrevented;
+});
+check(
+  refuseTouchmove,
+  "la surface refuse le comportement par défaut du glissement tactile",
+  "sans quoi Scribble intercepte les contacts et le trait saute",
 );
 
 // --- 1. Netteté au zoom -------------------------------------------------------

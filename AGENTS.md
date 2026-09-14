@@ -130,6 +130,38 @@ du verrou npm.
   serveur : on n'y reçoit qu'une référence, et l'appeler échoue à l'exécution
   sur un « includes is not a function » peu parlant. Les tableaux et listes
   partagés vont dans un module neutre de `src/lib/`.
+- **Un tracé qui s'interrompt a trois causes, et aucune n'est dans le code du
+  tracé.** Elles se cumulaient, et aucune ne se reproduit sur un navigateur de
+  bureau :
+  1. **La couche vive présentée en double tampon.** Elle demande la latence la
+     plus basse possible (`desynchronized`), ce qui autorise le navigateur à
+     alterner deux surfaces d'affichage : rien ne garantit alors qu'on retrouve
+     d'une image à l'autre ce qu'on y a laissé. Ne repeindre que la **queue** du
+     trait répartissait celui-ci entre deux tampons — il revenait en pointillé.
+     **Une image doit se suffire à elle-même** ; tout repeindre coûte un quart
+     de milliseconde pour trois mille points, il n'y avait rien à gagner.
+     Chromium préserve le tampon et ne reproduit donc jamais le défaut : la
+     sonde de `ecriture-e2e.mjs` efface la couche **sous** l'application au
+     milieu du trait, pour éprouver l'invariant au lieu d'espérer le navigateur.
+  2. **`pointercancel`.** iPadOS retire le pointeur du stylet pour des raisons
+     qui n'ont rien à voir avec l'intention d'arrêter d'écrire : la main qui se
+     pose et déclenche le rejet de la paume **du système**, un geste de bord,
+     une rotation, une notification — et la pointe reste sur le verre. Traiter
+     cela comme une fin de trait coupe le mot en deux. Le trait est donc mis en
+     attente, et repris si la pointe redescend dans les 140 ms à moins d'un
+     centième de largeur de page. Et pour que l'annulation n'arrive pas :
+     pendant le tracé, `lib/palm.ts` refuse **tout** geste tactile au niveau du
+     document, avec un chien de garde pour que la barrière retombe toujours.
+  3. **Scribble.** La reconnaissance d'écriture d'iPadOS surveille le stylet
+     partout, pas seulement dans les champs de texte, et **avale** les contacts
+     qu'elle croit reconnaître : Apple l'a documenté — trois `pointerdown` reçus
+     au lieu de quatre sur « Hello how are you »
+     (<https://bugs.webkit.org/show_bug.cgi?id=217430>). Le contournement publié
+     est un écouteur `touchmove` **non passif** qui refuse le comportement par
+     défaut, posé une fois pour toutes sur la surface — Scribble décide avant
+     que le premier `pointerdown` ne parvienne à la page. `passive: false` est
+     indispensable, et c'est précisément ce que React ne fait pas : d'où
+     l'écouteur natif.
 - **La pression du stylet était ignorée.** `perfect-freehand` *simule* la
   pression par défaut, à partir de la vitesse du geste, et cette simulation
   **remplace** celle que le stylet a mesurée : le trait sortait trois fois trop

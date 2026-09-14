@@ -42,11 +42,87 @@ const etat = {
   leve: 0,
 };
 
+/*
+ * Pendant qu'on écrit, **aucun geste du navigateur** ne doit démarrer.
+ *
+ * C'est la cause d'un tracé qui s'interrompt tout seul. Quand la main se pose à
+ * côté de la feuille — sur la barre d'outils, sur le repère de page, ou
+ * simplement sur la page autour — Safari y voit le début d'un geste : défilement,
+ * pincement, reconnaissance système. Il prend alors la main et **annule** le
+ * pointeur du stylet, par un `pointercancel`. Le trait se coupe net, au milieu
+ * d'un mot, sans que rien ne l'explique.
+ *
+ * Couper le geste à la racine demande un `preventDefault` sur `touchstart`, au
+ * niveau du document et **à la capture** : le contact peut tomber n'importe où,
+ * y compris hors de la surface d'écriture. L'écouteur n'existe que pendant le
+ * tracé, et il ne gêne rien — on ne fait pas défiler la page en écrivant.
+ *
+ * Les événements de pointeur, eux, ne sont pas touchés : le canevas continue de
+ * recevoir le stylet, et la vue se pince toujours à deux doigts dès que la
+ * pointe est levée.
+ */
+let couperGestes: ((event: TouchEvent) => void) | null = null;
+let releverPointe: ((event: PointerEvent) => void) | null = null;
+let chienDeGarde = 0;
+
+/**
+ * Durée au-delà de laquelle la barrière se lève d'elle-même.
+ *
+ * La barrière empêche **tout** geste du navigateur : si elle restait posée, ni
+ * la page ni les listes ne défileraient plus, et rien à l'écran ne dirait
+ * pourquoi. Elle ne dépend donc pas du seul signal de fin — un canevas démonté
+ * au milieu d'un trait ne l'enverrait jamais. Quinze secondes : plus qu'il n'en
+ * faut pour le plus long des traits, moins qu'il n'en faut pour croire l'app
+ * figée.
+ */
+const GARDE_MS = 15000;
+
+function barrerGestes(actif: boolean) {
+  if (typeof document === "undefined") return;
+
+  window.clearTimeout(chienDeGarde);
+  if (actif) {
+    chienDeGarde = window.setTimeout(() => {
+      etat.pose = false;
+      barrerGestes(false);
+    }, GARDE_MS);
+  }
+
+  if (actif && !couperGestes) {
+    couperGestes = (event: TouchEvent) => {
+      if (event.cancelable) event.preventDefault();
+    };
+    // Le lever de pointe peut se produire hors du canevas — ou ne jamais lui
+    // parvenir, si le navigateur lui a retiré le pointeur. On l'écoute donc
+    // aussi ici : c'est ce qui garantit que la barrière retombe.
+    releverPointe = (event: PointerEvent) => {
+      if (event.pointerType !== "pen") return;
+      etat.pose = false;
+      etat.leve = Date.now();
+      barrerGestes(false);
+    };
+    document.addEventListener("touchstart", couperGestes, { capture: true, passive: false });
+    document.addEventListener("touchmove", couperGestes, { capture: true, passive: false });
+    document.addEventListener("pointerup", releverPointe, true);
+    document.addEventListener("pointercancel", releverPointe, true);
+  } else if (!actif && couperGestes) {
+    document.removeEventListener("touchstart", couperGestes, true);
+    document.removeEventListener("touchmove", couperGestes, true);
+    if (releverPointe) {
+      document.removeEventListener("pointerup", releverPointe, true);
+      document.removeEventListener("pointercancel", releverPointe, true);
+      releverPointe = null;
+    }
+    couperGestes = null;
+  }
+}
+
 /** Prévient que la pointe touche la feuille, ou la quitte. */
 export function signalerStylet(pose: boolean) {
   etat.stylet = true;
   etat.pose = pose;
   if (!pose) etat.leve = Date.now();
+  barrerGestes(pose);
 }
 
 /** Écrit-on en ce moment même ? */
