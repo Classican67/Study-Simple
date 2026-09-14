@@ -1,6 +1,6 @@
 import { getStroke } from "perfect-freehand";
 
-import { INK_OPTIONS, INK_REF } from "@/lib/ink";
+import { INK_OPTIONS, INK_REF, hasRealPressure } from "@/lib/ink";
 import { PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
 
 /**
@@ -50,6 +50,9 @@ export function strokeOutline(stroke: Stroke, page: PageSize): number[][] {
     // L'épaisseur est en proportion de la largeur, comme les coordonnées.
     size: strokeWidth(stroke, page),
     ...INK_OPTIONS[tool],
+    // Même règle qu'à l'écran, et pour la même raison : la pression mesurée
+    // l'emporte sur celle que la bibliothèque déduirait de la vitesse.
+    simulatePressure: !hasRealPressure(stroke.points),
     last: true,
   });
 }

@@ -258,6 +258,31 @@
     overscroll-behavior-y: none;
   }
 
+  /* Les commandes ne sont pas du texte.
+
+     iPadOS met en surbrillance ce qu'on maintient sous le doigt, comme s'il
+     s'agissait d'un paragraphe à surligner. En posant la main sur l'écran pour
+     écrire, on sélectionnait donc l'étiquette d'un bouton de la barre d'outils
+     ou le numéro de page. Une application ne se comporte pas ainsi : on ne
+     sélectionne que du texte, et un bouton n'en est pas.
+
+     Le contenu des notes, lui, reste sélectionnable : on doit pouvoir copier un
+     paragraphe. */
+  button,
+  [role="button"],
+  [role="toolbar"],
+  [role="tab"],
+  label,
+  summary {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    /* Coupe le délai de trois cents millisecondes que le navigateur garde pour
+       distinguer un appui d'un double appui de zoom. Une commande doit répondre
+       tout de suite. */
+    touch-action: manipulation;
+  }
+
   /* Material 3 marque le focus par un contour épais de la couleur primaire. */
   :focus-visible {
     outline: 3px solid var(--color-primary);

@@ -5,6 +5,7 @@ import { Circle, Crosshair, Eraser, FileMinus2, FilePlus2, Highlighter, Lasso, M
 
 import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
 import { PAPERS, type Paper } from "@/lib/notes";
+import { usePalmGuard } from "@/lib/palm";
 import { cn } from "@/lib/utils";
 import type { InkTool } from "@/components/note/ink-canvas";
 
@@ -132,8 +133,18 @@ export function InkPalette(props: PaletteProps) {
   const reglages = tool === "highlighter" ? highlighter : pen;
   const tailles = tool === "highlighter" ? HIGHLIGHTER_SIZES : SIZES;
 
+  /*
+   * La barre est posée là où la main se pose.
+   *
+   * En plein écran elle flotte en bas, à portée du pouce — et donc sous le
+   * tranchant de la main quand on écrit. Sans ce rejet, la paume y déclenchait
+   * la sélection de texte d'iPadOS, et parfois un bouton.
+   */
+  const garde = usePalmGuard<HTMLDivElement>();
+
   return (
     <div
+      ref={garde}
       role="toolbar"
       aria-label="Outils d'écriture"
       className={cn(

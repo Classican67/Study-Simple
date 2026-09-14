@@ -6,6 +6,7 @@ import { getStroke } from "perfect-freehand";
 import {
   boundsOf,
   eraseStroke,
+  hasRealPressure,
   INK_OPTIONS,
   INK_REF,
   snapShape,
@@ -29,6 +30,7 @@ import {
   type Stroke,
   type Tool,
 } from "@/lib/notes";
+import { signalerStylet } from "@/lib/palm";
 import { PdfPage } from "@/components/note/pdf-page";
 import { cn } from "@/lib/utils";
 
@@ -180,6 +182,9 @@ function outlineOf(stroke: Stroke, depuis = 0, jusqu = Infinity): number[][] {
   return getStroke(points, {
     size: strokeSize(stroke),
     ...INK_OPTIONS[(stroke.tool ?? "pen") as Tool],
+    // La pression du stylet est **mesurée**, pas devinée : sans cela la largeur
+    // suit la vitesse de la main et le trait grésille. Cf. `hasRealPressure`.
+    simulatePressure: !hasRealPressure(stroke.points),
     // Un trait terminé : les extrémités sont fermées, sinon l'enveloppe reste
     // ouverte et le remplissage fuit.
     last: true,
@@ -1040,6 +1045,9 @@ export function InkCanvas({
     if (!accepts(event)) return;
     if (event.pointerType === "pen") {
       penDown.current = true;
+      // Les commandes en bas de l'écran doivent savoir qu'on écrit : la main
+      // repose dessus pendant ce temps.
+      signalerStylet(true);
       // Un stylet vu : le doigt ne dessine plus. C'est le rejet de la paume, et
       // les doigts déjà posés sont oubliés pour qu'ils ne déplacent rien.
       touches.current.clear();
@@ -1051,7 +1059,18 @@ export function InkCanvas({
       }
     }
 
-    event.currentTarget.setPointerCapture(event.pointerId);
+    /*
+     * La capture peut être refusée : le pointeur a pu être relâché entre-temps
+     * — un stylet qu'on décolle d'un millimètre, un contact que le système
+     * annule — et le navigateur lève alors un `NotFoundError`. L'exception
+     * remonterait jusqu'à la page et interromprait le tracé.
+     */
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Sans capture, on suit le pointeur tant qu'il reste sur la surface :
+      // c'est dégradé, pas cassé.
+    }
     const point = pointOf(event);
 
     if (tool === "eraser") {
@@ -1214,7 +1233,10 @@ export function InkCanvas({
       if (touches.current.size < 2) gesture.current = null;
       if (touches.current.size === 0 && doigtDeplace()) lancer();
     }
-    if (event?.pointerType === "pen") penDown.current = false;
+    if (event?.pointerType === "pen") {
+      penDown.current = false;
+      signalerStylet(false);
+    }
 
     if (rulerDrag.current) {
       rulerDrag.current = null;

@@ -13,6 +13,7 @@ import {
   type NotePreview,
   type Paper,
 } from "@/lib/notes";
+import { usePalmGuard } from "@/lib/palm";
 import { cn } from "@/lib/utils";
 
 /**
@@ -98,6 +99,8 @@ export function PageNavigator({
    */
   const nombre = entrees.length;
   const cles = entrees.map((e) => `${e.blockId}:${e.top}`).join("|");
+  // Déclaré avant tout retour conditionnel : un crochet ne se saute pas.
+  const garde = usePalmGuard<HTMLDivElement>();
   React.useEffect(() => {
     if (nombre < 2) return;
     let attente = 0;
@@ -148,6 +151,7 @@ export function PageNavigator({
 
   if (nombre < 2) return null;
 
+
   const aller = (index: number) => {
     const cible = Math.max(0, Math.min(nombre - 1, index));
     const entree = entrees[cible];
@@ -179,7 +183,9 @@ export function PageNavigator({
   };
 
   return (
-    <div className={cn("relative flex items-center gap-0.5", className)}>
+    // Le repère flotte en bas de l'écran, dans la zone où la main se pose pour
+    // écrire : il se protège de la paume comme la barre d'outils.
+    <div ref={garde} className={cn("relative flex items-center gap-0.5", className)}>
       <button
         type="button"
         onClick={() => aller(active - 1)}

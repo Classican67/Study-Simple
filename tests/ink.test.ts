@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   INK_REF,
   boundsOf,
+  hasRealPressure,
   eraseStroke,
   pointInPolygon,
   pointsOf,
@@ -319,6 +320,55 @@ describe("réglages du trait", () => {
     for (const fichier of sources) {
       const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
       assert.ok(/INK_REF/.test(code), `${fichier} doit se rapporter à INK_REF`);
+    }
+  });
+});
+
+/**
+ * Pression mesurée contre pression devinée.
+ *
+ * `perfect-freehand` simule la pression à partir de la **vitesse** du geste, et
+ * cette simulation remplace celle que le stylet a mesurée. Le trait grésillait
+ * — sa largeur suivait la main — et sortait trois fois trop fin. Mais la couper
+ * partout donnerait à la souris et au doigt un trait d'une régularité de
+ * machine : la règle se tire donc des données.
+ */
+describe("hasRealPressure", () => {
+  /** Un trait plat, avec la pression donnée à chaque point. */
+  const trait = (pressions: number[]): number[] =>
+    pressions.flatMap((p, i) => [0.1 + i * 0.01, 0.2, p]);
+
+  it("reconnaît un stylet à sa pression qui varie", () => {
+    assert.equal(hasRealPressure(trait([0.4, 0.46, 0.53, 0.61, 0.58, 0.5])), true);
+  });
+
+  it("et une pression inventée à sa constance", () => {
+    // Une souris annonce zéro, et le canevas la traite comme un appui moyen :
+    // tous les points portent alors exactement la même valeur.
+    assert.equal(hasRealPressure(trait([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])), false);
+  });
+
+  it("tolère le bruit de quantification sans y voir une pression", () => {
+    // Un centième d'écart : en deçà, c'est l'arrondi de l'enregistrement, pas
+    // la main.
+    assert.equal(hasRealPressure(trait([0.5, 0.5, 0.505, 0.5, 0.5, 0.495])), false);
+  });
+
+  it("ne conclut rien d'un trait trop court", () => {
+    assert.equal(hasRealPressure([0.1, 0.2, 0.3]), false);
+  });
+});
+
+describe("les deux rendus décident de la pression de la même façon", () => {
+  const sources = ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"];
+
+  it("l'écran et le papier appellent tous deux hasRealPressure", () => {
+    for (const fichier of sources) {
+      const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
+      assert.ok(
+        /simulatePressure:\s*!hasRealPressure/.test(code),
+        `${fichier} doit décider de la simulation à partir des données`,
+      );
     }
   });
 });

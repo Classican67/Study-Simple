@@ -96,10 +96,19 @@ const tracer = (points, parImage = 3) =>
 
       let passe = 0;
       const debut = performance.now();
-      fire("pointerdown", points[0][0], points[0][1], 0.8, 1);
+      /*
+       * La pression est donnée par point, et elle **varie**.
+       *
+       * Un stylet qui rendrait toujours la même valeur n'existe pas, et la
+       * bibliothèque de tracé en tire une conséquence : sans variation, elle
+       * considère qu'il n'y a pas de pression mesurée et la remplace par une
+       * pression déduite de la vitesse. Un essai à pression constante ne
+       * mesurerait donc pas ce que fait un vrai stylet.
+       */
+      fire("pointerdown", points[0][0], points[0][1], points[0][2] ?? 0.8, 1);
       for (let i = 1; i < points.length; i++) {
         const t0 = performance.now();
-        fire("pointermove", points[i][0], points[i][1], 0.8, 1);
+        fire("pointermove", points[i][0], points[i][1], points[i][2] ?? 0.8, 1);
         passe += performance.now() - t0;
         if (i % parImage === 0) await image();
       }
@@ -114,8 +123,16 @@ const tracer = (points, parImage = 3) =>
 const phrase = (y, n = 60, x0 = 0.08, x1 = 0.9) =>
   Array.from({ length: n }, (_, i) => {
     const t = i / (n - 1);
-    return [x0 + (x1 - x0) * t, y + Math.sin(t * 14) * 0.012];
+    return [x0 + (x1 - x0) * t, y + Math.sin(t * 14) * 0.012, pression(i)];
   });
+
+/**
+ * Pression d'un stylet réel : une consigne lente, et le bruit du capteur.
+ *
+ * Le bruit est volontaire : c'est lui qui fait grésiller un trait mal rendu, et
+ * une mesure qui l'écarterait ne verrait pas le défaut qu'elle cherche.
+ */
+const pression = (i) => Number((0.62 + Math.sin(i / 9) * 0.1 + Math.sin(i * 2.3) * 0.03).toFixed(3));
 
 /** Les tuiles d'encre : des canevas posés dans la page, pas dans la fenêtre. */
 const tuiles = () =>
@@ -148,43 +165,106 @@ await page.waitForTimeout(600);
 // Un trait **droit**, horizontal : sa forme attendue se calcule à la main, ce
 // qui permet de vérifier non pas qu'il y a de l'encre, mais qu'elle a la bonne
 // forme.
-const DROIT = { y: 0.2, x0: 0.08, x1: 0.9 };
+const DROIT = { y: 0.2, x0: 0.08, x1: 0.9, taille: 2.5 };
+/*
+ * L'espacement des points est **irrégulier d'un point au suivant**, comme
+ * celui d'une vraie main.
+ *
+ * Avec des points parfaitement répartis — ou même espacés selon une belle
+ * sinusoïde — une largeur déduite de la vitesse sort parfaitement constante :
+ * le défaut se cache, et la sonde ne le voit qu'à l'épaisseur moyenne, pas au
+ * grésillement, c'est-à-dire pas là où l'œil le voit. Il faut le tremblement
+ * d'un échantillon à l'autre, qui est ce que produit un vrai stylet.
+ *
+ * Le tirage est déterministe : un essai qui change de valeurs à chaque
+ * exécution rend ses échecs impossibles à comparer.
+ */
+let graine = 20260914;
+const alea = () => {
+  graine = (graine * 1103515245 + 12345) % 2147483648;
+  return graine / 2147483648;
+};
+const pas = Array.from({ length: 60 }, () => 0.5 + alea() * 1.8);
+const total = pas.reduce((s, v) => s + v, 0);
+let avance = 0;
 await tracer(
-  Array.from({ length: 60 }, (_, i) => [DROIT.x0 + ((DROIT.x1 - DROIT.x0) * i) / 59, DROIT.y]),
+  pas.map((p, i) => {
+    const x = DROIT.x0 + ((DROIT.x1 - DROIT.x0) * avance) / total;
+    avance += p;
+    return [x, DROIT.y, pression(i)];
+  }),
 );
 await page.waitForTimeout(1200);
 const label = await page.locator('[data-testid="drawing-canvas"]').last().getAttribute("aria-label");
 check(/1 trait/.test(label ?? ""), "un trait est posé", String(label));
 
-/** Étendue et surface de l'encre posée sur les tuiles, en pixels de rendu. */
-const forme = () =>
-  page.evaluate(() => {
+/**
+ * L'encre posée sur les tuiles : son étendue, sa surface, et son **profil
+ * d'épaisseur** colonne par colonne.
+ *
+ * C'est le profil qui dit si un trait est agréable. Une largeur qui varie de
+ * quelques pour cent le long du trait, c'est une plume ; une largeur qui saute
+ * d'un quart d'un point au suivant, c'est du grésillement — et c'est ce qu'on
+ * obtient quand la largeur suit la vitesse de la main au lieu de la pression.
+ */
+const forme = (bande = null) =>
+  page.evaluate((bande) => {
     let n = 0;
     let minY = Infinity;
     let maxY = -Infinity;
     let minX = Infinity;
     let maxX = -Infinity;
     let largeurRendu = 0;
+    const colonnes = new Map();
+
     for (const c of document.querySelectorAll("[data-ink-tiles] canvas")) {
       const ctx = c.getContext("2d");
       if (!ctx || c.width === 0) continue;
       largeurRendu = Math.max(largeurRendu, c.width);
       const haut = Number(c.dataset.inkTile.split(":")[1]) * c.height;
       const { data } = ctx.getImageData(0, 0, c.width, c.height);
-      for (let i = 3; i < data.length; i += 4) {
-        if (data[i] <= 8) continue;
-        n++;
-        const p = (i - 3) / 4;
-        const y = haut + Math.floor(p / c.width);
-        const x = p % c.width;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
+      for (let py = 0; py < c.height; py++) {
+        const yTuile = haut + py;
+        // Une bande permet de ne mesurer qu'un trait quand la page en porte
+        // plusieurs : sans elle, deux traits superposés en colonne comptent
+        // pour un seul, deux fois plus épais.
+        if (bande && (yTuile < bande.min || yTuile > bande.max)) continue;
+        for (let px = 0; px < c.width; px++) {
+          const a = data[(py * c.width + px) * 4 + 3];
+          if (a <= 8) continue;
+          n++;
+          const y = yTuile;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          // L'épaisseur d'une colonne est pondérée par l'opacité : le bord d'un
+          // trait est lissé, et le compter en tout ou rien ajouterait au profil
+          // un bruit d'un pixel qui n'est pas celui qu'on cherche.
+          colonnes.set(px, (colonnes.get(px) ?? 0) + a / 255);
+        }
       }
     }
-    return { n, hauteur: maxY - minY + 1, largeur: maxX - minX + 1, largeurRendu };
-  });
+
+    // Les colonnes du cœur du trait : les extrémités s'effilent par
+    // construction, les compter ferait passer une plume pour un grésillement.
+    const cles = [...colonnes.keys()].sort((a, b) => a - b);
+    const coeur = cles.slice(Math.round(cles.length * 0.15), Math.round(cles.length * 0.85));
+    const profil = coeur.map((k) => colonnes.get(k));
+    const moyenne = profil.reduce((s, v) => s + v, 0) / (profil.length || 1);
+    const ecart = Math.sqrt(
+      profil.reduce((s, v) => s + (v - moyenne) ** 2, 0) / (profil.length || 1),
+    );
+
+    return {
+      n,
+      hauteur: maxY - minY + 1,
+      largeur: maxX - minX + 1,
+      largeurRendu,
+      epaisseur: moyenne,
+      bruit: moyenne ? (ecart / moyenne) * 100 : 0,
+    };
+  }, bande);
 
 /*
  * La forme du trait, et non sa seule présence.
@@ -213,9 +293,142 @@ check(
   `${f.largeur} px pour ${Math.round(longueurVoulue)}`,
 );
 check(
-  f.n > longueurVoulue * epaisseurVoulue * 0.3 && f.n < longueurVoulue * epaisseurVoulue * 4,
+  f.n > longueurVoulue * epaisseurVoulue * 0.5 && f.n < longueurVoulue * epaisseurVoulue * 2,
   "la surface d'encre est celle d'un trait de cette épaisseur",
   `${f.n} pixels pour ${Math.round(longueurVoulue * epaisseurVoulue)} attendus`,
+);
+
+/*
+ * L'épaisseur, et sa régularité.
+ *
+ * `perfect-freehand` **simule** la pression par défaut, à partir de la vitesse
+ * du geste, et cette simulation remplace celle que le stylet a mesurée. Deux
+ * conséquences, mesurées ici parce qu'elles ne se voient pas dans le code :
+ *
+ * - le trait sortait **trois fois trop fin** — 0,96 pour 2,80 demandés ;
+ * - et sa largeur **grésillait** en suivant la main, à 23 % de variation le
+ *   long d'un trait droit contre 8 % avec la vraie pression.
+ */
+dire(
+  "épaisseur mesurée",
+  `${f.epaisseur.toFixed(2)} px pour ${epaisseurVoulue.toFixed(2)} demandés, ${f.bruit.toFixed(1)} % de variation`,
+);
+check(
+  f.epaisseur > epaisseurVoulue * 0.7 && f.epaisseur < epaisseurVoulue * 1.5,
+  "le trait a l'épaisseur qu'on lui a demandée",
+  `${f.epaisseur.toFixed(2)} px pour ${epaisseurVoulue.toFixed(2)} — une pression devinée le divise par trois`,
+);
+check(
+  f.bruit < 14,
+  "et sa largeur ne grésille pas le long du trait",
+  `${f.bruit.toFixed(1)} % de variation — la pression déduite de la vitesse en donne le double`,
+);
+
+/*
+ * Ce qu'on voit en écrivant est-il ce qui reste ?
+ *
+ * Le trait en cours vit sur sa propre couche, et n'y redessine que sa queue —
+ * c'est ce qui rend le coût par image indépendant de la longueur du trait. Mais
+ * une queue est un **morceau** de trait : si l'épaisseur se déduit d'autre
+ * chose que de la pression de chaque point, chaque morceau la recalcule pour
+ * son compte. Deux conséquences, et ce sont exactement celles qu'on ressent
+ * sous la main :
+ *
+ *  - l'épaisseur saute d'une queue à l'autre, soixante fois par seconde —
+ *    le trait « grésille » pendant qu'on écrit ;
+ *  - et elle change encore au moment où l'on lève la pointe, quand le trait
+ *    passe sur la couche fixe. Mesuré, avec le défaut : 5,19 px en écrivant,
+ *    2,00 px une fois posé.
+ */
+section("écrire et poser donnent le même trait");
+
+/*
+ * La hauteur du trait d'essai, dans la page.
+ *
+ * Elle doit tomber **dans la fenêtre visible** : la couche vive ne couvre que
+ * ce qui est à l'écran, et un trait tracé plus bas n'y laisserait rien à
+ * mesurer — la sonde accuserait alors l'application d'un trait invisible.
+ */
+const VIF_Y = 0.4;
+
+/** Trace sans lever la pointe, et rend le profil de la couche vive. */
+const traitEnCours = () =>
+  page.evaluate(async (VIF_Y) => {
+    const el = [...document.querySelectorAll('[data-testid="drawing-canvas"]')].at(-1);
+    const r = el.getBoundingClientRect();
+    const fire = (t, x, y, p, bt) =>
+      el.dispatchEvent(
+        new PointerEvent(t, {
+          bubbles: true, cancelable: true, pointerId: 3, pointerType: "pen",
+          isPrimary: true, pressure: p, buttons: bt,
+          clientX: r.left + r.width * x, clientY: r.top + r.width * y,
+        }),
+      );
+    let g = 987654321;
+    const tirage = () => {
+      g = (g * 1103515245 + 12345) % 2147483648;
+      return g / 2147483648;
+    };
+    let x = 0.08;
+    fire("pointerdown", x, VIF_Y, 0.62, 1);
+    for (let i = 1; i < 90; i++) {
+      x += 0.0005 + tirage() * 0.002;
+      fire("pointermove", x, VIF_Y, 0.62 + Math.sin(i / 9) * 0.1, 1);
+      if (i % 3 === 0) await new Promise((res) => requestAnimationFrame(res));
+    }
+    await new Promise((res) => requestAnimationFrame(res));
+
+    // La couche vive : le canevas collant qui ne reçoit pas les pointeurs.
+    const vive = [...document.querySelectorAll("[data-ink-scroll] canvas")].filter(
+      (cv) => getComputedStyle(cv).position === "sticky",
+    )[0];
+    const ctx = vive.getContext("2d");
+    const d = ctx.getImageData(0, 0, vive.width, vive.height).data;
+    const cols = new Map();
+    for (let py = 0; py < vive.height; py++) {
+      for (let px = 0; px < vive.width; px++) {
+        const a = d[(py * vive.width + px) * 4 + 3];
+        if (a > 8) cols.set(px, (cols.get(px) ?? 0) + a / 255);
+      }
+    }
+    const cles = [...cols.keys()].sort((a, b) => a - b);
+    const coeur = cles
+      .slice(Math.round(cles.length * 0.15), Math.round(cles.length * 0.85))
+      .map((k) => cols.get(k));
+    const m = coeur.reduce((s, v) => s + v, 0) / (coeur.length || 1);
+    const sd = Math.sqrt(coeur.reduce((s, v) => s + (v - m) ** 2, 0) / (coeur.length || 1));
+
+    // On lève la pointe : le trait passe sur la couche fixe.
+    fire("pointerup", x, VIF_Y, 0, 0);
+    return { epaisseur: m, bruit: m ? (sd / m) * 100 : 0, fin: x };
+  }, VIF_Y);
+
+const vif = await traitEnCours();
+await page.waitForTimeout(1400);
+// La même bande que le trait qu'on vient de tracer : la page en porte un autre.
+const densiteRendu = (await forme()).largeurRendu;
+const pose = await forme({
+  min: VIF_Y * densiteRendu - 40,
+  max: VIF_Y * densiteRendu + 40,
+});
+dire(
+  "en écrivant / une fois posé",
+  `${vif.epaisseur.toFixed(2)} px / ${pose.epaisseur.toFixed(2)} px`,
+);
+check(
+  vif.epaisseur > 0,
+  "la couche vive porte bien le trait en cours",
+  `${vif.epaisseur.toFixed(2)} px`,
+);
+check(
+  Math.abs(vif.epaisseur - pose.epaisseur) / pose.epaisseur < 0.15,
+  "le trait ne change pas d'épaisseur quand on lève la pointe",
+  `${vif.epaisseur.toFixed(2)} px en écrivant, ${pose.epaisseur.toFixed(2)} px une fois posé`,
+);
+check(
+  vif.bruit < 14,
+  "et il ne grésille pas d'une image à l'autre pendant qu'on écrit",
+  `${vif.bruit.toFixed(1)} % de variation`,
 );
 
 // --- 1. Netteté au zoom -------------------------------------------------------
@@ -422,6 +635,115 @@ check(appui.userSelect === "none", "la surface n'est pas sélectionnable", appui
 check(appui.porte, "la surface porte la classe qui coupe les gestes de texte");
 check(callout, "et la feuille livrée interdit le menu système de l'appui prolongé");
 check(appui.selection === "", "rien n'est passé en surbrillance", `« ${appui.selection} »`);
+
+// --- 3 bis. La main posée sur les commandes ----------------------------------
+/*
+ * La barre d'outils et le repère de page flottent en bas de l'écran — là où la
+ * main se pose pour écrire. La paume y déclenchait ce qu'un doigt y
+ * déclencherait : la sélection d'iPadOS, et parfois un bouton.
+ *
+ * Trois cas, et ils doivent se distinguer :
+ *  - la main posée pendant qu'on écrit → ignorée ;
+ *  - un contact large, même stylet levé → ignoré, car la main se pose souvent
+ *    **avant** que la pointe ne touche ;
+ *  - un doigt ordinaire, aucun stylet en jeu → la barre répond normalement.
+ */
+section("la main posée sur les commandes");
+
+/** Touche la barre d'outils, avec le rayon de contact voulu. */
+const toucherBarre = (rayon) =>
+  page.evaluate(({ rayon }) => {
+    const barre = document.querySelector('[role="toolbar"]');
+    const bouton = barre.querySelector('button[aria-label="Surligneur"]');
+    const r = bouton.getBoundingClientRect();
+    const x = r.left + r.width / 2;
+    const y = r.top + r.height / 2;
+
+    let active = false;
+    const voir = () => {
+      active = true;
+    };
+    bouton.addEventListener("click", voir, true);
+
+    const touche = new Touch({
+      identifier: 77,
+      target: bouton,
+      clientX: x,
+      clientY: y,
+      radiusX: rayon,
+      radiusY: rayon,
+      force: 1,
+    });
+    const debut = new TouchEvent("touchstart", {
+      bubbles: true, cancelable: true, touches: [touche], targetTouches: [touche], changedTouches: [touche],
+    });
+    const passe = bouton.dispatchEvent(debut);
+    bouton.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, pointerId: 77, pointerType: "touch",
+        isPrimary: true, buttons: 1, clientX: x, clientY: y, width: rayon * 2, height: rayon * 2,
+      }),
+    );
+    bouton.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 77, pointerType: "touch", buttons: 0, clientX: x, clientY: y,
+      }),
+    );
+    // Le clic de compatibilité, celui qui presse réellement le bouton.
+    bouton.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, clientX: x, clientY: y }));
+    bouton.removeEventListener("click", voir, true);
+
+    return { coupe: !passe, active, selection: String(window.getSelection() ?? "") };
+  }, { rayon });
+
+/** Pose la pointe sur la feuille, sans la lever. */
+const poserStylet = () =>
+  page.evaluate(() => {
+    const el = [...document.querySelectorAll('[data-testid="drawing-canvas"]')].at(-1);
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new PointerEvent("pointerdown", {
+        bubbles: true, cancelable: true, pointerId: 5, pointerType: "pen",
+        isPrimary: true, pressure: 0.6, buttons: 1,
+        clientX: r.left + r.width / 2, clientY: r.top + 80,
+      }),
+    );
+  });
+const leverStylet = () =>
+  page.evaluate(() => {
+    const el = [...document.querySelectorAll('[data-testid="drawing-canvas"]')].at(-1);
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(
+      new PointerEvent("pointerup", {
+        bubbles: true, cancelable: true, pointerId: 5, pointerType: "pen",
+        buttons: 0, clientX: r.left + r.width / 2, clientY: r.top + 80,
+      }),
+    );
+  });
+
+// 1. Pendant qu'on écrit : la main ne doit rien déclencher.
+await poserStylet();
+const enEcrivant = await toucherBarre(20);
+check(enEcrivant.coupe, "le geste est coupé dès le contact, pendant qu'on écrit");
+check(!enEcrivant.active, "la main posée n'appuie aucun bouton");
+check(enEcrivant.selection === "", "et ne sélectionne rien", `« ${enEcrivant.selection} »`);
+await leverStylet();
+
+// 2. Un contact large, stylet levé : c'est le tranchant de la main, qui se
+//    pose presque toujours avant que la pointe ne touche.
+await page.waitForTimeout(1100);
+const large = await toucherBarre(60);
+check(large.coupe, "un contact large est refusé, même la pointe levée");
+check(!large.active, "et n'appuie aucun bouton", String(large.active));
+
+// 3. Un doigt ordinaire doit continuer de fonctionner : la barre ne devient pas
+//    inerte sous prétexte qu'un stylet a servi. Le délai est celui d'un geste
+//    humain — on ne tapote pas un bouton un dixième de seconde après y avoir
+//    posé la main.
+await page.waitForTimeout(700);
+const doigt = await toucherBarre(18);
+check(!doigt.coupe, "un doigt ordinaire n'est pas refusé");
+check(doigt.active, "et la commande répond normalement");
 
 // --- 4. L'encre pendant le défilement ----------------------------------------
 section("défilement d'un document annoté");

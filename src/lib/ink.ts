@@ -337,6 +337,39 @@ function segmentInCircle(
  * d'en régler une. Elles sont ici, et `tests/ink.test.ts` vérifie qu'il n'en
  * reste pas d'autre.
  */
+/**
+ * Le trait porte-t-il une pression réellement mesurée ?
+ *
+ * `perfect-freehand` **simule** la pression par défaut, à partir de la
+ * *vitesse* du geste — et cette simulation remplace purement et simplement
+ * celle que le stylet a mesurée. Conséquences, les deux visibles à l'œil :
+ *
+ * - **Le trait grésille.** La largeur suit la vitesse de la main, qui varie
+ *   d'un échantillon à l'autre : mesuré, 23 % de variation de largeur le long
+ *   d'un trait droit, contre 8 % avec la vraie pression.
+ * - **Il est trois fois trop fin.** À pression 0,6, une épaisseur demandée de
+ *   2,5 sortait à 0,96. Le stylo par défaut écrivait en fil d'araignée.
+ *
+ * Et pendant l'écriture, c'était pire : la couche vive ne redessine que la
+ * queue du trait, et la vitesse simulée repart de zéro à chaque queue — donc
+ * une rupture de largeur à chaque image, soixante fois par seconde.
+ *
+ * On ne la coupe pas pour autant : une souris et un doigt n'ont **pas** de
+ * pression, et leur trait serait alors d'une régularité de machine. La règle
+ * est donc tirée des données elles-mêmes — c'est ce qui permet à l'écran et à
+ * l'export d'en décider pareil, sans champ supplémentaire à enregistrer.
+ */
+export function hasRealPressure(flat: number[]): boolean {
+  if (flat.length < 12) return false;
+  const premiere = flat[2];
+  for (let i = 5; i < flat.length; i += 3) {
+    // Un centième d'écart suffit : un stylet n'est jamais parfaitement stable,
+    // une valeur inventée l'est toujours.
+    if (Math.abs(flat[i] - premiere) > 0.01) return true;
+  }
+  return false;
+}
+
 export const INK_OPTIONS = {
   pen: { thinning: 0.62, smoothing: 0.5, streamline: 0.42 },
   // Un surligneur ne varie pas d'épaisseur et ne s'effile pas : c'est un feutre

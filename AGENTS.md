@@ -40,12 +40,14 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node vignettes-e2e.mjs` — liste des notes : la vignette montre la première
   page, les tailles d'affichage et le tri vivent dans l'adresse, et la liste
   reste légère malgré les aperçus
-- `node ecriture-e2e.mjs` — **fluidité et netteté du manuscrit** : résolution
-  de l'encre au zoom, coût d'un trait sur page vide *puis* sur page dense,
-  appui maintenu qui ne sélectionne rien, et encre qui ne se redessine pas
-  quand on défile. Les mesures passent par un espion posé sur
-  `CanvasRenderingContext2D` : rien n'est ajouté à l'app pour se laisser
-  observer
+- `node ecriture-e2e.mjs` — **fluidité, netteté et sensation du manuscrit** :
+  épaisseur réellement obtenue contre épaisseur demandée, égalité entre ce qu'on
+  voit en écrivant et ce qui reste une fois la pointe levée, résolution de
+  l'encre au zoom, coût d'un trait sur page vide *puis* sur page dense, main
+  posée sur la barre d'outils, appui maintenu qui ne sélectionne rien, et encre
+  qui ne se redessine pas quand on défile. Les mesures passent par un espion
+  posé sur `CanvasRenderingContext2D` et par la lecture des pixels des couches :
+  rien n'est ajouté à l'app pour se laisser observer
 - `node regard-ecriture.mjs` — captures de l'écriture à 1× et agrandie, en
   clair et en sombre. À **ouvrir** : la mesure dit que le trait fait la bonne
   épaisseur, pas qu'il a l'air d'une encre
@@ -128,6 +130,36 @@ du verrou npm.
   serveur : on n'y reçoit qu'une référence, et l'appeler échoue à l'exécution
   sur un « includes is not a function » peu parlant. Les tableaux et listes
   partagés vont dans un module neutre de `src/lib/`.
+- **La pression du stylet était ignorée.** `perfect-freehand` *simule* la
+  pression par défaut, à partir de la vitesse du geste, et cette simulation
+  **remplace** celle que le stylet a mesurée : le trait sortait trois fois trop
+  fin — 2,0 px pour 5,3 demandés — et changeait d'épaisseur au moment où l'on
+  levait la pointe, la couche vive et la couche fixe ne calculant pas la même
+  chose sur un morceau de trait et sur le trait entier. C'est ce qui rendait
+  l'écriture « granuleuse ». On ne la coupe pas pour autant : une souris et un
+  doigt n'ont pas de pression. La règle se tire des **données**
+  (`hasRealPressure` dans `lib/ink.ts`), ce qui permet à l'écran et à l'export
+  d'en décider pareil sans champ supplémentaire à enregistrer.
+- **Mesurer un trait demande un geste de vraie main.** Avec des points
+  régulièrement espacés — ou espacés selon une belle sinusoïde — une largeur
+  déduite de la vitesse sort parfaitement constante, et le défaut se cache. Il
+  faut le tremblement d'un échantillon à l'autre. Et la mesure qui l'attrape le
+  mieux n'est pas l'épaisseur moyenne : c'est la comparaison entre **la couche
+  vive et la couche fixe**, entre ce qu'on voit en écrivant et ce qui reste.
+- **La paume se pose sur les commandes, pas seulement sur la feuille.** Le rejet
+  de la paume existait sur le canevas ; la barre d'outils et le repère de page
+  flottent en bas de l'écran, exactement là où la main repose. `lib/palm.ts` les
+  protège avec deux critères qui se complètent : la **taille du contact**
+  (`radiusX` / `radiusY` — une pulpe fait vingt à trente pixels, le tranchant
+  d'une main cinquante à cent cinquante), seul critère valable quand la main se
+  pose *avant* que la pointe ne touche ; et le **stylet en contact**, avec un
+  délai de grâce. Rien de tout cela ne s'applique tant qu'aucun stylet n'a
+  servi. Trois pièges : `touchstart` doit être déclaré **non passif** pour que
+  `preventDefault` compte ; le clic de compatibilité survit à un
+  `preventDefault` sur `pointerdown`, il faut donc une dernière barrière — mais
+  **courte et localisée**, sans quoi elle mange le geste du doigt qui suit ;
+  et `setPointerCapture` lève un `NotFoundError` si le pointeur a été relâché
+  entre-temps, ce qui interrompait le tracé.
 - **Compter des traits ne dit rien de leur forme.** Les contours ont été
   calculés un temps sur des coordonnées comprises entre 0 et 1 — ce qui
   paraissait naturel, les coordonnées l'étant déjà. Mais `getStroke` n'est
