@@ -101,9 +101,18 @@ export function PdfPage({
   const rendu = React.useRef({ cle: "", largeur: 0 });
   const cle = `${file}#${page}`;
 
-  // `window` n'existe pas au rendu serveur : la densité y est supposée à deux,
-  // ce que l'effet corrigera au montage si besoin.
-  const densite = typeof window === "undefined" ? 2 : Math.min(window.devicePixelRatio || 1, 2);
+  /*
+   * La densité **de l'écran**, sans plafond à deux.
+   *
+   * Le plafond venait de l'iPad, où deux suffit. Sur un téléphone à trois
+   * pixels par point, il rendait la page aux deux tiers de l'écran : le texte
+   * d'un polycopié, déjà petit sur 390 px de large, sortait flou. Le coût reste
+   * borné — une page étroite pèse peu, et `SIDE_MAX` arrête le reste.
+   *
+   * `window` n'existe pas au rendu serveur : la densité y est supposée à deux,
+   * ce que l'effet corrigera au montage si besoin.
+   */
+  const densite = typeof window === "undefined" ? 2 : Math.min(window.devicePixelRatio || 1, 3);
   const cible = palier((width ?? 0) * densite || 1600);
 
   React.useEffect(() => {

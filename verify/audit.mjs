@@ -241,6 +241,18 @@ await audit("note éditeur clair", phone, "/notes", false, openNote);
 await audit("note éditeur sombre", phone, "/notes", true, openNote);
 await audit("note éditeur desktop", desktop, "/notes", false, openNote);
 
+// La roue chromatique n'existe qu'ouverte : sans son propre passage, l'audit ne
+// la verrait jamais.
+const openWheel = async (p) => {
+  await openNote(p);
+  await p.getByRole("button", { name: "Autre couleur" }).first().click();
+  await p.getByRole("dialog", { name: "Choisir une couleur" }).waitFor();
+  await p.waitForTimeout(400);
+};
+await audit("roue chromatique clair", phone, "/notes", false, openWheel);
+await audit("roue chromatique sombre", phone, "/notes", true, openWheel);
+await audit("roue chromatique desktop", desktop, "/notes", false, openWheel);
+
 await browser.close();
 console.log(problems.length ? problems.join("\n") : "Aucun problème de contraste, de cible tactile ni de position.");
 process.exit(problems.length ? 1 : 0);

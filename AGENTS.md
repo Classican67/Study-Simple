@@ -63,6 +63,21 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   rechargement, la vignette la montre, le PDF l'embarque, et l'encre reste
   lisible dessus en thème sombre
 - `node regard-photo.mjs` — captures d'une photo annotée, en clair et en sombre
+- `node historique-e2e.mjs` — **Annuler rend ce que la dernière action a
+  changé** : un coup de gomme, la page effacée, un trait ; Annuler et Rétablir
+  grisés quand il n'y a rien à faire ; deux doigts tapés annulent, trois
+  rétablissent, deux doigts qui glissent n'annulent rien ; l'anneau de la gomme
+  se montre sous la pointe et disparaît quand elle part
+- `node couleur-e2e.mjs` — **roue chromatique** : réglage au clavier et au
+  geste, code tapé pris tel quel, couleur **réellement peinte** sur les tuiles,
+  après rechargement, dans le PDF exporté et en thème sombre, couleurs récentes,
+  et barre qui ne déborde pas sur téléphone
+- `node regard-palette.mjs` — captures de la barre d'outils, sur téléphone et en
+  desktop, en clair et en sombre, avec le stylo, le surligneur et la gomme
+- `node telephone-e2e.mjs` — **documents et photos sur téléphone** (393 px, trois
+  pixels par point) : le PDF rendu à la densité de l'écran, une surface pas plus
+  haute que ses pages, et en plein écran aucun bouton de la palette recouvert —
+  ni par la barre de navigation, ni par le repère de page
 - `node import-e2e.mjs` — **importer un document depuis le système** : dépôt
   d'un fichier sur la liste des notes, rangement dans le dossier ouvert, titre
   repris du nom de fichier, refus d'un autre format, et la réponse attendue par
@@ -367,6 +382,67 @@ du verrou npm.
   un dans les paquets. Toute requête de dossier filtre donc sur le genre, et
   ranger une note dans un dossier de paquets est refusé — elle y deviendrait
   invisible.
+- **Annuler annule une action, pas « le dernier trait ».** La pile d'annulation
+  ne savait que retirer le dernier trait de la liste. Or la gomme, le déplacement
+  d'une sélection et « Effacer toute la page » réécrivent la liste entière :
+  après un coup de gomme, Annuler effaçait un trait **de plus**, et la page
+  effacée ne revenait jamais. Le libellé « Annuler le dernier trait » disait
+  exactement le défaut. L'historique garde maintenant des **instantanés du
+  contenu** (`drawing-block.tsx`) ; les traits étant immuables, deux versions
+  voisines partagent presque tout. Un contenu venu d'ailleurs — chargement,
+  duplication — remet l'historique à zéro : `analyserDessin` garde l'identité de
+  l'écho, donc « venu d'ailleurs » ne se déclenche pas à chaque trait.
+- **Un toucher à deux doigts ressemble à une paume.** Deux contacts posés puis
+  relevés en moins d'un quart de seconde, sans glisser : c'est le geste
+  d'annulation, et c'est aussi la paume qui se pose juste avant la pointe et se
+  relève aussitôt. Le stylet qui touche doit donc **oublier le toucher en
+  observation**, pas seulement les doigts. Sans cela, l'annulation tombait en
+  plein tracé et **des traits étaient perdus**, jusque dans la note enregistrée :
+  mesuré à 3 traits au lieu de 5, rechargement compris. On avait supposé que le
+  canevas, qui refuse un contenu extérieur pendant un tracé, protégerait le
+  compte et que seul l'historique serait faussé — la mesure a dit le contraire.
+  `historique-e2e.mjs` vérifie donc le compte **et** Annuler juste après.
+- **Seul le pointeur qui a commencé un geste peut le terminer.** Corriger
+  l'annulation involontaire a révélé un défaut plus ancien : un doigt posé avant
+  la pointe et relevé pendant le tracé traversait `onPointerUp` jusqu'au bout,
+  et terminait **le trait du stylet** — réduit à un point, donc jeté. La main
+  posée juste avant d'écrire effaçait le mot. Le canevas retient donc l'auteur du
+  geste (`auteur`), ignore le lever de tout autre pointeur, et l'oublie quand un
+  `pointercancel` met le trait en attente — sinon, l'attente expirée, il ferait
+  ignorer le lever du pointeur suivant.
+- **Une couleur de trait passe par quatre traductions.** Un trait enregistre sa
+  couleur en texte : un nom d'encre, que la feuille de style traduit selon le
+  papier et le thème, ou depuis la roue un `#rrggbb`. La couche vive, les tuiles,
+  la vignette et l'export PDF la traduisaient chacun de leur côté, et l'export
+  aurait sorti en **noir** toute couleur libre (`inkRgb` retombait sur l'encre
+  par défaut). Tout passe désormais par `lib/ink-color.ts`. Une couleur libre
+  n'a qu'une teinte : elle ne s'éclaircit pas en thème sombre, contrairement aux
+  six encres nommées — c'est un choix, et `couleur-e2e.mjs` le vérifie.
+- **Les flux d'un PDF exporté sont compressés.** `couleur-e2e.mjs` cherchait
+  la couleur choisie dans les octets bruts du PDF, n'y trouvait **aucune**
+  couleur — pas même le fond du papier — et accusait l'export. L'export était
+  juste : les flux de contenu sont en `FlateDecode`. Décompresser d'abord
+  (`inflateSync`, ou `decodePDFRawStream` comme `fonds-e2e.mjs`). Une mesure qui
+  ne trouve rien du tout doit faire douter de la mesure avant l'application.
+- **`aria-hidden` cache aussi tout ce qu'il contient.** Le carré de saturation
+  de la roue portait `aria-hidden`, son dégradé étant décoratif — et la poignée
+  « Saturation et luminosité » vivait dedans : un curseur tabulable, visible,
+  mais absent de l'arbre d'accessibilité. `audit.mjs` passait sans rien dire, il
+  ne mesure que ce qu'il peut trouver. C'est `couleur-e2e.mjs`, qui cherche la
+  poignée **par son rôle**, qui l'a vu. Décoratif se met sur une feuille de
+  l'arbre, jamais sur un conteneur.
+- **Deux couches fixes au même z-index : la dernière du document gagne.** La
+  barre de navigation du téléphone est en `z-40`, le plein écran l'était aussi,
+  et la barre vient après la note : elle cachait la moitié de la palette. Rien
+  ne le signalait, toutes les captures du plein écran étant prises en largeur
+  d'iPad, où la barre n'existe pas. Le plein écran est donc en `z-50`, et
+  `telephone-e2e.mjs` vérifie que chaque bouton de la palette est bien le
+  premier élément sous son propre centre.
+- **Un plafond de densité pensé pour l'iPad floute le téléphone.** Deux pixels
+  par point suffisent sur iPad ; un iPhone en a trois, et une page de PDF déjà
+  large de 330 px y sortait aux deux tiers de l'écran. Le rendu PDF suit
+  désormais la densité réelle jusqu'à trois — `SIDE_MAX` borne le reste. L'encre
+  garde son plafond (`DPR_MAX`) : c'est elle qui pèse en mémoire vidéo.
 - **Un état que React connaît ne se dit pas en CSS.** Le repère de page devait
   monter quand le canevas passe en plein écran ; la règle `html[data-…] .x`
   vivait dans `@layer components` et perdait contre `md:bottom-6`, qui est un

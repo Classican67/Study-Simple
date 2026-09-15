@@ -1,9 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { Circle, Crosshair, Eraser, FileMinus2, FilePlus2, Highlighter, Lasso, Maximize2, Minus as LineIcon, Pen, PenOff, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
+import { AlignJustify, Circle, Crosshair, Eraser, FileMinus2, FilePlus2, Grid3x3, Grip, Highlighter, Lasso, Maximize2, Minus as LineIcon, Pen, PenOff, RectangleVertical, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
 
 import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
+import { inkCss, isCustomInk } from "@/lib/ink-color";
+import { InkWheel } from "@/components/note/ink-wheel";
 import { PAPERS, type Paper } from "@/lib/notes";
 import { usePalmGuard } from "@/lib/palm";
 import { cn } from "@/lib/utils";
@@ -44,11 +46,19 @@ const HIGHLIGHTER_SIZES = [
   { size: 6, label: "Épais" },
 ];
 
+/*
+ * Les fonds ont leurs propres icônes.
+ *
+ * Ils empruntaient celles des formes — carré, trait, cercle — et une viseur
+ * pour les carreaux : outil « Formes » actif, la même rangée montrait deux
+ * carrés et deux cercles qui ne voulaient pas dire la même chose. Une feuille,
+ * des lignes, un quadrillage, une trame de points : ce qu'on verra sur la page.
+ */
 const PAPER_LABELS: Record<Paper, { label: string; icon: React.ElementType }> = {
-  blank: { label: "Uni", icon: RectIcon },
-  ruled: { label: "Lignes", icon: LineIcon },
-  grid: { label: "Carreaux", icon: Crosshair },
-  dots: { label: "Points", icon: Circle },
+  blank: { label: "Uni", icon: RectangleVertical },
+  ruled: { label: "Lignes", icon: AlignJustify },
+  grid: { label: "Carreaux", icon: Grid3x3 },
+  dots: { label: "Points", icon: Grip },
 };
 
 const SHAPE_ICONS: Record<Shape, { label: string; icon: React.ElementType }> = {
@@ -87,6 +97,9 @@ export type PaletteProps = {
   canAddPage: boolean;
   /** La page courante est-elle une page ajoutée, donc retirable ? */
   canRemovePage: boolean;
+  /** Y a-t-il une action à annuler, ou à refaire ? */
+  canUndo: boolean;
+  canRedo: boolean;
   onTool: (tool: InkTool) => void;
   onSettings: (next: InkSettings) => void;
   onShape: (shape: Shape) => void;
@@ -126,6 +139,8 @@ export function InkPalette(props: PaletteProps) {
     paperEditable,
     canAddPage,
     canRemovePage,
+    canUndo,
+    canRedo,
     ruler,
   } = props;
 
@@ -141,6 +156,10 @@ export function InkPalette(props: PaletteProps) {
    * la sélection de texte d'iPadOS, et parfois un bouton.
    */
   const garde = usePalmGuard<HTMLDivElement>();
+  // La roue chromatique n'est montée qu'ouverte : elle repart ainsi de la
+  // couleur courante à chaque fois.
+  const [roue, setRoue] = React.useState(false);
+  const libre = isCustomInk(reglages.color);
 
   return (
     <div
@@ -187,16 +206,6 @@ export function InkPalette(props: PaletteProps) {
           </span>
         ) : null}
 
-        {/* Pastille de l'encre courante : on voit avec quoi on écrit sans
-            déplier les réglages. */}
-        {ecrit ? (
-          <span
-            aria-hidden
-            className="mx-1 size-5 shrink-0 rounded-full ring-2 ring-outline-variant"
-            style={{ backgroundColor: `var(--ink-${reglages.color})` }}
-          />
-        ) : null}
-
         <div className="ml-auto flex items-center gap-0.5">
           {Math.abs(zoom - 1) > 0.01 ? (
             <button
@@ -240,9 +249,31 @@ export function InkPalette(props: PaletteProps) {
               label="Empêcher le doigt d'écrire"
             />
           )}
-          <Tool onClick={props.onUndo} icon={Undo2} label="Annuler le dernier trait" />
-          <Tool onClick={props.onRedo} icon={Redo2} label="Rétablir le trait annulé" />
-          <Tool onClick={props.onClear} icon={Trash2} label="Effacer toute la page" danger />
+          {/* Annuler rend ce que la dernière action a changé — un trait, un coup
+              de gomme, une sélection déplacée, la page effacée. Grisés quand il
+              n'y a rien à faire : un bouton qui ne répond pas passe pour une
+              panne. Deux doigts tapés sur la page annulent aussi. */}
+          <Tool
+            onClick={props.onUndo}
+            icon={Undo2}
+            label="Annuler"
+            title="Annuler — ou toucher la page de deux doigts"
+            disabled={!canUndo}
+          />
+          <Tool
+            onClick={props.onRedo}
+            icon={Redo2}
+            label="Rétablir"
+            title="Rétablir — ou toucher la page de trois doigts"
+            disabled={!canRedo}
+          />
+          <Tool
+            onClick={props.onClear}
+            icon={Trash2}
+            label="Effacer toute la page"
+            title="Effacer toute la page — Annuler la rend"
+            danger
+          />
           <Tool
             onClick={props.onToggleFull}
             icon={full ? X : Maximize2}
@@ -278,6 +309,50 @@ export function InkPalette(props: PaletteProps) {
                   />
                 </button>
               ))}
+
+              {/* Au-delà des six encres, la roue. Le bouton porte la couleur libre
+                  en cours quand il y en a une : on voit avec quoi on écrit, et le
+                  même geste permet d'en changer. Un seul bouton plutôt qu'une
+                  pastille de plus : sept tiennent sur une rangée de téléphone,
+                  huit la faisaient déborder. */}
+              <button
+                type="button"
+                onClick={() => setRoue(true)}
+                aria-label="Autre couleur"
+                aria-haspopup="dialog"
+                aria-pressed={libre}
+                title={libre ? `Couleur ${reglages.color} — en choisir une autre` : "Autre couleur"}
+                className="grid size-11 place-items-center rounded-full"
+              >
+                <span
+                  className={cn(
+                    "grid place-items-center rounded-full transition-all",
+                    libre ? "size-6 ring-2 ring-primary ring-offset-2 ring-offset-surface" : "size-5",
+                  )}
+                  style={{
+                    background:
+                      "conic-gradient(hsl(0 90% 55%), hsl(60 90% 50%), hsl(120 80% 42%), hsl(180 85% 45%), hsl(240 85% 60%), hsl(300 85% 55%), hsl(360 90% 55%))",
+                  }}
+                >
+                  {libre ? (
+                    <span
+                      className="block size-3.5 rounded-full ring-2 ring-white"
+                      style={{ backgroundColor: reglages.color }}
+                    />
+                  ) : null}
+                </span>
+              </button>
+              {roue ? (
+                <InkWheel
+                  value={reglages.color}
+                  highlighter={tool === "highlighter"}
+                  onClose={() => setRoue(false)}
+                  onPick={(hex) => {
+                    props.onSettings({ ...reglages, color: hex });
+                    setRoue(false);
+                  }}
+                />
+              ) : null}
             </Group>
 
             <Group label="Épaisseur">
@@ -289,16 +364,28 @@ export function InkPalette(props: PaletteProps) {
                   aria-label={entry.label}
                   aria-pressed={reglages.size === entry.size}
                   title={entry.label}
+                  // Un anneau, pas un fond : posé sur le violet de sélection, le
+                  // surligneur translucide virait au mauve et l'on ne voyait
+                  // plus la couleur qu'on allait obtenir.
                   className={cn(
                     "grid size-11 place-items-center rounded-full transition-colors",
-                    reglages.size === entry.size
-                      ? "bg-primary-container text-on-primary-container"
-                      : "text-on-surface-variant",
+                    reglages.size === entry.size && "ring-2 ring-inset ring-primary",
                   )}
                 >
+                  {/*
+                   * Un bout de trait, dans l'encre choisie, plutôt qu'un point
+                   * gris : l'épaisseur « Fin » tenait en un point de 3,6 px qu'on
+                   * ne voyait pas, et la couleur courante n'était rappelée que par
+                   * une pastille en double de la rangée d'à côté. Le surligneur
+                   * garde sa transparence, comme sur la page.
+                   */}
                   <span
-                    className="block rounded-full bg-current"
-                    style={{ width: entry.size * 3, height: entry.size * 3 }}
+                    className="block w-6 rounded-full"
+                    style={{
+                      height: Math.min(14, Math.max(2, entry.size * (tool === "highlighter" ? 2.2 : 1.6))),
+                      backgroundColor: inkCss(reglages.color),
+                      opacity: tool === "highlighter" ? 0.45 : 1,
+                    }}
                   />
                 </button>
               ))}
@@ -321,15 +408,17 @@ export function InkPalette(props: PaletteProps) {
         ) : null}
 
         {tool === "eraser" ? (
-          <Group label="Gomme">
+          <Group label="Gomme" className="flex-wrap">
             {/* Rayer un mot d'un geste, ou reprendre le détail d'une lettre :
-                deux besoins opposés, deux gommes. */}
+                deux besoins opposés, deux gommes. Les libellés restent sur une
+                ligne et c'est la rangée qui passe à la ligne : sur téléphone
+                « Trait entier » se cassait en deux mots empilés. */}
             <button
               type="button"
               onClick={() => props.onErasePrecise(false)}
               aria-pressed={!erasePrecise}
               className={cn(
-                "flex min-h-11 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+                "flex min-h-11 items-center gap-2 whitespace-nowrap rounded-full px-4 m3-label-large transition-colors",
                 erasePrecise
                   ? "text-on-surface-variant hover:text-on-surface"
                   : "bg-primary-container text-on-primary-container",
@@ -344,7 +433,7 @@ export function InkPalette(props: PaletteProps) {
               onClick={() => props.onErasePrecise(true)}
               aria-pressed={erasePrecise}
               className={cn(
-                "flex min-h-11 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+                "flex min-h-11 items-center gap-2 whitespace-nowrap rounded-full px-4 m3-label-large transition-colors",
                 erasePrecise
                   ? "bg-primary-container text-on-primary-container"
                   : "text-on-surface-variant hover:text-on-surface",
@@ -359,7 +448,7 @@ export function InkPalette(props: PaletteProps) {
               onClick={() => props.onEraseHighlightsOnly(!eraseHighlightsOnly)}
               aria-pressed={eraseHighlightsOnly}
               className={cn(
-                "flex min-h-11 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
+                "flex min-h-11 items-center gap-2 whitespace-nowrap rounded-full px-4 m3-label-large transition-colors",
                 eraseHighlightsOnly
                   ? "bg-primary-container text-on-primary-container"
                   : "text-on-surface-variant hover:text-on-surface",
@@ -460,13 +549,18 @@ function Tool({
   onClick,
   icon: Icon,
   label,
+  title,
   danger,
+  disabled,
 }: {
   active?: boolean;
   onClick: () => void;
   icon: React.ElementType;
   label: string;
+  /** Infobulle, quand elle en dit plus que le nom du bouton. */
+  title?: string;
   danger?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -474,9 +568,10 @@ function Tool({
       onClick={onClick}
       aria-pressed={active}
       aria-label={label}
-      title={label}
+      title={title ?? label}
+      disabled={disabled}
       className={cn(
-        "grid size-11 place-items-center rounded-full transition-colors",
+        "grid size-11 place-items-center rounded-full transition-colors disabled:pointer-events-none disabled:opacity-40",
         active
           ? "bg-primary-container text-on-primary-container"
           : cn("text-on-surface-variant", danger ? "hover:text-error" : "hover:text-on-surface"),

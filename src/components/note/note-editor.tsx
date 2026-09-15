@@ -232,15 +232,20 @@ export function NoteEditor({
       {/* Repère de page, flottant : un polycopié de quarante pages devient
           quarante blocs, et retrouver la page 27 demanderait sinon de faire
           défiler à l'aveugle. */}
-      {/* Au-dessus du plein écran (z-40) : c'est justement là qu'on annote un
-          polycopié, et le repère y devenait inaccessible. */}
+      {/* Au-dessus du plein écran (z-50, et placé après lui dans le document) :
+          c'est justement là qu'on annote un polycopié, et le repère y devenait
+          inaccessible. Sa hauteur suit celle de la palette, publiée par la page
+          manuscrite : quatre rangées sur téléphone, et le repère se posait sur
+          les couleurs. */}
       <div
         className={cn(
           "pointer-events-none fixed left-1/2 z-50 -translate-x-1/2 transition-[bottom]",
-          canvasFull ? "bottom-40" : "bottom-24 md:bottom-6",
+          canvasFull ? "bottom-[calc(var(--ink-palette-h,10rem)+0.75rem)]" : "bottom-24 md:bottom-6",
         )}
       >
-        <div className="pointer-events-auto rounded-full border border-outline-variant bg-surface-container px-1 elevation-2">
+        {/* `empty:hidden` : sous deux pages le repère ne rend rien, et son
+            enveloppe restait seule — un petit trait flottant sur la photo. */}
+        <div className="pointer-events-auto rounded-full border border-outline-variant bg-surface-container px-1 elevation-2 empty:hidden">
           <PageNavigator
             pages={blocks
               .filter((b) => b.kind === "drawing")

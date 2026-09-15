@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveInk } from "@/lib/ink-color";
 import * as React from "react";
 import { FileText } from "lucide-react";
 
@@ -103,7 +104,7 @@ function InkThumbnail({
 
     for (const stroke of preview.strokes) {
       context.strokeStyle =
-        styles.getPropertyValue(`--ink-${stroke.color}`).trim() || styles.color;
+        resolveInk(styles, stroke.color);
       context.beginPath();
       // Les points sont en millièmes entiers de la largeur de la page.
       context.moveTo((stroke.points[0] / 1000) * largeur, (stroke.points[1] / 1000) * largeur);

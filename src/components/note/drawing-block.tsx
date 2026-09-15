@@ -15,8 +15,10 @@ import {
   type BlankPage,
   type DrawingContent,
   type Paper,
-  type Stroke,
 } from "@/lib/notes";
+
+/** Versions retenues pour Annuler : bien plus qu'on n'en remonte jamais. */
+const HISTORIQUE_MAX = 200;
 
 /**
  * Page manuscrite : le canevas, ses outils, et le plein écran.
@@ -53,18 +55,65 @@ export function DrawingBlock({
   const [content, setContent] = React.useState(recu);
   // Notre propre écho, pour ne pas se remettre à zéro dessus.
   const mien = React.useRef<DrawingContent | null>(null);
+  // Le contenu courant, lisible sans attendre un rendu : un trait posé puis un
+  // toucher à deux doigts dans la même image liraient sinon la même version.
+  const actuel = React.useRef(recu);
+
+  /*
+   * Historique : des instantanés du contenu, pas une pile de traits.
+   *
+   * Annuler retirait « le dernier trait » quelle que soit l'action annulée.
+   * Après un coup de gomme, il effaçait donc un trait de plus au lieu de rendre
+   * le trait gommé ; après « Effacer toute la page », il n'avait plus rien à
+   * retirer et la page était perdue. Chaque action — trait, gomme, sélection
+   * déplacée ou supprimée, page ajoutée, fond changé — laisse désormais la
+   * version d'avant, et Annuler y revient telle quelle.
+   *
+   * Le coût est faible : les traits sont immuables, deux versions voisines
+   * partagent tous ceux qu'elles ont en commun.
+   */
+  const passe = React.useRef<DrawingContent[]>([]);
+  const futur = React.useRef<DrawingContent[]>([]);
+  const [historique, setHistorique] = React.useState({ annuler: false, retablir: false });
+  const direHistorique = React.useCallback(() => {
+    setHistorique({ annuler: passe.current.length > 0, retablir: futur.current.length > 0 });
+  }, []);
+
   React.useEffect(() => {
     if (recu === mien.current) return;
+    actuel.current = recu;
     setContent(recu);
-  }, [recu]);
+    // Un contenu venu d'ailleurs — chargement, duplication — n'a pas de passé
+    // ici : y revenir écraserait ce qui vient d'arriver.
+    passe.current = [];
+    futur.current = [];
+    direHistorique();
+  }, [recu, direHistorique]);
 
-  const onChange = React.useCallback(
+  /** Montre et enregistre un contenu, sans rien inscrire à l'historique. */
+  const appliquer = React.useCallback(
     (next: DrawingContent) => {
       mien.current = next;
+      actuel.current = next;
       setContent(next);
       remonter(next);
     },
     [remonter],
+  );
+
+  const onChange = React.useCallback(
+    (next: DrawingContent) => {
+      const avant = actuel.current;
+      // Allonger la page en plein écran n'est pas une action : l'annuler la
+      // raccourcirait sous la main.
+      if (next.strokes !== avant.strokes || next.pages !== avant.pages || next.paper !== avant.paper) {
+        passe.current = [...passe.current, avant].slice(-HISTORIQUE_MAX);
+        futur.current = [];
+        direHistorique();
+      }
+      appliquer(next);
+    },
+    [appliquer, direHistorique],
   );
 
   const [tool, setTool] = React.useState<InkTool>("pen");
@@ -109,37 +158,39 @@ export function DrawingBlock({
    */
   const [pageIndex, setPageIndex] = React.useState(0);
 
-  // Pile d'annulation, à part du contenu : ce qu'on vient de retirer n'a pas à
-  // être enregistré, seulement à pouvoir revenir.
-  const undone = React.useRef<Stroke[]>([]);
-
   function undo() {
-    const last = content.strokes.at(-1);
-    if (!last) return;
-    undone.current = [...undone.current, last];
-    onChange({ ...content, strokes: content.strokes.slice(0, -1) });
+    const precedent = passe.current.at(-1);
+    if (!precedent) return;
+    passe.current = passe.current.slice(0, -1);
+    futur.current = [...futur.current, actuel.current];
+    direHistorique();
+    // Les rangs retenus par le lasso désignent des traits d'une autre version.
+    setSelection([]);
+    appliquer(precedent);
   }
 
   function redo() {
-    const last = undone.current.at(-1);
-    if (!last) return;
-    undone.current = undone.current.slice(0, -1);
-    onChange({ ...content, strokes: [...content.strokes, last] });
+    const suivant = futur.current.at(-1);
+    if (!suivant) return;
+    futur.current = futur.current.slice(0, -1);
+    passe.current = [...passe.current, actuel.current];
+    direHistorique();
+    setSelection([]);
+    appliquer(suivant);
   }
 
   function deleteSelection() {
     if (selection.length === 0) return;
     const retires = new Set(selection);
-    const restants = content.strokes.filter((_, i) => !retires.has(i));
-    undone.current = [...undone.current, ...content.strokes.filter((_, i) => retires.has(i))];
+    const courant = actuel.current;
     setSelection([]);
-    onChange({ ...content, strokes: restants });
+    onChange({ ...courant, strokes: courant.strokes.filter((_, i) => !retires.has(i)) });
   }
 
   function clear() {
-    if (content.strokes.length === 0) return;
-    undone.current = [...content.strokes].reverse();
-    onChange({ ...content, strokes: [] });
+    const courant = actuel.current;
+    if (courant.strokes.length === 0) return;
+    onChange({ ...courant, strokes: [] });
   }
 
   /*
@@ -216,6 +267,10 @@ export function DrawingBlock({
     const palette = surface.querySelector('[role="toolbar"]');
     const dispo = height - (palette?.getBoundingClientRect().height ?? 0);
     setFullHeight(Math.round(dispo));
+    // Une pile de pages a la hauteur de ses pages : l'allonger n'ajoutait qu'une
+    // bande grise sous la dernière — sous une photo en paysage, les trois quarts
+    // de l'écran. On ajoute une page, on n'étire pas la pile.
+    if (content.pages.length > 0) return;
     const voulu = Math.min(MAX_RATIO, dispo / width);
     if (voulu > content.ratio + 0.01) onChange({ ...content, ratio: Number(voulu.toFixed(3)) });
     // Une seule fois, à l'ouverture : reprendre à chaque changement de contenu
@@ -236,6 +291,29 @@ export function DrawingBlock({
     return () => {
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = previous;
+    };
+  }, [full]);
+
+  /*
+   * Hauteur de la palette en plein écran, publiée pour le repère de page.
+   *
+   * Elle ne se devine pas : sur téléphone la barre passe sur quatre rangées
+   * (196 px), sur iPad sur deux. Un décalage fixe posait le repère sur les
+   * couleurs.
+   */
+  React.useEffect(() => {
+    if (!full) return;
+    const palette = surfaceRef.current?.querySelector('[role="toolbar"]');
+    if (!palette) return;
+    const racine = document.documentElement;
+    const publier = () =>
+      racine.style.setProperty("--ink-palette-h", `${Math.round(palette.getBoundingClientRect().height)}px`);
+    const observer = new ResizeObserver(publier);
+    observer.observe(palette);
+    publier();
+    return () => {
+      observer.disconnect();
+      racine.style.removeProperty("--ink-palette-h");
     };
   }, [full]);
 
@@ -268,6 +346,8 @@ export function DrawingBlock({
       paperEditable={!surDocument}
       canAddPage={pages.length > 0 && pages.length < MAX_DOCUMENT_PAGES}
       canRemovePage={ajoutee && pages.length > 1}
+      canUndo={historique.annuler}
+      canRedo={historique.retablir}
       ruler={ruler}
       onTool={setTool}
       onSettings={tool === "highlighter" ? setHighlighter : setPen}
@@ -310,14 +390,24 @@ export function DrawingBlock({
       onPenMode={setPenMode}
       onView={setZoom}
       onPage={setPageIndex}
+      onFingerTap={
+        readOnly
+          ? undefined
+          : (doigts) => {
+              if (doigts === 2) undo();
+              else if (doigts === 3) redo();
+            }
+      }
       shape={shape}
       selection={selection}
       onSelect={setSelection}
       ruler={ruler}
       onRuler={setRuler}
       // En ligne, la page se montre dans une fenêtre de hauteur raisonnable et
-      // défile en elle-même ; en plein écran, elle occupe la place restante.
-      height={full ? fullHeight : 520}
+      // défile en elle-même — mais jamais plus haute que ce qu'elle porte : une
+      // photo en paysage de 200 px flottait dans 520 px de gris. En plein
+      // écran, elle occupe la place restante.
+      height={full ? fullHeight : undefined}
       className={full ? "rounded-none border-0" : "rounded-xl border border-outline-variant"}
     />
   );
@@ -336,7 +426,10 @@ export function DrawingBlock({
           Page ouverte en plein écran
         </div>
 
-        <div ref={surfaceRef} className="ink-surface fixed inset-0 z-40 flex flex-col bg-surface">
+        {/* z-50, pas z-40 : la barre de navigation du téléphone est aussi en
+            z-40 et vient après la note dans le document — à égalité elle
+            passait devant, et cachait la moitié de la palette. */}
+        <div ref={surfaceRef} className="ink-surface fixed inset-0 z-50 flex flex-col bg-surface">
           {/* Pleine largeur, sans marge : la feuille doit occuper l'écran, pas
               flotter au milieu. Le défilement sert à descendre dans la page,
               qui s'allonge à mesure qu'on écrit. */}

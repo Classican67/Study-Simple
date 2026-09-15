@@ -154,10 +154,10 @@ check(
 );
 
 // Annuler / rétablir
-await page.getByRole("button", { name: "Annuler le dernier trait" }).click();
+await page.getByRole("button", { name: "Annuler", exact: true }).click();
 await page.waitForTimeout(200);
 check((await canvas.getAttribute("aria-label")).includes("0 trait"), "l'annulation retire le trait");
-await page.getByRole("button", { name: "Rétablir le trait annulé" }).click();
+await page.getByRole("button", { name: "Rétablir", exact: true }).click();
 await page.waitForTimeout(200);
 check((await canvas.getAttribute("aria-label")).includes("1 trait"), "le rétablissement le remet");
 

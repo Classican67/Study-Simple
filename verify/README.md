@@ -53,6 +53,10 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node regard-export.mjs` | Le PDF exporté, relu par l'application et photographié |
 | `node photo-e2e.mjs` | Photo annotable : page au format de l'image, écriture, persistance, vignette, PDF, encre lisible en sombre |
 | `node regard-photo.mjs` | Captures d'une photo annotée, en clair et en sombre |
+| `node historique-e2e.mjs` | Annuler après la gomme ou la page effacée, boutons grisés, touchers à deux et trois doigts, anneau de la gomme |
+| `node couleur-e2e.mjs` | Roue chromatique : clavier, geste, code exact, couleur peinte, rechargement, PDF, thème sombre, téléphone |
+| `node regard-palette.mjs` | Captures de la barre d'outils : téléphone et desktop, clair et sombre, stylo, surligneur, gomme |
+| `node telephone-e2e.mjs` | Documents et photos sur téléphone : densité du PDF, hauteur de la surface, palette non recouverte en plein écran |
 | `node import-e2e.mjs` | Import système : dépôt d'un fichier, dossier de destination, titre, refus, réponse au partage |
 | `node regard-depot.mjs` | Capture du voile de dépôt, en clair et en sombre |
 | `node palette-e2e.mjs` | Barre d'outils : réglages contextuels, mémoire par outil, verrou stylet, gomme sélective, navigation entre pages |

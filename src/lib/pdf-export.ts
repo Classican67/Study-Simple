@@ -1,6 +1,7 @@
 import { getStroke } from "perfect-freehand";
 
 import { INK_OPTIONS, INK_REF, hasRealPressure } from "@/lib/ink";
+import { hexToRgb01 } from "@/lib/ink-color";
 import { PAPER_COLORS, PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
 
 /**
@@ -121,8 +122,14 @@ export const INK_RGB: Record<string, [number, number, number]> = {
   violet: [0.45, 0.2, 0.83],
 };
 
+/**
+ * Une encre nommée, ou une couleur libre de la roue.
+ *
+ * Sans la seconde branche, tout trait d'une couleur libre sortait à l'encre par
+ * défaut : du noir sur le PDF, quelle que soit la couleur vue à l'écran.
+ */
 export function inkRgb(name: string): [number, number, number] {
-  return INK_RGB[name] ?? INK_RGB.default;
+  return INK_RGB[name] ?? hexToRgb01(name) ?? INK_RGB.default;
 }
 
 /**

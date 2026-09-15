@@ -1,5 +1,6 @@
 "use client";
 
+import { resolveInk } from "@/lib/ink-color";
 import * as React from "react";
 import { getStroke } from "perfect-freehand";
 
@@ -117,6 +118,14 @@ const TILES_MAX = 5;
 
 const MIN_SCALE = 1;
 const MAX_SCALE = 6;
+
+/**
+ * Rayon de la gomme, en fraction de la largeur de page.
+ *
+ * Il sert deux fois — pour effacer et pour montrer l'anneau — et deux valeurs
+ * finiraient par se séparer : on verrait effacer au-delà de ce qu'on montre.
+ */
+const GOMME_RAYON = 0.018;
 
 /** Le point tombe-t-il sur la règle ? */
 function nearRuler(point: number[], ruler: Ruler): boolean {
@@ -261,6 +270,7 @@ export function InkCanvas({
   scrollId,
   erasePrecise = false,
   penOnly = false,
+  onFingerTap,
 }: {
   content: DrawingContent;
   onChange: (next: DrawingContent) => void;
@@ -319,6 +329,12 @@ export function InkCanvas({
   scrollId?: string;
   /** Le doigt n'écrit jamais, même avant qu'un stylet ait servi. */
   penOnly?: boolean;
+  /**
+   * Plusieurs doigts tapés sur la page, sans glisser : deux pour annuler, trois
+   * pour rétablir. C'est le geste des applications de prise de notes, et il
+   * évite d'aller chercher la barre en bas de l'écran au milieu d'une phrase.
+   */
+  onFingerTap?: (doigts: number) => void;
 }) {
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const pageRef = React.useRef<HTMLDivElement>(null);
@@ -339,7 +355,9 @@ export function InkCanvas({
 
   const pageW = Math.max(0, Math.round(width * scale));
   const pageH = Math.round(pageW * ratio);
-  const viewport = height ?? Math.min(Math.round(width * ratio) || 520, 900);
+  // Sans hauteur imposée : celle du contenu, bornée pour que la surface — qui
+  // capte le doigt — ne remplisse jamais l'écran d'un téléphone.
+  const viewport = height ?? Math.min(Math.round(width * ratio) || 520, 520);
 
   /*
    * Ce que les gestionnaires d'événements doivent lire sans passer par un
@@ -397,11 +415,41 @@ export function InkCanvas({
   const interrompu = React.useRef<{ trait: Stroke; quand: number; minuteur: number } | null>(null);
 
   const penSeen = React.useRef(false);
+  /*
+   * Position de la pointe au-dessus de la page, pour l'anneau de la gomme.
+   *
+   * On effaçait à l'aveugle : rien ne disait jusqu'où la gomme portait, et l'on
+   * emportait la lettre d'à côté. Le stylet qui survole (Apple Pencil récent),
+   * la souris, ou le doigt pendant qu'il gomme la mettent à jour.
+   */
+  const survol = React.useRef<{ x: number; y: number } | null>(null);
+  /*
+   * Le pointeur qui a commencé le geste en cours — trait, gomme, lasso.
+   *
+   * Seul son lever termine le geste. Un doigt posé *avant* la pointe — la paume
+   * qui se pose juste avant d'écrire — et relevé pendant le tracé traversait
+   * `onPointerUp` jusqu'au bout et terminait le trait du stylet, réduit alors à
+   * un point et jeté : le mot disparaissait sous la main.
+   */
+  const auteur = React.useRef<number | null>(null);
   const lasso = React.useRef<Point[] | null>(null);
   const rulerDrag = React.useRef<"move" | "rotate" | null>(null);
   const moving = React.useRef<{ x: number; y: number } | null>(null);
   const touches = React.useRef(new Map<number, { x: number; y: number }>());
   const gesture = React.useRef<{ distance: number; x: number; y: number; scale: number } | null>(null);
+  /*
+   * Toucher à plusieurs doigts, en cours d'observation.
+   *
+   * Il ne devient un toucher qu'au lever du dernier doigt, et seulement si aucun
+   * n'a glissé ni ne s'est attardé : un pincement court et un défilement à deux
+   * doigts commencent exactement de la même façon, et ne doivent rien annuler.
+   */
+  const tape = React.useRef<{
+    debut: number;
+    doigts: number;
+    departs: Map<number, { x: number; y: number }>;
+    bouge: boolean;
+  } | null>(null);
   // Le stylet est posé : aucun doigt ne doit alors déplacer la page. C'est la
   // paume qui traîne, pas une intention.
   const penDown = React.useRef(false);
@@ -510,8 +558,9 @@ export function InkCanvas({
     context.scale(w / REF, w / REF);
 
     const styles = getComputedStyle(canvas);
-    const encre = (name: string) =>
-      styles.getPropertyValue(`--ink-${name}`).trim() || styles.color;
+    // Une encre nommée prend la teinte de son papier ; une couleur libre reste
+    // celle qu'on a choisie. Cf. `lib/ink-color.ts`.
+    const encre = (name: string) => resolveInk(styles, name);
 
     const zone: Bounds = {
       minX: x / w,
@@ -793,6 +842,25 @@ export function InkCanvas({
       context.restore();
     }
 
+    // L'anneau de la gomme, en double contour : clair dessous, sombre dessus.
+    // Il se pose sur du papier crème, sur une photo sombre ou sur un
+    // polycopié, et une seule teinte disparaîtrait sur l'un des trois.
+    const pointe = survol.current;
+    if (pointe) {
+      context.save();
+      context.beginPath();
+      context.arc(pointe.x, pointe.y, GOMME_RAYON, 0, Math.PI * 2);
+      context.fillStyle = "rgba(0, 0, 0, 0.06)";
+      context.fill();
+      context.lineWidth = trait * 2.4;
+      context.strokeStyle = "rgba(255, 255, 255, 0.9)";
+      context.stroke();
+      context.lineWidth = trait;
+      context.strokeStyle = "rgba(30, 30, 36, 0.8)";
+      context.stroke();
+      context.restore();
+    }
+
     const retenus = selection.map((i) => strokes.current[i]?.points).filter(Boolean);
     const cadre = unionBounds(retenus as number[][]);
     if (cadre) {
@@ -926,6 +994,13 @@ export function InkCanvas({
   React.useEffect(() => {
     peindreRepere();
   }, [peindreRepere]);
+
+  // Changer d'outil range l'anneau : il n'appartient qu'à la gomme.
+  React.useEffect(() => {
+    if (tool === "eraser" || !survol.current) return;
+    survol.current = null;
+    peindreRepere();
+  }, [tool, peindreRepere]);
 
   // Le thème peut changer pendant l'écriture : les encres sont des variables CSS.
   React.useEffect(() => {
@@ -1104,6 +1179,16 @@ export function InkCanvas({
           drawing.current = null;
           viderVive();
         }
+        // Chaque doigt garde sa position de départ : c'est d'elle que se mesure
+        // le glissement qui fait d'un toucher un geste.
+        const departs = new Map(tape.current?.departs ?? touches.current);
+        departs.set(event.pointerId, { x: event.clientX, y: event.clientY });
+        tape.current = {
+          debut: tape.current?.debut ?? event.timeStamp,
+          doigts: Math.max(tape.current?.doigts ?? 0, touches.current.size),
+          departs,
+          bouge: tape.current?.bouge ?? false,
+        };
         const { x, y, distance } = pinch();
         gesture.current = { distance, x, y, scale: vue.current.scale };
         return;
@@ -1115,6 +1200,7 @@ export function InkCanvas({
     }
 
     if (!accepts(event)) return;
+    auteur.current = event.pointerId;
     if (event.pointerType === "pen") {
       penDown.current = true;
       // Les commandes en bas de l'écran doivent savoir qu'on écrit : la main
@@ -1124,6 +1210,10 @@ export function InkCanvas({
       // les doigts déjà posés sont oubliés pour qu'ils ne déplacent rien.
       touches.current.clear();
       gesture.current = null;
+      // Le toucher en observation aussi : la paume posée juste avant la pointe,
+      // puis relevée aussitôt, passerait sinon pour deux doigts tapés — et
+      // annulerait un trait au milieu de l'écriture.
+      tape.current = null;
       if (!penSeen.current) {
         penSeen.current = true;
         setPenMode(true);
@@ -1201,14 +1291,27 @@ export function InkCanvas({
       };
     }
     const styles = getComputedStyle(event.currentTarget);
-    encreVive.current = styles.getPropertyValue(`--ink-${color}`).trim() || styles.color;
+    encreVive.current = resolveInk(styles, color);
     demander("vive");
   }
 
   function onPointerMove(event: React.PointerEvent<HTMLCanvasElement>) {
+    // La pointe qui survole montre où la gomme va porter, avant de toucher.
+    if (tool === "eraser" && event.pointerType !== "touch") {
+      const [x, y] = pointOf(event);
+      survol.current = { x, y };
+      demander("repere");
+    }
+
     if (event.pointerType === "touch" && touches.current.has(event.pointerId)) {
       const avant = touches.current.get(event.pointerId)!;
       touches.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+
+      // Dix pixels : la pulpe d'un doigt roule toujours un peu en se posant.
+      const depart = tape.current?.departs.get(event.pointerId);
+      if (depart && Math.hypot(event.clientX - depart.x, event.clientY - depart.y) > 10) {
+        tape.current!.bouge = true;
+      }
 
       if (gesture.current && touches.current.size >= 2) {
         const { x, y, distance } = pinch();
@@ -1303,15 +1406,34 @@ export function InkCanvas({
   }
 
   function onPointerUp(event?: React.PointerEvent<HTMLCanvasElement>) {
+    // Un doigt ne survole pas : levé, il n'a plus d'anneau à montrer.
+    if (event?.pointerType === "touch" && survol.current) {
+      survol.current = null;
+      demander("repere");
+    }
     if (event?.pointerType === "touch") {
       touches.current.delete(event.pointerId);
       if (touches.current.size < 2) gesture.current = null;
-      if (touches.current.size === 0 && doigtDeplace()) lancer();
+      if (touches.current.size === 0) {
+        const toucher = tape.current;
+        tape.current = null;
+        // Un quart de seconde, sans glisser : au-delà, on a posé les doigts pour
+        // pincer ou défiler et on s'est ravisé — ce n'est pas une commande.
+        if (toucher && !toucher.bouge && event.timeStamp - toucher.debut < 250) {
+          onFingerTap?.(toucher.doigts);
+          return;
+        }
+        if (doigtDeplace()) lancer();
+      }
     }
     if (event?.pointerType === "pen") {
       penDown.current = false;
       signalerStylet(false);
     }
+
+    // Un autre pointeur que celui du geste se lève : il n'a rien à terminer.
+    if (event && auteur.current !== null && event.pointerId !== auteur.current) return;
+    auteur.current = null;
 
     if (rulerDrag.current) {
       rulerDrag.current = null;
@@ -1408,6 +1530,8 @@ export function InkCanvas({
     if (event?.pointerType === "touch") {
       touches.current.delete(event.pointerId);
       if (touches.current.size < 2) gesture.current = null;
+      // Un contact que le système reprend n'est pas un toucher volontaire.
+      tape.current = null;
     }
 
     const trait = drawing.current;
@@ -1417,6 +1541,9 @@ export function InkCanvas({
     }
 
     drawing.current = null;
+    // Le trait attend sa reprise, qui désignera son propre auteur : garder
+    // celui-ci ferait ignorer le lever du prochain pointeur si l'attente expire.
+    auteur.current = null;
     penDown.current = false;
     signalerStylet(false);
     // La couche vive garde le trait affiché : le faire disparaître le temps de
@@ -1458,7 +1585,11 @@ export function InkCanvas({
   const gommeEnCours = React.useRef(false);
 
   function eraseAt(point: number[]) {
-    const seuil = 0.018;
+    const seuil = GOMME_RAYON;
+    // L'anneau suit aussi le doigt : sans survol possible, c'est le seul moment
+    // où l'on peut voir ce que la gomme couvre.
+    survol.current = { x: point[0], y: point[1] };
+    demander("repere");
     const zone: Bounds = {
       minX: point[0] - seuil,
       minY: point[1] - seuil,
@@ -1723,6 +1854,11 @@ export function InkCanvas({
           onPointerUp={onPointerUp}
           onPointerCancel={onPointerInterrompu}
           onLostPointerCapture={() => onPointerInterrompu()}
+          onPointerLeave={() => {
+            if (!survol.current) return;
+            survol.current = null;
+            demander("repere");
+          }}
           onWheel={onWheel}
           onContextMenu={(event) => event.preventDefault()}
           className={cn(
