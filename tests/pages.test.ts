@@ -8,7 +8,10 @@ import {
   PAPER_STEPS,
   buildPreview,
   notePreview,
+  insertDocumentPages,
   insertImagePage,
+  MAX_DOCUMENT_PAGES,
+  MAX_RATIO,
   insertPage,
   isBackdropPage,
   isImagePage,
@@ -487,6 +490,51 @@ describe("blockFiles", () => {
 
   it("ni d'un contenu abîmé", () => {
     assert.deepEqual(blockFiles("drawing", "{ pas du json"), []);
+  });
+});
+
+describe("insertDocumentPages", () => {
+  const PDF = "6f1c2b0e-3d4a-4b5c-9d8e-7f6a5b4c3d2e.pdf";
+
+  it("glisse toutes les pages du document après la page visée, dans l'ordre", () => {
+    const suivant = insertDocumentPages(contenu(doc(2, 1.4)), 0, PDF, [1.3, 0.7, 1.4]);
+    assert.deepEqual(suivant.pages.map(pageKind), ["document", "document", "document", "document", "document"]);
+    assert.deepEqual(
+      suivant.pages.slice(1, 4).map((p) => [(p as { file: string }).file, (p as { page: number }).page, p.ratio]),
+      [
+        [PDF, 1, 1.3],
+        [PDF, 2, 0.7],
+        [PDF, 3, 1.4],
+      ],
+    );
+    assert.equal(suivant.ratio, surfaceRatio(suivant.pages));
+  });
+
+  it("fait descendre les traits suivants de la hauteur de toutes les pages ajoutées", () => {
+    const avant = contenu(doc(2, 1), [trait(0.5), trait(1 + PAGE_GAP + 0.5)]);
+    const suivant = insertDocumentPages(avant, 0, PDF, [1.2, 0.8]);
+    assert.deepEqual(suivant.strokes[0].points, avant.strokes[0].points);
+    const attendu = avant.strokes[1].points[1] + 1.2 + PAGE_GAP + 0.8 + PAGE_GAP;
+    assert.ok(Math.abs(suivant.strokes[1].points[1] - attendu) < 1e-9);
+  });
+
+  it("fait d'une page manuscrite simple une pile, sans déplacer ce qui y est écrit", () => {
+    const simple: DrawingContent = { strokes: [trait(0.3)], ratio: 0.9, paper: "ruled", pages: [] };
+    const suivant = insertDocumentPages(simple, 0, PDF, [1.4]);
+    assert.deepEqual(suivant.pages.map(pageKind), ["blank", "document"]);
+    assert.deepEqual(suivant.strokes, simple.strokes);
+    assert.deepEqual(blockFiles("drawing", JSON.stringify(suivant)), [PDF]);
+  });
+
+  it("refuse tout le document plutôt que de le tronquer au-delà du maximum", () => {
+    const plein = contenu(doc(MAX_DOCUMENT_PAGES - 1, 1));
+    assert.equal(insertDocumentPages(plein, 0, PDF, [1, 1]), plein);
+    assert.equal(insertDocumentPages(plein, 0, PDF, [1]).pages.length, MAX_DOCUMENT_PAGES);
+  });
+
+  it("borne un format aberrant, comme à l'import d'un document seul", () => {
+    const suivant = insertDocumentPages(contenu(doc(1, 1)), 0, PDF, [0.01, 99]);
+    assert.deepEqual(suivant.pages.slice(1).map((p) => p.ratio), [0.2, MAX_RATIO]);
   });
 });
 

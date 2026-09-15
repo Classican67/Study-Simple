@@ -40,6 +40,8 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node shoot.mjs` | Captures, débordement **horizontal**, erreurs console |
 | `node audit.mjs` | Contraste WCAG 4.5:1, cibles tactiles 44 px, cohérence des positions |
 | `node hauteur.mjs` | La révision tient dans l'écran, sur cinq tailles d'appareil |
+| `node orientation-e2e.mjs` | Page manuscrite qui remplit l'écran en portrait et en paysage, en ligne et en plein écran tourné |
+| `node menus-e2e.mjs` | Retour au dossier d'une note, menus contextuels (clic droit, appui long, ⋮, clavier), pastille « maîtrisée » |
 | `node notes-e2e.mjs` | Notes : texte, tableau calculé, croquis au stylet, persistance |
 | `node notes-avancees-e2e.mjs` | Notes : dossiers, recherche par mots-clés et filtres, page manuscrite plein écran |
 | `node dossiers-e2e.mjs` | Dossiers séparés entre paquets et notes, et portée de la recherche |
@@ -55,6 +57,7 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node regard-photo.mjs` | Captures d'une photo annotée, en clair et en sombre |
 | `node historique-e2e.mjs` | Annuler après la gomme ou la page effacée, boutons grisés, touchers à deux et trois doigts, anneau de la gomme |
 | `node page-photo-e2e.mjs` | Photo ajoutée depuis la barre : page simple, milieu de pile, document ; annotations, Annuler et fichier, plein écran, téléphone ; note neuve manuscrite |
+| `node page-document-e2e.mjs` | PDF ou Word ajouté depuis la barre : pages après la page courante, plein écran, Annuler et fichier, refus d'un faux PDF |
 | `node couleur-e2e.mjs` | Roue chromatique : clavier, geste, code exact, couleur peinte, rechargement, PDF, thème sombre, téléphone |
 | `node regard-palette.mjs` | Captures de la barre d'outils : téléphone et desktop, clair et sombre, stylo, surligneur, gomme |
 | `node telephone-e2e.mjs` | Documents et photos sur téléphone : densité du PDF, hauteur de la surface, palette non recouverte en plein écran |

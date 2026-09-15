@@ -223,9 +223,9 @@ const noteId = page.url().split("/").pop();
 await page.getByLabel("Titre de la note").fill(`Fonds ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
 await retirerPageVierge(page);
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("doc-test.pdf");
 await page.waitForSelector('[data-testid="drawing-canvas"]');
-await page.getByRole("button", { name: "Document" }).waitFor({ timeout: 60000 });
+await page.getByRole("button", { name: "Document", exact: true }).waitFor({ timeout: 60000 });
 await page.waitForTimeout(2000);
 
 const depart = await etatPages();

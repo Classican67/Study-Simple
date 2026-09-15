@@ -949,9 +949,9 @@ await page.getByLabel("Titre de la note").fill(`Défilement ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
 
 const tImport = Date.now();
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("doc-test.pdf");
 await page.waitForSelector('[data-testid="drawing-canvas"]', { timeout: 60000 });
-await page.getByRole("button", { name: "Document" }).waitFor({ timeout: 60000 });
+await page.getByRole("button", { name: "Document", exact: true }).waitFor({ timeout: 60000 });
 dire("import du document", `${((Date.now() - tImport) / 1000).toFixed(1)} s`);
 check(true, "l'import se termine et le bouton revient à son état de repos");
 await page.waitForTimeout(1500);

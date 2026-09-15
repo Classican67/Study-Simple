@@ -11,21 +11,29 @@ import { moveNote } from "../actions";
 /**
  * Range la note dans un dossier.
  *
- * Les dossiers sont ceux des paquets : un cours a ses cartes et ses notes au
- * même endroit. Le chemin complet est affiché, sinon deux dossiers homonymes
- * seraient impossibles à distinguer.
+ * Les dossiers sont ceux des notes, séparés de ceux des paquets. Le chemin
+ * complet est affiché, sinon deux dossiers homonymes seraient impossibles à
+ * distinguer.
  */
 export function MoveNote({
   noteId,
   folderId,
   folders,
+  open: ouvertDehors,
+  onOpenChange,
 }: {
   noteId: string;
   folderId: string | null;
   folders: { id: string; path: string }[];
+  /** Ouverte d'ailleurs — le menu d'une note : aucun déclencheur n'est rendu. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [open, setOpen] = React.useState(false);
+  const [ouvert, setOuvert] = React.useState(false);
+  const pilotee = ouvertDehors !== undefined;
+  const open = pilotee ? ouvertDehors : ouvert;
+  const setOpen = (next: boolean) => (pilotee ? onOpenChange?.(next) : setOuvert(next));
   const [pending, setPending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -45,18 +53,23 @@ export function MoveNote({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button
-          variant="text"
-          size="icon"
-          aria-label={actuel ? `Ranger la note — actuellement dans ${actuel.path}` : "Ranger la note"}
-          title={actuel ? `Dans « ${actuel.path} »` : "Ranger dans un dossier"}
-        >
-          <FolderInput />
-        </Button>
-      </DialogTrigger>
+      {pilotee ? null : (
+        <DialogTrigger asChild>
+          <Button
+            variant="text"
+            size="icon"
+            aria-label={actuel ? `Ranger la note — actuellement dans ${actuel.path}` : "Ranger la note"}
+            title={actuel ? `Dans « ${actuel.path} »` : "Ranger dans un dossier"}
+          >
+            <FolderInput />
+          </Button>
+        </DialogTrigger>
+      )}
 
-      <DialogContent title="Ranger la note" description="Les dossiers sont ceux de tes paquets.">
+      <DialogContent
+        title="Ranger la note"
+        description={actuel ? `Actuellement dans « ${actuel.path} ».` : "Actuellement hors de tout dossier."}
+      >
         {error ? (
           <p role="alert" className="mb-3 m3-body-medium text-error">
             {error}
@@ -86,7 +99,7 @@ export function MoveNote({
 
         {folders.length === 0 ? (
           <p className="mt-2 m3-body-small text-on-surface-variant">
-            Aucun dossier pour l&apos;instant. Crée-en un depuis « Paquets ».
+            Aucun dossier pour l&apos;instant. Crée-en un depuis la liste des notes.
           </p>
         ) : null}
       </DialogContent>

@@ -179,6 +179,7 @@ export function NoteEditor({
               )
             }
             onCanvasFull={setCanvasFull}
+            noteId={noteId}
             onAdd={(kind) => add(kind, block.id)}
             onDuplicate={() => duplicate(block.id)}
             onMove={(direction) => move(index, direction)}
@@ -310,6 +311,7 @@ function NoteTitle({
 }
 
 function BlockCard({
+  noteId,
   block,
   index,
   total,
@@ -322,6 +324,7 @@ function BlockCard({
   onMove,
   onDelete,
 }: {
+  noteId: string;
   block: EditableBlock;
   index: number;
   total: number;
@@ -487,7 +490,7 @@ function BlockCard({
           Bloc ouvert en plein écran
         </div>
       ) : (
-        <BlockBody block={block} onChange={schedule} onDrawing={scheduleDrawing} onCanvasFull={onCanvasFull} />
+        <BlockBody noteId={noteId} block={block} onChange={schedule} onDrawing={scheduleDrawing} onCanvasFull={onCanvasFull} />
       )}
 
       {full ? (
@@ -504,7 +507,7 @@ function BlockCard({
             </Button>
           </div>
           <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6">
-            <BlockBody block={block} onChange={schedule} onDrawing={scheduleDrawing} onCanvasFull={onCanvasFull} />
+            <BlockBody noteId={noteId} block={block} onChange={schedule} onDrawing={scheduleDrawing} onCanvasFull={onCanvasFull} />
           </div>
         </div>
       ) : null}
@@ -535,11 +538,13 @@ function BlockCard({
 
 /** Rend le bloc selon son type, en lui donnant son contenu déjà analysé. */
 const BlockBody = React.memo(function BlockBody({
+  noteId,
   block,
   onChange,
   onDrawing,
   onCanvasFull,
 }: {
+  noteId: string;
   block: EditableBlock;
   onChange: (content: string) => void;
   /**
@@ -562,6 +567,7 @@ const BlockBody = React.memo(function BlockBody({
       <DrawingBlock
         content={analyserDessin(block.content)}
         scrollId={block.id}
+        noteId={noteId}
         onFullChange={onCanvasFull}
         onChange={onDrawing}
       />

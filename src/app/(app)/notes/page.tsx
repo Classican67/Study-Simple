@@ -1,16 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronRight, Folder as FolderIcon, Home, NotebookPen, PenLine, Table2, Type } from "lucide-react";
+import { CircleCheck, Folder as FolderIcon, NotebookPen, PenLine, Table2, Type } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/panel";
 import { DropZone } from "@/components/drag-move";
 import { DepotDocument } from "./depot-document";
 import { NewNoteButton } from "./new-note-button";
-import { NoteDragHandle } from "./note-drag-handle";
 import { NewNoteFolderButton } from "./new-note-folder-button";
 import { NoteSearch } from "./note-search";
 import { NoteViewOptions } from "./note-view-options";
+import { FolderMenu, NoteMenu, NotesMenusProvider } from "./notes-menus";
+import { NotesTrail } from "./notes-trail";
 import { NoteThumbnail } from "@/components/note/note-thumbnail";
 import { requireUser } from "@/lib/auth";
 import { deckColor } from "@/lib/deck-colors";
@@ -53,6 +54,8 @@ export default async function NotesPage(props: PageProps<"/notes">) {
     const qs = url.toString();
     return qs ? `/notes?${qs}` : "/notes";
   };
+  // Changer de dossier garde l'affichage et le tri, pas la recherche.
+  const dossier = (id: string | null) => href({ folder: id, q: null, has: null });
 
   return (
     /*
@@ -64,8 +67,9 @@ export default async function NotesPage(props: PageProps<"/notes">) {
      * feuille de partage. Cf. `DepotDocument`.
      */
     <DepotDocument folderId={folderId} nomDossier={view.current?.name}>
+    <NotesMenusProvider tree={view.tree}>
     <div className="space-y-6">
-      {view.breadcrumb.length > 0 ? <Breadcrumb trail={view.breadcrumb} /> : null}
+      {view.breadcrumb.length > 0 ? <NotesTrail trail={view.breadcrumb} href={dossier} /> : null}
 
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="flex min-w-0 items-start gap-3">
@@ -117,24 +121,31 @@ export default async function NotesPage(props: PageProps<"/notes">) {
           <h2 className="m3-title-small text-on-surface-variant">Dossiers</h2>
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {view.folders.map((folder) => (
-              <DropZone key={folder.id} folderId={folder.id}>
-                <Link
-                  href={href({ folder: folder.id, q: null, has: null })}
-                  className="state-layer flex min-h-14 items-center gap-3 rounded-xl border border-outline-variant bg-surface-container px-4 transition-all hover:-translate-y-0.5 hover:elevation-2"
+              <DropZone key={folder.id} folderId={folder.id} className="relative">
+                {/* Clic droit, appui long ou bouton ⋮ : les options du dossier
+                    sans avoir à l'ouvrir. */}
+                <FolderMenu
+                  folder={{ id: folder.id, name: folder.name, color: folder.color, parentId: folderId }}
+                  href={dossier(folder.id)}
                 >
-                  <span
-                    className="grid size-9 shrink-0 place-items-center rounded-xl text-white"
-                    style={{ backgroundColor: deckColor(folder.color) }}
+                  <Link
+                    href={dossier(folder.id)}
+                    className="state-layer flex min-h-14 items-center gap-3 rounded-xl border border-outline-variant bg-surface-container pl-4 pr-14 transition-all hover:-translate-y-0.5 hover:elevation-2"
                   >
-                    <FolderIcon className="size-4" />
-                  </span>
-                  <span className="min-w-0 flex-1 truncate m3-title-small text-on-surface">
-                    {folder.name}
-                  </span>
-                  <span className="m3-label-small tabular-nums text-on-surface-variant">
-                    {folder.noteCount}
-                  </span>
-                </Link>
+                    <span
+                      className="grid size-9 shrink-0 place-items-center rounded-xl text-white"
+                      style={{ backgroundColor: deckColor(folder.color) }}
+                    >
+                      <FolderIcon className="size-4" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate m3-title-small text-on-surface">
+                      {folder.name}
+                    </span>
+                    <span className="m3-label-small tabular-nums text-on-surface-variant">
+                      {folder.noteCount}
+                    </span>
+                  </Link>
+                </FolderMenu>
               </DropZone>
             ))}
           </ul>
@@ -159,61 +170,74 @@ export default async function NotesPage(props: PageProps<"/notes">) {
         >
           {view.notes.map((note) => (
             <li key={note.id} className="relative">
-              <div className="absolute right-2 top-2 z-10">
-                <NoteDragHandle noteId={note.id} title={note.title.trim() || UNTITLED} />
-              </div>
-
-              {vue === "list" ? (
-                <Link
-                  href={`/notes/${note.id}`}
-                  className="state-layer flex items-center gap-4 rounded-xl border border-outline-variant bg-surface-container p-3 pr-14 transition-all hover:elevation-2"
-                >
-                  <NoteThumbnail
-                    preview={note.preview}
-                    className="h-14 w-11 shrink-0 rounded-lg border border-outline-variant"
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate m3-title-small text-on-surface">
-                      {note.title.trim() || UNTITLED}
-                    </span>
-                    <span className="mt-0.5 block m3-body-small text-on-surface-variant">
-                      Modifiée {describeAgo(note.updatedAt)}
-                    </span>
-                  </span>
-                  <Composition kinds={note.kinds} />
-                </Link>
-              ) : (
-                <Link
-                  href={`/notes/${note.id}`}
-                  className="state-layer flex h-full flex-col overflow-hidden rounded-xl border border-outline-variant bg-surface-container elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
-                >
-                  {/* La vignette d'abord, et grande : deux notes de cours se
-                      ressemblent jusqu'à ce qu'on voie leur première page. */}
-                  <NoteThumbnail
-                    preview={note.preview}
-                    className={
-                      vue === "small"
-                        ? "aspect-[3/4] w-full border-b border-outline-variant"
-                        : "aspect-[4/3] w-full border-b border-outline-variant"
-                    }
-                  />
-                  <span className="flex min-w-0 flex-1 flex-col gap-1 p-4">
-                    <span className="block truncate m3-title-small text-on-surface">
-                      {note.title.trim() || UNTITLED}
-                    </span>
-                    <span className="block m3-body-small text-on-surface-variant">
-                      Modifiée {describeAgo(note.updatedAt)}
+              <NoteMenu
+                note={{ id: note.id, title: note.title, folderId: note.folderId, mastered: note.mastered }}
+              >
+                {vue === "list" ? (
+                  <Link
+                    href={`/notes/${note.id}`}
+                    className="state-layer flex items-center gap-4 rounded-xl border border-outline-variant bg-surface-container p-3 pr-28 transition-all hover:elevation-2"
+                  >
+                    <NoteThumbnail
+                      preview={note.preview}
+                      className="h-14 w-11 shrink-0 rounded-lg border border-outline-variant"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate m3-title-small text-on-surface">
+                        {note.title.trim() || UNTITLED}
+                      </span>
+                      <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 m3-body-small text-on-surface-variant">
+                        Modifiée {describeAgo(note.updatedAt)}
+                        {note.mastered ? <Maitrisee /> : null}
+                      </span>
                     </span>
                     <Composition kinds={note.kinds} />
-                  </span>
-                </Link>
-              )}
+                  </Link>
+                ) : (
+                  <Link
+                    href={`/notes/${note.id}`}
+                    className="state-layer flex h-full flex-col overflow-hidden rounded-xl border border-outline-variant bg-surface-container elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
+                  >
+                    {/* La vignette d'abord, et grande : deux notes de cours se
+                        ressemblent jusqu'à ce qu'on voie leur première page. */}
+                    <NoteThumbnail
+                      preview={note.preview}
+                      className={
+                        vue === "small"
+                          ? "aspect-[3/4] w-full border-b border-outline-variant"
+                          : "aspect-[4/3] w-full border-b border-outline-variant"
+                      }
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-1 p-4">
+                      <span className="block truncate m3-title-small text-on-surface">
+                        {note.title.trim() || UNTITLED}
+                      </span>
+                      <span className="block m3-body-small text-on-surface-variant">
+                        Modifiée {describeAgo(note.updatedAt)}
+                      </span>
+                      {note.mastered ? <Maitrisee /> : null}
+                      <Composition kinds={note.kinds} />
+                    </span>
+                  </Link>
+                )}
+              </NoteMenu>
             </li>
           ))}
         </ul>
       ) : null}
     </div>
+    </NotesMenusProvider>
     </DepotDocument>
+  );
+}
+
+/** La pastille d'une note que la personne a marquée comme maîtrisée. */
+function Maitrisee() {
+  return (
+    <span className="inline-flex w-fit items-center gap-1 rounded-full bg-success-container py-0.5 pl-1.5 pr-2 m3-label-small text-on-success-container">
+      <CircleCheck aria-hidden className="size-3.5" />
+      Maîtrisée
+    </span>
   );
 }
 
@@ -236,42 +260,5 @@ function Composition({ kinds }: { kinds: string[] }) {
         </span>
       ))}
     </span>
-  );
-}
-
-function Breadcrumb({ trail }: { trail: { id: string; name: string }[] }) {
-  return (
-    <nav aria-label="Fil d'Ariane" className="-mt-1">
-      <ol className="flex flex-wrap items-center gap-1 m3-body-medium text-on-surface-variant">
-        {/* Déposer ici sort la note de tout dossier. */}
-        <DropZone folderId={null}>
-          <Link
-            href="/notes"
-            className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 transition-colors hover:text-on-surface"
-          >
-            <Home className="size-4" />
-            Notes
-          </Link>
-        </DropZone>
-        {trail.map((folder, index) => {
-          const last = index === trail.length - 1;
-          return (
-            <li key={folder.id} className="flex items-center">
-              <ChevronRight className="size-4 shrink-0 opacity-50" />
-              {last ? (
-                <span className="px-2 font-medium text-on-surface">{folder.name}</span>
-              ) : (
-                <Link
-                  href={`/notes?folder=${folder.id}`}
-                  className="flex min-h-11 items-center rounded-lg px-2 transition-colors hover:text-on-surface"
-                >
-                  {folder.name}
-                </Link>
-              )}
-            </li>
-          );
-        })}
-      </ol>
-    </nav>
   );
 }

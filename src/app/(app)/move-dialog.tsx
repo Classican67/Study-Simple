@@ -25,29 +25,42 @@ function Submit() {
  */
 export function MoveDialog({
   trigger,
+  open: ouvertDehors,
+  onOpenChange,
   title,
   currentParentId,
   options,
   action,
+  rootLabel = "Accueil (aucun dossier)",
 }: {
   trigger?: React.ReactNode;
+  /** Ouverte d'ailleurs — un menu : aucun déclencheur n'est alors rendu. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   title: string;
   currentParentId: string | null;
   options: FolderOption[];
   action: (destination: string | null) => Promise<void>;
+  /** Nom de la racine de la section. */
+  rootLabel?: string;
 }) {
-  const [open, setOpen] = React.useState(false);
+  const [ouvert, setOuvert] = React.useState(false);
+  const pilotee = ouvertDehors !== undefined;
+  const open = pilotee ? ouvertDehors : ouvert;
+  const setOpen = (next: boolean) => (pilotee ? onOpenChange?.(next) : setOuvert(next));
   const [destination, setDestination] = React.useState(currentParentId ?? "");
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button variant="text" size="icon" aria-label="Déplacer">
-            <FolderInput />
-          </Button>
-        )}
-      </DialogTrigger>
+      {pilotee ? null : (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button variant="text" size="icon" aria-label="Déplacer">
+              <FolderInput />
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent title={title} className="sm:max-w-md">
         <form
           action={async () => {
@@ -66,7 +79,7 @@ export function MoveDialog({
               onChange={(event) => setDestination(event.target.value)}
               className="h-11 w-full rounded-xl border border-outline-variant bg-surface-container px-3 text-sm text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
             >
-              <option value="">Accueil (aucun dossier)</option>
+              <option value="">{rootLabel}</option>
               {options.map((option) => (
                 <option key={option.id} value={option.id} disabled={option.disabled}>
                   {/* Les espaces insécables matérialisent la profondeur : un

@@ -331,6 +331,75 @@ export async function reorderBlocks(noteId: string, orderedIds: string[]): Promi
   return { ok: true };
 }
 
+/**
+ * Copie une note entière, rangée à côté de l'originale, et rend son id.
+ *
+ * Les blocs sont recopiés tels quels : une page portant un document ou une
+ * photo désigne donc le **même fichier** que l'originale. C'est sans danger —
+ * `nettoyerFichiers` compte les blocs qui désignent un fichier avant de
+ * l'effacer, et supprimer l'une des deux notes laisse ses fichiers à l'autre.
+ *
+ * La marque « maîtrisée » ne suit pas : c'est une appréciation portée sur une
+ * note, et la copie n'a encore été ni relue ni travaillée.
+ */
+export async function duplicateNote(noteId: string): Promise<string | null> {
+  const user = await requireUser();
+  const source = await prisma.note.findFirst({
+    where: { id: noteId, ownerId: user.id },
+    select: {
+      title: true,
+      folderId: true,
+      preview: true,
+      blocks: { orderBy: { position: "asc" }, select: { kind: true, position: true, content: true } },
+    },
+  });
+  if (!source) return null;
+
+  const titre = source.title.trim();
+  const note = await prisma.note.create({
+    data: {
+      ownerId: user.id,
+      folderId: source.folderId,
+      title: titre ? `${titre} (copie)`.slice(0, 200) : "",
+      // L'aperçu est celui des mêmes pages : inutile de le recalculer.
+      preview: source.preview,
+      blocks: {
+        create: source.blocks.map((b) => ({ kind: b.kind, position: b.position, content: b.content })),
+      },
+    },
+    select: { id: true },
+  });
+
+  // Le titre a changé : `touch` reconstruit le texte de recherche.
+  await touch(note.id);
+  return note.id;
+}
+
+/**
+ * Marque une note comme maîtrisée, ou retire la marque.
+ *
+ * La date de modification est gardée telle quelle : la liste est triée
+ * dessus, et cocher une note ne doit pas la faire remonter en tête comme si
+ * l'on venait d'y écrire. Prisma renseigne `@updatedAt` à chaque écriture
+ * sauf si on lui donne la valeur — on lui rend donc l'ancienne.
+ */
+export async function setNoteMastered(noteId: string, mastered: boolean): Promise<NoteResult> {
+  const user = await requireUser();
+  const note = await prisma.note.findFirst({
+    where: { id: noteId, ownerId: user.id },
+    select: { updatedAt: true },
+  });
+  if (!note) return { ok: false, error: "Note introuvable." };
+
+  await prisma.note.update({
+    where: { id: noteId },
+    data: { mastered: mastered === true, updatedAt: note.updatedAt },
+  });
+
+  revalidatePath("/notes");
+  return { ok: true };
+}
+
 /** Range une note dans un dossier, ou la remet à la racine. */
 export async function moveNote(noteId: string, folderId: string | null): Promise<NoteResult> {
   const user = await requireUser();

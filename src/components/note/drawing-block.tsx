@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { Loader2 } from "lucide-react";
 
 import { ImageCropper } from "@/components/image-cropper";
 import { InkCanvas, type InkTool } from "@/components/note/ink-canvas";
@@ -8,10 +9,18 @@ import { InkPalette, type InkSettings } from "@/components/note/ink-palette";
 import { COTE_MAX, lireFormatImage } from "@/components/note/photo-note";
 import { uploadPageImage } from "@/app/(app)/notes/actions";
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-path";
+import {
+  DOCUMENT_ACCEPT,
+  EnvoiInterrompu,
+  envoyerDocument,
+  estDocument,
+  type EnvoiDocument,
+} from "@/lib/document-upload";
 import type { Ruler, Shape } from "@/lib/ink";
 import {
   MAX_DOCUMENT_PAGES,
   MAX_RATIO,
+  insertDocumentPages,
   insertImagePage,
   insertPage,
   pageBands,
@@ -37,12 +46,15 @@ const HISTORIQUE_MAX = 200;
 export function DrawingBlock({
   content: recu,
   onChange: remonter,
+  noteId,
   readOnly = false,
   scrollId,
   onFullChange,
 }: {
   content: DrawingContent;
   onChange: (next: DrawingContent) => void;
+  /** La note qui porte la page : l'import d'un document passe par sa route. */
+  noteId?: string;
   readOnly?: boolean;
   /** Repère du bloc, pour que le volet de pages sache où défiler. */
   scrollId?: string;
@@ -320,9 +332,92 @@ export function DrawingBlock({
     }
   }
 
+  /*
+   * Un document — PDF ou Word —, glissé comme des pages après la page courante.
+   *
+   * Le bouton « Document » du bas de la note en faisait une page manuscrite à
+   * part, au bout de la note, et il n'existait pas en plein écran : ajouter le
+   * polycopié du jour à une note déjà commencée était impossible. Le serveur
+   * convertit et enregistre le fichier ; l'insertion se fait ici, comme pour une
+   * photo, et entre dans l'historique.
+   */
+  const interrompreDocument = React.useRef<(() => void) | null>(null);
+  const [envoiDocument, setEnvoiDocument] = React.useState<EnvoiDocument | null>(null);
+  React.useEffect(() => () => interrompreDocument.current?.(), []);
+
+  async function ajouterDocument(file: File) {
+    if (!scrollId || !noteId) return;
+    if (actuel.current.pages.length >= MAX_DOCUMENT_PAGES) {
+      setErreurImage("Cette page manuscrite a déjà le nombre maximal de pages.");
+      return;
+    }
+    setErreurImage(null);
+    setEnvoiImage(true);
+    const requete = envoyerDocument<{ file?: string; ratios?: number[] }>(
+      `/api/notes/${noteId}/document?bloc=${encodeURIComponent(scrollId)}`,
+      file,
+      setEnvoiDocument,
+    );
+    interrompreDocument.current = requete.interrompre;
+    try {
+      const charge = await requete.promesse;
+      if (!charge.file || !charge.ratios?.length) {
+        setErreurImage("L'import a échoué.");
+        return;
+      }
+      const courant = actuel.current;
+      const rang = courant.pages.length > 0 ? Math.min(pageIndex, courant.pages.length - 1) : 0;
+      const suivant = insertDocumentPages(courant, rang, charge.file, charge.ratios);
+      if (suivant === courant) {
+        setErreurImage("Ce document ferait dépasser le nombre maximal de pages.");
+        return;
+      }
+      onChange(suivant);
+      const bandes = pageBands(suivant.pages);
+      const cible = Math.min(rang + 1, bandes.length - 1);
+      setPageIndex(cible);
+      // Sans le défilement, les pages arrivent hors de l'écran : rien ne bouge,
+      // et l'on recommence en croyant que ça n'a pas marché.
+      requestAnimationFrame(() => {
+        const surface = document.querySelector<HTMLElement>(`[data-ink-scroll="${scrollId}"]`);
+        if (surface) surface.scrollTop = bandes[cible].top * surface.clientWidth;
+      });
+    } catch (erreur) {
+      if (!(erreur instanceof EnvoiInterrompu)) {
+        setErreurImage(erreur instanceof Error ? erreur.message : "L'import a échoué.");
+      }
+    } finally {
+      interrompreDocument.current = null;
+      setEnvoiDocument(null);
+      setEnvoiImage(false);
+    }
+  }
+
   const surfaceRef = React.useRef<HTMLDivElement>(null);
+  // Zone de la feuille en plein écran : ce que la palette laisse.
+  const zoneRef = React.useRef<HTMLDivElement>(null);
   // Hauteur disponible pour la feuille en plein écran, palette déduite.
   const [fullHeight, setFullHeight] = React.useState(0);
+
+  /*
+   * Hauteur de la feuille en plein écran, **tenue à jour**.
+   *
+   * Elle était mesurée une fois, à l'ouverture. Tourner l'iPad laissait alors la
+   * feuille à la hauteur de l'autre orientation : ouverte en paysage puis
+   * tournée en portrait, elle s'arrêtait aux deux tiers de l'écran, le bas du
+   * document coupé au-dessus d'un vide. On mesure la zone elle-même — ce que la
+   * palette et une alerte éventuelle laissent — à chaque changement de taille.
+   */
+  React.useEffect(() => {
+    if (!full) return;
+    const zone = zoneRef.current;
+    if (!zone) return;
+    const mesurer = () => setFullHeight(zone.clientHeight);
+    const observer = new ResizeObserver(mesurer);
+    observer.observe(zone);
+    mesurer();
+    return () => observer.disconnect();
+  }, [full]);
 
   /*
    * À l'ouverture, la page est allongée pour remplir l'écran.
@@ -333,24 +428,39 @@ export function DrawingBlock({
    */
   React.useEffect(() => {
     if (!full) return;
-    const surface = surfaceRef.current;
-    if (!surface) return;
-    const { width, height } = surface.getBoundingClientRect();
-    if (width === 0) return;
-    // La palette occupe le bas : on retire sa hauteur de la place disponible.
-    const palette = surface.querySelector('[role="toolbar"]');
-    const dispo = height - (palette?.getBoundingClientRect().height ?? 0);
-    setFullHeight(Math.round(dispo));
+    const zone = zoneRef.current;
+    const width = surfaceRef.current?.getBoundingClientRect().width ?? 0;
+    if (!zone || width === 0) return;
     // Une pile de pages a la hauteur de ses pages : l'allonger n'ajoutait qu'une
     // bande grise sous la dernière — sous une photo en paysage, les trois quarts
     // de l'écran. On ajoute une page, on n'étire pas la pile.
     if (content.pages.length > 0) return;
-    const voulu = Math.min(MAX_RATIO, dispo / width);
+    const voulu = Math.min(MAX_RATIO, zone.clientHeight / width);
     if (voulu > content.ratio + 0.01) onChange({ ...content, ratio: Number(voulu.toFixed(3)) });
     // Une seule fois, à l'ouverture : reprendre à chaque changement de contenu
     // rallongerait la page sans fin.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [full]);
+
+  /*
+   * Hauteur de la palette posée au-dessus de la page, en ligne.
+   *
+   * La fenêtre de la page lui laisse sa place : amenée en haut de l'écran, la
+   * palette et la page y tiennent ensemble. Sur téléphone la barre passe sur
+   * quatre rangées, sur iPad sur deux — elle ne se devine pas.
+   */
+  const paletteRef = React.useRef<HTMLDivElement>(null);
+  const [reserve, setReserve] = React.useState(0);
+  React.useEffect(() => {
+    if (full) return;
+    const el = paletteRef.current;
+    if (!el) return;
+    const mesurer = () => setReserve(Math.round(el.getBoundingClientRect().height));
+    const observer = new ResizeObserver(mesurer);
+    observer.observe(el);
+    mesurer();
+    return () => observer.disconnect();
+  }, [full, readOnly]);
 
   // Échap ferme le plein écran, comme partout ailleurs dans l'app.
   React.useEffect(() => {
@@ -483,7 +593,9 @@ export function DrawingBlock({
       // défile en elle-même — mais jamais plus haute que ce qu'elle porte : une
       // photo en paysage de 200 px flottait dans 520 px de gris. En plein
       // écran, elle occupe la place restante.
-      height={full ? fullHeight : undefined}
+      height={full && fullHeight > 0 ? fullHeight : undefined}
+      // La palette, et l'intervalle qui la sépare de la page.
+      reserve={full || readOnly ? 0 : reserve + 8}
       className={full ? "rounded-none border-0" : "rounded-xl border border-outline-variant"}
     />
   );
@@ -494,6 +606,25 @@ export function DrawingBlock({
     </p>
   ) : null;
 
+  // Trente mégaoctets depuis un iPad prennent une minute, et la conversion d'un
+  // document Word plusieurs secondes : on dit où l'on en est, et on laisse
+  // interrompre.
+  const suiviDocument = envoiDocument ? (
+    <div role="status" className="flex flex-wrap items-center gap-2 px-2 m3-body-small text-on-surface-variant">
+      <Loader2 aria-hidden className="size-4 animate-spin" />
+      {envoiDocument.phase === "envoi"
+        ? `Envoi du document : ${envoiDocument.progres} %`
+        : "Conversion du document…"}
+      <button
+        type="button"
+        onClick={() => interrompreDocument.current?.()}
+        className="state-layer min-h-11 rounded-full px-3 m3-label-large text-primary"
+      >
+        Interrompre
+      </button>
+    </div>
+  ) : null;
+
   // Le sélecteur vit dans le plein écran quand il est ouvert : le recadreur est
   // en position fixe, et placé dehors il passerait sous la feuille.
   const selecteurImage = readOnly ? null : (
@@ -502,7 +633,10 @@ export function DrawingBlock({
         ref={imageRef}
         type="file"
         // `image/*` : c'est ce qui fait proposer « Prendre une photo » par iOS.
-        accept="image/*"
+        // Les documents s'y ajoutent : un PDF ou un Word devient des pages, lui
+        // aussi. Le bouton n'acceptait que des images, et les documents étaient
+        // grisés dans le sélecteur.
+        accept={`image/*,${DOCUMENT_ACCEPT}`}
         data-page-image=""
         className="sr-only"
         tabIndex={-1}
@@ -510,6 +644,10 @@ export function DrawingBlock({
           const file = event.target.files?.[0];
           event.target.value = "";
           if (!file) return;
+          if (estDocument(file)) {
+            void ajouterDocument(file);
+            return;
+          }
           if (file.size > MAX_UPLOAD_BYTES * 6) {
             setErreurImage("Image beaucoup trop lourde.");
             return;
@@ -554,10 +692,11 @@ export function DrawingBlock({
           {/* Pleine largeur, sans marge : la feuille doit occuper l'écran, pas
               flotter au milieu. Le défilement sert à descendre dans la page,
               qui s'allonge à mesure qu'on écrit. */}
-          <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div ref={zoneRef} className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {canvas}
           </div>
           {alerteImage}
+      {suiviDocument}
           {palette}
           {selecteurImage}
         </div>
@@ -567,8 +706,9 @@ export function DrawingBlock({
 
   return (
     <div className="space-y-2">
-      {readOnly ? null : palette}
+      {readOnly ? null : <div ref={paletteRef}>{palette}</div>}
       {alerteImage}
+      {suiviDocument}
       {canvas}
       {selecteurImage}
     </div>

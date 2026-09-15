@@ -68,7 +68,7 @@ await page.getByLabel("Titre de la note").fill(DOCUMENT);
 // Le titre s'enregistre à la sortie du champ ; `setInputFiles` ne le quitte pas.
 await page.getByLabel("Titre de la note").blur();
 await page.waitForTimeout(1200);
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("doc-test.pdf");
 await page.waitForTimeout(7000);
 check(true, "note avec document créée");
 

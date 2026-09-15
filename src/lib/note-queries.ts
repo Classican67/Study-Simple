@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { parsePreview, UNTITLED, type NotePreview } from "@/lib/notes";
 import { searchTerms } from "@/lib/search";
+import { folderPaths, type FolderNode } from "@/lib/folder-tree";
 
 /**
  * Lectures de la section Notes : arborescence, listing et recherche.
@@ -18,6 +19,9 @@ export type NoteSummary = {
   updatedAt: Date;
   kinds: string[];
   preview: NotePreview;
+  folderId: string | null;
+  /** Marquée « maîtrisée » par la personne. */
+  mastered: boolean;
 };
 
 /** Ordre d'affichage des notes. */
@@ -40,6 +44,8 @@ export type NotesView = {
   current: { id: string; name: string; color: string } | null;
   breadcrumb: { id: string; name: string }[];
   folders: NoteFolder[];
+  /** Toute l'arborescence des notes : les menus en tirent destinations et chemins. */
+  tree: FolderNode[];
   notes: NoteSummary[];
   /** Nombre total de notes du compte, pour distinguer « vide » de « filtré ». */
   total: number;
@@ -113,6 +119,8 @@ export async function getNotesView(
         id: true,
         title: true,
         updatedAt: true,
+        folderId: true,
+        mastered: true,
         // L'aperçu est une copie compacte, enregistrée avec la note : on ne
         // charge jamais le contenu des blocs pour dessiner une vignette.
         preview: true,
@@ -150,6 +158,7 @@ export async function getNotesView(
   return {
     current: current ? { id: current.id, name: current.name, color: current.color } : null,
     breadcrumb,
+    tree: folders,
     // Tous les sous-dossiers du niveau, même vides : on doit pouvoir créer un
     // dossier depuis cette section puis y déposer une note. Les masquer tant
     // qu'ils sont vides les ferait disparaître à la création.
@@ -166,6 +175,8 @@ export async function getNotesView(
       title: note.title,
       updatedAt: note.updatedAt,
       kinds: note.blocks.map((b) => b.kind),
+      folderId: note.folderId,
+      mastered: note.mastered,
       preview: parsePreview(note.preview),
     })),
     total,
@@ -206,27 +217,18 @@ async function notesParSousArbre(
   return total;
 }
 
-/** Dossiers proposés au rangement d'une note, avec leur chemin complet. */
-export async function listNoteFolders(userId: string): Promise<{ id: string; path: string }[]> {
-  const folders = await prisma.folder.findMany({
+/** L'arborescence des dossiers de notes, à plat. */
+export async function noteFolderTree(userId: string): Promise<FolderNode[]> {
+  return prisma.folder.findMany({
     where: { ownerId: userId, kind: "note" },
-    select: { id: true, name: true, parentId: true },
+    select: { id: true, name: true, color: true, parentId: true },
     orderBy: { name: "asc" },
   });
-  const byId = new Map(folders.map((f) => [f.id, f]));
+}
 
-  return folders
-    .map((folder) => {
-      const parts: string[] = [];
-      for (let cur: string | null = folder.id, depth = 0; cur && depth < 64; depth++) {
-        const f = byId.get(cur);
-        if (!f) break;
-        parts.unshift(f.name);
-        cur = f.parentId;
-      }
-      return { id: folder.id, path: parts.join(" / ") };
-    })
-    .sort((a, b) => a.path.localeCompare(b.path, "fr"));
+/** Dossiers proposés au rangement d'une note, avec leur chemin complet. */
+export async function listNoteFolders(userId: string): Promise<{ id: string; path: string }[]> {
+  return folderPaths(await noteFolderTree(userId));
 }
 
 /** Une note trouvée par la recherche globale. */

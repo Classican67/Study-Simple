@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 const { token } = JSON.parse(readFileSync("ctx.json", "utf8"));
 const BASE = "http://localhost:3100";
 const GAP = 0.02; // PAGE_GAP, dans src/lib/notes.ts
-const AJOUTER = "Ajouter une photo ou une image";
+const AJOUTER = "Ajouter une photo, une image ou un document";
 mkdirSync("shots", { recursive: true });
 
 let echecs = 0;

@@ -4,7 +4,7 @@ import * as React from "react";
 import { FileUp, Loader2, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { MAX_DOCUMENT_BYTES } from "@/lib/upload-path";
+import { DOCUMENT_ACCEPT, EnvoiInterrompu, envoyerDocument, type EnvoiDocument } from "@/lib/document-upload";
 
 /**
  * Importe un document et en fait une page annotable par page.
@@ -18,20 +18,11 @@ import { MAX_DOCUMENT_BYTES } from "@/lib/upload-path";
  * 1. **Le plafond d'une action serveur** — un mégaoctet — refusait la requête
  *    avant tout appel de code. La promesse était rejetée sans que personne ne
  *    l'attrape, et le bouton restait sur « Conversion… » indéfiniment.
- * 2. **L'absence de progression.** Trente mégaoctets depuis un iPad prennent
- *    une minute : sans pourcentage, rien ne distingue un envoi en cours d'un
- *    blocage. XHR est la seule API du navigateur qui rapporte l'avancement
- *    d'un envoi — `fetch` ne le fait pas.
+ * 2. **L'absence de progression.** Cf. `envoyerDocument`.
  * 3. **Aucune sortie de secours.** Un réseau qui s'endort laissait l'état de
  *    chargement pour toujours. Il y a donc un délai de garde, un bouton pour
  *    interrompre, et un `finally` qui rend la main quoi qu'il arrive.
  */
-
-/** Au-delà, on renonce : le réseau s'est endormi. */
-const TIMEOUT_MS = 5 * 60 * 1000;
-
-type Envoi = { progres: number; phase: "envoi" | "traitement" };
-
 export function ImportDocument({
   noteId,
   onImported,
@@ -43,75 +34,31 @@ export function ImportDocument({
   onError: (message: string) => void;
 }) {
   const inputRef = React.useRef<HTMLInputElement>(null);
-  const requete = React.useRef<XMLHttpRequest | null>(null);
-  const [envoi, setEnvoi] = React.useState<Envoi | null>(null);
+  const interrompre = React.useRef<(() => void) | null>(null);
+  const [envoi, setEnvoi] = React.useState<EnvoiDocument | null>(null);
 
   // Quitter la page pendant un envoi ne doit pas laisser la requête pendante.
-  React.useEffect(() => () => requete.current?.abort(), []);
+  React.useEffect(() => () => interrompre.current?.(), []);
 
-  function choisir(file: File) {
-    // Refusé ici plutôt qu'après une minute d'envoi : la taille est connue
-    // avant d'ouvrir la connexion.
-    if (file.size > MAX_DOCUMENT_BYTES) {
-      const mo = (file.size / 1024 / 1024).toFixed(1);
-      onError(
-        `Document trop lourd : ${mo} Mo, pour ${Math.round(MAX_DOCUMENT_BYTES / 1024 / 1024)} Mo au maximum. ` +
-          "Exporte-le en qualité réduite, ou coupe-le en deux.",
-      );
-      return;
-    }
-
-    const data = new FormData();
-    data.set("document", file);
-
-    const xhr = new XMLHttpRequest();
-    requete.current = xhr;
-    setEnvoi({ progres: 0, phase: "envoi" });
-
-    const fini = (message?: string) => {
-      requete.current = null;
+  async function choisir(file: File) {
+    const requete = envoyerDocument<{ blocks?: { id: string; kind: string; content: string }[] }>(
+      `/api/notes/${noteId}/document`,
+      file,
+      setEnvoi,
+    );
+    interrompre.current = requete.interrompre;
+    try {
+      const charge = await requete.promesse;
+      if (charge.blocks) onImported(charge.blocks);
+      else onError("L'import a échoué.");
+    } catch (erreur) {
+      if (!(erreur instanceof EnvoiInterrompu)) {
+        onError(erreur instanceof Error ? erreur.message : "L'import a échoué.");
+      }
+    } finally {
+      interrompre.current = null;
       setEnvoi(null);
-      if (message) onError(message);
-    };
-
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable) return;
-      const progres = Math.min(99, Math.round((event.loaded / event.total) * 100));
-      // À cent pour cent d'envoi, le serveur convertit et découpe encore : le
-      // dire évite de croire à un blocage sur la dernière barre.
-      setEnvoi({ progres, phase: progres >= 99 ? "traitement" : "envoi" });
-    };
-    xhr.upload.onload = () => setEnvoi({ progres: 100, phase: "traitement" });
-
-    xhr.onload = () => {
-      let charge: { blocks?: { id: string; kind: string; content: string }[]; error?: string } = {};
-      try {
-        charge = JSON.parse(xhr.responseText);
-      } catch {
-        // Une page d'erreur HTML plutôt que du JSON : le proxy a coupé, ou
-        // c'est la limite de taille du reverse proxy qui a répondu.
-        fini(
-          xhr.status === 413
-            ? "Document refusé par le serveur : trop lourd."
-            : `L'import a échoué (réponse ${xhr.status}).`,
-        );
-        return;
-      }
-      if (xhr.status >= 200 && xhr.status < 300 && charge.blocks) {
-        fini();
-        onImported(charge.blocks);
-        return;
-      }
-      fini(charge.error ?? `L'import a échoué (réponse ${xhr.status}).`);
-    };
-
-    xhr.onerror = () => fini("Connexion perdue pendant l'import.");
-    xhr.onabort = () => fini();
-    xhr.ontimeout = () => fini("L'import a pris trop de temps et a été interrompu.");
-    xhr.timeout = TIMEOUT_MS;
-
-    xhr.open("POST", `/api/notes/${noteId}/document`);
-    xhr.send(data);
+    }
   }
 
   return (
@@ -122,14 +69,14 @@ export function ImportDocument({
         // Les types acceptés sont ceux que le serveur sait traiter ; il
         // revérifie, et se rabat sur l'extension quand iOS n'annonce pas de
         // type.
-        accept=".pdf,.docx,.doc,.odt,.rtf,application/pdf"
+        accept={DOCUMENT_ACCEPT}
         className="sr-only"
         onChange={(event) => {
           const file = event.target.files?.[0];
           // Le champ est remis à zéro : réimporter le même fichier doit
           // redéclencher l'événement.
           event.target.value = "";
-          if (file) choisir(file);
+          if (file) void choisir(file);
         }}
       />
 
@@ -145,7 +92,7 @@ export function ImportDocument({
             variant="text"
             aria-label="Interrompre l'import"
             title="Interrompre l'import"
-            onClick={() => requete.current?.abort()}
+            onClick={() => interrompre.current?.()}
           >
             <X />
           </Button>

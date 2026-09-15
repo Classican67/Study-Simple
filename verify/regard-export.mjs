@@ -24,9 +24,9 @@ await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const noteId = page.url().split("/").pop();
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("doc-test.pdf");
 await page.waitForSelector('[data-testid="drawing-canvas"]');
-await page.getByRole("button", { name: "Document" }).waitFor({ timeout: 60000 });
+await page.getByRole("button", { name: "Document", exact: true }).waitFor({ timeout: 60000 });
 await page.waitForTimeout(2000);
 
 await page.getByRole("button", { name: "Ajouter une page après celle-ci" }).click();
@@ -89,13 +89,13 @@ console.log(`PDF exporté : ${(octets.length / 1024).toFixed(0)} Ko`);
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles({
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles({
   name: "export.pdf",
   mimeType: "application/pdf",
   buffer: octets,
 });
 await page.waitForSelector('[data-testid="drawing-canvas"]');
-await page.getByRole("button", { name: "Document" }).waitFor({ timeout: 60000 });
+await page.getByRole("button", { name: "Document", exact: true }).waitFor({ timeout: 60000 });
 await page.waitForTimeout(3000);
 
 const pages = await page.evaluate(() => {

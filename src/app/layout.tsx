@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 
+import { InlineScript } from "@/components/inline-script";
 import { sans } from "./fonts";
 import "./globals.css";
 
@@ -54,7 +55,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${sans.variable} h-full antialiased`}
     >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <InlineScript html={themeScript} />
       </head>
       <body className="min-h-full bg-surface text-on-surface">{children}</body>
     </html>

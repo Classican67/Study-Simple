@@ -16,7 +16,7 @@ for (const theme of ["light", "dark"]) {
   await p.waitForURL(/\/notes\/[a-z0-9]+/);
   await p.getByLabel("Titre de la note").fill(`Regard ${theme}`);
   await p.getByLabel("Titre de la note").blur();
-  await p.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
+  await p.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("doc-test.pdf");
   await p.waitForTimeout(8000);
   // En plein écran, comme on annote vraiment, au raccord des deux pages.
   await p.getByRole("button", { name: "Écrire en plein écran" }).click();

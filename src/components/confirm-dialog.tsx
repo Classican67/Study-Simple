@@ -19,13 +19,18 @@ function ConfirmSubmit({ label, variant }: { label: string; variant: ButtonProps
 // modale focalisée, pas un window.confirm() que le navigateur peut bloquer.
 export function ConfirmDialog({
   trigger,
+  open,
+  onOpenChange,
   title,
   description,
   confirmLabel,
   action,
   variant = "error",
 }: {
-  trigger: React.ReactNode;
+  /** Absent quand la boîte est ouverte d'ailleurs — un menu, par exemple. */
+  trigger?: React.ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   title: string;
   description: string;
   confirmLabel: string;
@@ -33,8 +38,8 @@ export function ConfirmDialog({
   variant?: ButtonProps["variant"];
 }) {
   return (
-    <Dialog>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent title={title} description={description} className="max-w-md">
         <form action={action} className="flex justify-end gap-2">
           <DialogClose asChild>

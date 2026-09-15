@@ -253,6 +253,35 @@ await audit("roue chromatique clair", phone, "/notes", false, openWheel);
 await audit("roue chromatique sombre", phone, "/notes", true, openWheel);
 await audit("roue chromatique desktop", desktop, "/notes", false, openWheel);
 
+// Les menus contextuels n'existent qu'ouverts, et la pastille « maîtrisée »
+// seulement sur une note marquée : chacun a donc son passage.
+const openNoteMenu = async (p) => {
+  await p.locator('button[aria-label^="Options de la note"]').first().click();
+  await p.getByRole("menu").waitFor();
+  await p.waitForTimeout(300);
+};
+await audit("menu note clair", phone, "/notes", false, openNoteMenu);
+await audit("menu note sombre", phone, "/notes", true, openNoteMenu);
+await audit("menu note desktop", desktop, "/notes", false, openNoteMenu);
+
+const openFolderMenu = async (p) => {
+  await p.locator('button[aria-label^="Options du dossier"]').first().click();
+  await p.getByRole("menu").waitFor();
+  await p.waitForTimeout(300);
+};
+await audit("menu dossier clair", phone, "/notes", false, openFolderMenu);
+await audit("menu dossier sombre desktop", desktop, "/notes", true, openFolderMenu);
+
+const markMastered = async (p) => {
+  await openNoteMenu(p);
+  const marquer = p.getByRole("menuitem", { name: "Marquer comme maîtrisée" });
+  if (await marquer.count()) await marquer.click();
+  else await p.keyboard.press("Escape");
+  await p.waitForTimeout(900);
+};
+await audit("pastille maîtrisée clair", phone, "/notes?vue=list", false, markMastered);
+await audit("pastille maîtrisée sombre", desktop, "/notes", true, async (p) => p.waitForTimeout(300));
+
 await browser.close();
 console.log(problems.length ? problems.join("\n") : "Aucun problème de contraste, de cible tactile ni de position.");
 process.exit(problems.length ? 1 : 0);

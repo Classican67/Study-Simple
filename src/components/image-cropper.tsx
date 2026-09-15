@@ -81,9 +81,25 @@ export function ImageCropper({
     urlRef.current = source;
   }, [source]);
 
+  /*
+   * Révocation au démontage — au **vrai** démontage.
+   *
+   * En développement, le mode strict de React démonte puis remonte chaque
+   * composant une fois, en gardant son état. Révoquer ici tout de suite tuait
+   * l'URL que l'état continuait de désigner : le recadreur montait une image
+   * cassée, « Photo à recadrer » écrit à la place de la photo. Le build de
+   * production ne remonte rien, et aucune vérification ne l'a vu. On attend
+   * donc la fin de la tâche pour savoir si le composant est revenu.
+   */
+  const monte = React.useRef(false);
   React.useEffect(() => {
+    monte.current = true;
     return () => {
-      if (urlRef.current) URL.revokeObjectURL(urlRef.current);
+      monte.current = false;
+      const url = urlRef.current;
+      window.setTimeout(() => {
+        if (!monte.current && url) URL.revokeObjectURL(url);
+      }, 0);
     };
   }, []);
 

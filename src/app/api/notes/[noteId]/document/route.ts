@@ -4,6 +4,9 @@ import { requireUser } from "@/lib/auth";
 import { importDocument } from "@/lib/documents";
 import { addDocumentBlocks } from "@/app/(app)/notes/actions";
 import { MAX_DOCUMENT_BYTES } from "@/lib/upload-path";
+import { MAX_DOCUMENT_PAGES, parseDrawing } from "@/lib/notes";
+import { prisma } from "@/lib/prisma";
+import { deleteUpload } from "@/lib/uploads";
 
 /**
  * Import d'un document à annoter.
@@ -54,8 +57,41 @@ export async function POST(request: Request, context: RouteContext<"/api/notes/[
     return NextResponse.json({ error: "Aucun fichier reçu." }, { status: 400 });
   }
 
+  /*
+   * `?bloc=<id>` : le document s'ajoute **dans** une page manuscrite existante.
+   *
+   * Le serveur n'enregistre alors que le fichier et rend le format des pages ;
+   * c'est le client qui les insère après la page courante, puis enregistre par
+   * le chemin ordinaire. Même raison que pour une photo (`uploadPageImage`) :
+   * insérées ici, elles seraient écrasées par l'enregistrement différé du
+   * client, parti d'une version sans elles — et leur fichier supprimé avec.
+   */
+  const blocId = new URL(request.url).searchParams.get("bloc");
+  let pagesDuBloc: number | null = null;
+  if (blocId) {
+    const bloc = await prisma.noteBlock.findFirst({
+      where: { id: blocId, noteId, kind: "drawing", note: { ownerId: user.id } },
+      select: { content: true },
+    });
+    if (!bloc) return NextResponse.json({ error: "Page introuvable." }, { status: 404 });
+    pagesDuBloc = parseDrawing(bloc.content).pages.length;
+  }
+
   const importe = await importDocument(file);
   if ("error" in importe) return NextResponse.json({ error: importe.error }, { status: 415 });
+
+  if (pagesDuBloc !== null) {
+    // Une page simple devient la première page de la pile.
+    if (Math.max(1, pagesDuBloc) + importe.ratios.length > MAX_DOCUMENT_PAGES) {
+      // Aucun bloc ne le désignera jamais : il ne doit pas rester sur le disque.
+      await deleteUpload(importe.file);
+      return NextResponse.json(
+        { error: `Ce document ferait dépasser ${MAX_DOCUMENT_PAGES} pages sur cette page manuscrite.` },
+        { status: 400 },
+      );
+    }
+    return NextResponse.json({ file: importe.file, ratios: importe.ratios });
+  }
 
   const result = await addDocumentBlocks(noteId, importe.file, importe.ratios);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });

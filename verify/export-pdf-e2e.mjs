@@ -32,7 +32,7 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const noteId = page.url().split("/notes/")[1];
 await page.getByLabel("Titre de la note").fill(`Export ${Date.now()}`);
 await retirerPageVierge(page);
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("doc-test.pdf");
 await page.waitForTimeout(7000);
 check(
   (await page.locator('[data-testid="drawing-canvas"]').count()) === 1,
@@ -209,7 +209,7 @@ await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await retirerPageVierge(page);
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("shots/export-flat.pdf");
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("shots/export-flat.pdf");
 await page.waitForTimeout(8000);
 check(
   (await page.locator('[data-testid="drawing-canvas"]').count()) === 1,

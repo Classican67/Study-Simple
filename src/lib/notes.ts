@@ -346,7 +346,7 @@ export function insertPage(
   // Le format de la voisine : une feuille glissée dans un polycopié A4 est une
   // feuille A4, sinon la pile se met à bégayer d'une page à l'autre.
   const voisine = pages[rang] ?? pages[0];
-  return insererPage(content, rang, { paper, ratio: voisine.ratio });
+  return insererPages(content, rang, [{ paper, ratio: voisine.ratio }]);
 }
 
 /**
@@ -367,25 +367,53 @@ export function insertImagePage(
   ratio: number,
 ): DrawingContent {
   const format = Math.min(MAX_RATIO, Math.max(0.1, ratio));
-  const pile: DrawingContent =
-    content.pages.length > 0
-      ? content
-      : { ...content, pages: [{ paper: content.paper ?? "blank", ratio: content.ratio }] };
+  const pile = enPile(content);
   const rang = Math.max(-1, Math.min(pile.pages.length - 1, Math.trunc(apres)));
-  return insererPage(pile, rang, { image, ratio: Number(format.toFixed(4)) });
+  return insererPages(pile, rang, [{ image, ratio: Number(format.toFixed(4)) }]);
 }
 
-/** Le cœur des deux insertions : la page prend sa place, et ce qui suit descend. */
-function insererPage(
+/**
+ * Glisse les pages d'un document importé juste après la page `apres`.
+ *
+ * On ajoute un document Word ou un PDF à une note déjà commencée : ses pages
+ * prennent place après celle qu'on regarde, comme une photo, et tout ce qui
+ * était écrit plus bas descend d'autant. Une page manuscrite simple devient une
+ * pile, comme pour `insertImagePage`.
+ *
+ * Tout ou rien : un document qui ferait dépasser le nombre maximal de pages
+ * n'est pas tronqué, il est refusé — le contenu revient inchangé.
+ */
+export function insertDocumentPages(
   content: DrawingContent,
-  rang: number,
-  nouvelle: BlankPage | ImagePage,
+  apres: number,
+  file: string,
+  ratios: number[],
 ): DrawingContent {
+  if (ratios.length === 0) return content;
+  const pile = enPile(content);
+  const rang = Math.max(-1, Math.min(pile.pages.length - 1, Math.trunc(apres)));
+  return insererPages(
+    pile,
+    rang,
+    // Les mêmes bornes qu'à l'import d'un document en bloc séparé.
+    ratios.map((ratio, index) => ({ file, page: index + 1, ratio: Math.min(MAX_RATIO, Math.max(0.2, ratio)) })),
+  );
+}
+
+/** Une page manuscrite simple, devenue la première page d'une pile. */
+function enPile(content: DrawingContent): DrawingContent {
+  return content.pages.length > 0
+    ? content
+    : { ...content, pages: [{ paper: content.paper ?? "blank", ratio: content.ratio }] };
+}
+
+/** Le cœur des insertions : les pages prennent leur place, et ce qui suit descend. */
+function insererPages(content: DrawingContent, rang: number, nouvelles: NotePage[]): DrawingContent {
   const pages = content.pages;
-  if (pages.length >= MAX_DOCUMENT_PAGES) return content;
+  if (pages.length + nouvelles.length > MAX_DOCUMENT_PAGES) return content;
 
   const bandes = pageBands(pages);
-  const decalage = nouvelle.ratio + PAGE_GAP;
+  const decalage = nouvelles.reduce((somme, page) => somme + page.ratio + PAGE_GAP, 0);
   const strokes = content.strokes.map((stroke) => {
     const boite = boundsOf(stroke.points);
     if (!boite) return stroke;
@@ -394,7 +422,7 @@ function insererPage(
     return { ...stroke, points: translateStroke(stroke.points, 0, decalage) };
   });
 
-  const suivantes = [...pages.slice(0, rang + 1), nouvelle, ...pages.slice(rang + 1)];
+  const suivantes = [...pages.slice(0, rang + 1), ...nouvelles, ...pages.slice(rang + 1)];
   return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes };
 }
 

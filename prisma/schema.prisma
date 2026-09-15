@@ -232,6 +232,9 @@ model Note {
   // centaines de kilooctets : la recharger pour afficher une vignette
   // rendrait la liste des notes plus lourde que les notes elles-mêmes.
   preview   String   @default("")
+  // « Je maîtrise cette note » : l'appréciation de la personne, jamais un
+  // calcul. Rien ne la pose ni ne la retire à sa place.
+  mastered  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

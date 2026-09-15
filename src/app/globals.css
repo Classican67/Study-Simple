@@ -245,6 +245,21 @@
   initial-value: 0px;
 }
 
+/* Ce que l'app occupe autour d'une page manuscrite affichée en ligne : la barre
+   du haut, la barre de navigation du téléphone, les zones sûres et un peu d'air.
+
+   La fenêtre de la page en déduit sa hauteur (cf. `InkCanvas`). Elle était
+   plafonnée à 520 px : cela remplissait à peu près un iPad en paysage, et
+   laissait en portrait la moitié de l'écran vide sous un document coupé. */
+:root {
+  --ink-chrome: calc(4rem + env(safe-area-inset-top) + 5rem + env(safe-area-inset-bottom) + 1.5rem);
+}
+@media (width >= 48rem) {
+  :root {
+    --ink-chrome: calc(4rem + env(safe-area-inset-top) + env(safe-area-inset-bottom) + 1.5rem);
+  }
+}
+
 @layer base {
   * {
     border-color: var(--color-outline-variant);

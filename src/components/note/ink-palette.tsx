@@ -212,8 +212,8 @@ export function InkPalette(props: PaletteProps) {
             icon={props.addingImage ? Loader2 : Camera}
             busy={props.addingImage}
             disabled={props.addingImage}
-            label="Ajouter une photo ou une image"
-            title="Photographier ou importer une image : elle devient une page, juste après celle-ci"
+            label="Ajouter une photo, une image ou un document"
+            title="Photographier, importer une image, un PDF ou un document Word : il devient une ou plusieurs pages, juste après celle-ci"
           />
         ) : null}
 

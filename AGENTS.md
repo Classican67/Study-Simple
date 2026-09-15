@@ -28,6 +28,15 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   portrait et paysage, iPad mini et portable. `shoot.mjs` ne mesure que le
   débordement **horizontal** : c'est ce qui a laissé passer 70 à 227 px de
   dépassement vertical selon l'appareil
+- `node orientation-e2e.mjs` — **une page manuscrite remplit l'écran dans les
+  deux orientations** : en ligne sur iPad, iPad mini et iPhone, portrait puis
+  paysage sans recharger, et le plein écran ouvert dans une orientation puis
+  tourné
+- `node menus-e2e.mjs` — **navigation et menus des notes** : revenir d'une note
+  ramène à son dossier, clic droit, appui long au doigt, bouton ⋮ et clavier
+  ouvrent le même menu, chaque option (créer, renommer, dupliquer, ranger,
+  déplacer, supprimer) fait ce qu'elle annonce, et la pastille « maîtrisée »
+  s'allume et s'éteint sans toucher au tri
 - `node notes-e2e.mjs` — notes : texte, tableau calculé, croquis au stylet,
   et persistance de tout cela
 - `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
@@ -74,6 +83,10 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   page, pas de fond de cahier proposé sur une photo, Annuler qui retire la page
   **et son fichier**, plein écran et téléphone. Et une note neuve s'ouvre sur
   une page manuscrite vierge
+- `node page-document-e2e.mjs` — **un PDF ou un document Word ajouté depuis la
+  barre d'outils** : il devient ses pages après la page courante, sans créer de
+  bloc, en ligne comme en plein écran ; Annuler retire tout le document **et son
+  fichier** ; un faux PDF est refusé sans rien laisser sur le disque
 - `node couleur-e2e.mjs` — **roue chromatique** : réglage au clavier et au
   geste, code tapé pris tel quel, couleur **réellement peinte** sur les tuiles,
   après rechargement, dans le PDF exporté et en thème sombre, couleurs récentes,
@@ -501,6 +514,40 @@ du verrou npm.
   `tests/lockfile.test.ts` vérifie sans npm que chaque dépendance citée par le
   verrou s'y résout. **Régénérer un verrou se fait avec la version déclarée**,
   et npm 11 au minimum : il relit un verrou de npm 10, l'inverse est faux.
+- **Une hauteur en pixels ne connaît pas l'orientation.** La fenêtre d'une page
+  manuscrite était plafonnée à 520 px : cela remplissait un iPad en paysage, et
+  laissait en portrait un document coupé au-dessus de 360 px de vide. Sur un
+  iPhone en paysage, elle dépassait même l'écran. Elle suit désormais `100svh`
+  moins `--ink-chrome` et la palette — `svh`, pas `innerHeight`, qui bouge
+  quand Safari replie ses barres. Et le plein écran mesurait sa hauteur **une
+  fois**, à l'ouverture : tourné, il gardait celle de l'autre orientation. Toute
+  mesure de place disponible s'observe (`ResizeObserver`), elle ne se prend pas.
+- **Un élément invisible refuse le focus, sans rien dire.** Le menu contextuel
+  reste en `visibility: hidden` le temps d'être mesuré ; le focus donné à ce
+  moment-là n'arrivait nulle part, et Échap n'atteignait plus le menu. Le focus
+  se donne **après** le placement.
+- **Un élément mesuré là où il sera placé mesure la place qu'il y a.** Posé à
+  l'abscisse du bouton ⋮, au bord droit de l'écran, le menu se rétrécissait à sa
+  largeur minimale ; placé sur cette largeur, il reprenait la sienne et
+  débordait. On le mesure depuis le coin de l'écran.
+- **iPadOS n'émet pas `contextmenu` sur un appui long** : Safari y montre
+  l'aperçu du lien. L'appui long est refait sur Pointer Events
+  (`components/context-menu.tsx`), l'aperçu neutralisé par
+  `-webkit-touch-callout: none`, et le clic qui suit le lever du doigt avalé —
+  mais pas au-delà de 400 ms, iPadOS n'émettant pas toujours ce clic : le
+  drapeau aurait sinon mangé le premier choix fait dans le menu.
+- **Le mode strict ne pardonne pas une ressource libérée au nettoyage d'un
+  effet.** En développement, React démonte puis remonte chaque composant **en
+  gardant son état**. Le recadreur créait l'URL de la photo dans l'état et la
+  révoquait au démontage : au remontage, l'état désignait une URL morte, et la
+  boîte montrait « Photo à recadrer » à la place de l'image. Aucune vérification
+  ne l'a vu — elles tournent sur le build de production, qui ne remonte rien.
+  Un défaut signalé depuis `localhost:3000` se reproduit **sur le serveur de
+  dev**, pas sur celui du port 3100.
+- **Un nom de bouton se compare par sous-chaîne.** `getByRole("button", { name:
+  "Document" })` trouve aussi « Ajouter une photo, une image ou un document » :
+  renommer un bouton a fait échouer deux scripts en mode strict. Un nom court se
+  cherche avec `exact: true`.
 - **Tri de texte en SQLite.** La comparaison est octet par octet : « Écrite »
   se range après « Note », parce que « É » s'encode sur deux octets dont le
   premier vaut plus que « N ». Aucune collation française sans extension — trier

@@ -7,13 +7,15 @@ import {
   buildBreadcrumb,
   depthOf,
   descendantIds,
+  folderOptions,
   isDescendant,
   type FolderNode,
+  type FolderOption,
 } from "@/lib/folder-tree";
 
 // Réexportés pour que les appelants n'aient qu'un module à connaître.
 export { MAX_FOLDER_DEPTH, buildBreadcrumb, depthOf, descendantIds, isDescendant };
-export type { FolderNode };
+export type { FolderNode, FolderOption };
 
 export type FolderSummary = FolderNode & {
   deckCount: number;
@@ -166,36 +168,16 @@ export async function getFolderView(userId: string, folderId: string | null): Pr
   };
 }
 
-export type FolderOption = { id: string; label: string; depth: number; disabled: boolean };
-
 /**
- * Liste plate de tous les dossiers, indentée, pour les menus de déplacement.
- * `excludeSubtreeOf` retire une branche entière : on ne propose pas à un
- * dossier de devenir son propre descendant.
+ * Liste plate de tous les dossiers de paquets, indentée, pour les menus de
+ * déplacement. Le calcul vit dans `folder-tree.ts`, que la liste des notes
+ * appelle côté client.
  */
 export async function listFolderOptions(
   userId: string,
   excludeSubtreeOf?: string,
 ): Promise<FolderOption[]> {
-  const folders = await allFolders(userId);
-  const options: FolderOption[] = [];
-
-  function walk(parentId: string | null, depth: number) {
-    for (const folder of folders.filter((f) => f.parentId === parentId)) {
-      if (excludeSubtreeOf && folder.id === excludeSubtreeOf) continue;
-      options.push({
-        id: folder.id,
-        label: folder.name,
-        depth,
-        // Un dossier déjà au niveau maximal ne peut plus en accueillir.
-        disabled: depth >= MAX_FOLDER_DEPTH - 1,
-      });
-      walk(folder.id, depth + 1);
-    }
-  }
-  walk(null, 0);
-
-  return options;
+  return folderOptions(await allFolders(userId), excludeSubtreeOf);
 }
 
 export async function getFolderForUser(folderId: string, userId: string) {

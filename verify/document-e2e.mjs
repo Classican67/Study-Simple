@@ -38,7 +38,7 @@ await page.getByLabel("Titre de la note").fill(`Polycopié ${Date.now()}`);
 
 await retirerPageVierge(page);
 const blocsAvant = await page.locator("section[aria-label^='Bloc']").count();
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles("doc-test.pdf");
 await page.waitForTimeout(6000);
 
 const blocs = await page.locator("section[aria-label^='Bloc']").count();
@@ -184,7 +184,7 @@ check(horsBornes.status() === 416, "une plage hors du fichier est refusée propr
 section("refus");
 await page.goto(url, { waitUntil: "networkidle" });
 await page.evaluate(() => {
-  const input = document.querySelector('input[type="file"][accept*=".pdf"]');
+  const input = document.querySelector('input[type="file"][accept*=".pdf"]:not([data-page-image])');
   const data = new DataTransfer();
   data.items.add(new File(["PKrien"], "archive.zip", { type: "application/zip" }));
   input.files = data.files;
@@ -251,7 +251,7 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const avantLourd = await page.locator('[data-testid="drawing-canvas"]').count();
 
 const debutLourd = Date.now();
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles({
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles({
   name: "scan.pdf",
   // Le type qu'iOS envoie quand il ne sait pas : c'est le cas à éprouver.
   mimeType: "application/octet-stream",
@@ -280,7 +280,7 @@ check(
   await page.locator('[role="alert"]').first().innerText().catch(() => ""),
 );
 // Et surtout : l'interface est revenue au repos, quoi qu'il arrive.
-await page.getByRole("button", { name: "Document" }).waitFor({ timeout: 30000 });
+await page.getByRole("button", { name: "Document", exact: true }).waitFor({ timeout: 30000 });
 check(true, "et le bouton revient à son état de repos — jamais de chargement sans fin");
 
 // --- Refus immédiat d'un fichier hors limite -------------------------------
@@ -289,7 +289,7 @@ await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const debutRefus = Date.now();
-await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles({
+await page.locator('input[type="file"][accept*=".pdf"]:not([data-page-image])').setInputFiles({
   name: "enorme.pdf",
   mimeType: "application/pdf",
   buffer: Buffer.alloc(41 * 1024 * 1024),
@@ -307,7 +307,7 @@ check(
   `${(delaiRefus / 1000).toFixed(1)} s`,
 );
 check(
-  (await page.getByRole("button", { name: "Document" }).count()) === 1,
+  (await page.getByRole("button", { name: "Document", exact: true }).count()) === 1,
   "le bouton reste utilisable",
 );
 

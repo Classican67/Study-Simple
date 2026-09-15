@@ -81,3 +81,55 @@ export function descendantIds(folders: FolderNode[], folderId: string): string[]
   }
   return ids;
 }
+
+/** Une destination de déplacement, indentée selon sa profondeur. */
+export type FolderOption = { id: string; label: string; depth: number; disabled: boolean };
+
+/**
+ * Liste plate de l'arborescence, indentée, pour les menus de déplacement.
+ * `excludeSubtreeOf` retire une branche entière : on ne propose pas à un
+ * dossier de devenir son propre descendant.
+ *
+ * Triée ici, en français : SQLite compare les octets, et « Écologie » se
+ * rangerait après « Zoologie ».
+ */
+export function folderOptions(folders: FolderNode[], excludeSubtreeOf?: string): FolderOption[] {
+  const options: FolderOption[] = [];
+  const parNom = (a: FolderNode, b: FolderNode) =>
+    a.name.localeCompare(b.name, "fr", { sensitivity: "base", numeric: true });
+
+  function walk(parentId: string | null, depth: number) {
+    // La borne protège d'un cycle qui aurait échappé à la validation.
+    if (depth > MAX_FOLDER_DEPTH + 1) return;
+    for (const folder of folders.filter((f) => f.parentId === parentId).sort(parNom)) {
+      if (excludeSubtreeOf && folder.id === excludeSubtreeOf) continue;
+      options.push({
+        id: folder.id,
+        label: folder.name,
+        depth,
+        // Un dossier déjà au niveau maximal ne peut plus en accueillir.
+        disabled: depth >= MAX_FOLDER_DEPTH - 1,
+      });
+      walk(folder.id, depth + 1);
+    }
+  }
+  walk(null, 0);
+  return options;
+}
+
+/**
+ * Chaque dossier avec son chemin complet, « Cours / Biologie / TP ».
+ *
+ * Deux dossiers homonymes seraient sinon impossibles à distinguer dans une
+ * liste de rangement.
+ */
+export function folderPaths(folders: FolderNode[]): { id: string; path: string }[] {
+  return folders
+    .map((folder) => ({
+      id: folder.id,
+      path: buildBreadcrumb(folders, folder.id)
+        .map((f) => f.name)
+        .join(" / "),
+    }))
+    .sort((a, b) => a.path.localeCompare(b.path, "fr"));
+}

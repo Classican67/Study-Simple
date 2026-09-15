@@ -257,6 +257,7 @@ export function InkCanvas({
   growable = true,
   /** Hauteur visible. Sans elle, la fenêtre prend la hauteur de la page. */
   height,
+  reserve = 0,
   readOnly = false,
   onStrokeCount,
   onPenMode,
@@ -282,6 +283,12 @@ export function InkCanvas({
   className?: string;
   growable?: boolean;
   height?: number;
+  /**
+   * Place prise au-dessus de la fenêtre, sans hauteur imposée : la palette.
+   * La fenêtre la laisse libre, pour que palette et page tiennent ensemble
+   * dans l'écran.
+   */
+  reserve?: number;
   readOnly?: boolean;
   onStrokeCount?: (count: number) => void;
   /** Prévient que le rejet de la paume s'est enclenché. */
@@ -345,6 +352,9 @@ export function InkCanvas({
   // Largeur de la page au zoom 1, en pixels : c'est la largeur disponible.
   // Les coordonnées enregistrées en sont des fractions.
   const [width, setWidth] = React.useState(0);
+  // Hauteur réelle de la fenêtre : elle suit l'écran, et tourner l'iPad la
+  // change sans toucher forcément à la largeur.
+  const [hauteur, setHauteur] = React.useState(0);
   const [scale, setScale] = React.useState(1);
   const [count, setCount] = React.useState(content.strokes.length);
   const [penMode, setPenMode] = React.useState(false);
@@ -355,9 +365,25 @@ export function InkCanvas({
 
   const pageW = Math.max(0, Math.round(width * scale));
   const pageH = Math.round(pageW * ratio);
-  // Sans hauteur imposée : celle du contenu, bornée pour que la surface — qui
-  // capte le doigt — ne remplisse jamais l'écran d'un téléphone.
-  const viewport = height ?? Math.min(Math.round(width * ratio) || 520, 520);
+  /*
+   * Hauteur de la fenêtre. Sans hauteur imposée : celle du contenu, bornée par
+   * l'écran.
+   *
+   * Le plafond était de 520 px, fixes. Sur iPad en paysage cela remplissait à
+   * peu près l'écran ; en portrait, la page s'arrêtait au milieu, le bas du
+   * document coupé au-dessus d'un grand vide. La borne suit donc la hauteur de
+   * l'écran, moins ce que l'app y pose (`--ink-chrome`) et la palette : palette
+   * et page tiennent ensemble, dans les deux orientations. Il reste toujours la
+   * barre et la palette hors de la surface — qui capte le doigt — pour faire
+   * défiler la note.
+   *
+   * En CSS plutôt qu'en JavaScript : `svh` ne bouge pas quand Safari replie ses
+   * barres pendant le défilement, là où `innerHeight` ferait sauter la page.
+   */
+  const hauteurFenetre =
+    height !== undefined
+      ? `${height}px`
+      : `min(${Math.round(width * ratio) || 520}px, max(160px, calc(100svh - var(--ink-chrome) - ${reserve}px)))`;
 
   /*
    * Ce que les gestionnaires d'événements doivent lire sans passer par un
@@ -928,7 +954,10 @@ export function InkCanvas({
   React.useEffect(() => {
     const scroller = scrollRef.current;
     if (!scroller) return;
-    const mesurer = () => setWidth(scroller.clientWidth);
+    const mesurer = () => {
+      setWidth(scroller.clientWidth);
+      setHauteur(scroller.clientHeight);
+    };
     const observer = new ResizeObserver(mesurer);
     observer.observe(scroller);
     mesurer();
@@ -984,12 +1013,12 @@ export function InkCanvas({
     peindreRepere();
   }, [content, onStrokeCount, salir, peindreRepere]);
 
-  // Largeur, zoom, papier : tout le pavage est à refaire.
+  // Largeur, hauteur de fenêtre, zoom, papier : tout le pavage est à refaire.
   React.useEffect(() => {
     majTuiles();
     peindreRepere();
     majFenetre();
-  }, [pageW, pageH, paper, majTuiles, peindreRepere, majFenetre]);
+  }, [pageW, pageH, hauteur, paper, majTuiles, peindreRepere, majFenetre]);
 
   React.useEffect(() => {
     peindreRepere();
@@ -1678,7 +1707,7 @@ export function InkCanvas({
      * défilement est appliqué dans leur contexte de dessin.
      */
     width: width || "100%",
-    height: viewport,
+    height: "var(--ink-fenetre)",
     // Sans cela, le navigateur applique sa propre inertie au geste et la page
     // saute pendant qu'on pince.
     touchAction: "none",
@@ -1701,7 +1730,8 @@ export function InkCanvas({
         majFenetre();
       }}
       className={cn("ink-surface scroll-slim relative overflow-auto overscroll-contain", className)}
-      style={{ height: viewport, touchAction: "none" }}
+      // Publiée ici, relue par les deux couches collantes.
+      style={{ "--ink-fenetre": hauteurFenetre, height: "var(--ink-fenetre)", touchAction: "none" } as React.CSSProperties}
     >
       <div
         ref={pageRef}
@@ -1837,7 +1867,7 @@ export function InkCanvas({
           ref={liveRef}
           aria-hidden
           className="pointer-events-none block text-on-surface"
-          style={{ ...fenetreStyle, marginBottom: -viewport }}
+          style={{ ...fenetreStyle, marginBottom: "calc(-1 * var(--ink-fenetre))" }}
         />
 
         {/* Les repères — règle, lasso, sélection — et la surface qui reçoit les
@@ -1865,7 +1895,7 @@ export function InkCanvas({
             "block text-on-surface",
             !readOnly && (tool === "eraser" ? "cursor-cell" : "cursor-crosshair"),
           )}
-          style={{ ...fenetreStyle, marginBottom: -viewport }}
+          style={{ ...fenetreStyle, marginBottom: "calc(-1 * var(--ink-fenetre))" }}
         />
       </div>
     </div>
