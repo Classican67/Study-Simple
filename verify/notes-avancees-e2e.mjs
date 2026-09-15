@@ -43,6 +43,9 @@ await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.getByLabel("Titre de la note").fill(`${MOT} appliquée`);
+// Une note neuve s'ouvre sur une page manuscrite : le paragraphe s'ajoute.
+await page.getByRole("button", { name: "Texte", exact: true }).last().click();
+await page.locator('[aria-label^="Bloc paragraphe"]').first().waitFor();
 await page.locator('[aria-label^="Bloc paragraphe"]').click();
 await page.locator('[aria-label^="Bloc paragraphe"]').pressSequentially("Entropie et enthalpie");
 await page.locator("h1, [aria-label='Titre de la note']").first().click();
@@ -142,7 +145,7 @@ await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.getByLabel("Titre de la note").fill(`Page stylet ${Date.now()}`);
-await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
+// Une note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.waitForTimeout(600);
 
@@ -310,11 +313,15 @@ section("plein écran des autres blocs");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
+// La note neuve s'ouvre sur sa page manuscrite (bloc 1), qui a son propre plein
+// écran : le texte et le tableau s'ajoutent après elle.
+await page.getByRole("button", { name: "Texte", exact: true }).last().click();
+await page.locator('[aria-label^="Bloc paragraphe"]').first().waitFor();
 await page.getByRole("button", { name: "Tableau", exact: true }).last().click();
 await page.waitForSelector("table");
 await page.waitForTimeout(600);
 
-for (const [rang, nom] of [[1, "Texte"], [2, "Tableau"]]) {
+for (const [rang, nom] of [[2, "Texte"], [3, "Tableau"]]) {
   await page.getByRole("button", { name: `Agrandir le bloc ${rang}` }).click();
   await page.waitForTimeout(500);
   check(
@@ -349,7 +356,7 @@ section("lasso et formes");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
-await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
+// Une note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.waitForTimeout(600);
 const toile = page.locator('[data-testid="drawing-canvas"]').last();

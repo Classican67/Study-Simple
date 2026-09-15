@@ -36,6 +36,7 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const url = page.url();
 await page.getByLabel("Titre de la note").fill(`Polycopié ${Date.now()}`);
 
+await retirerPageVierge(page);
 const blocsAvant = await page.locator("section[aria-label^='Bloc']").count();
 await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
 await page.waitForTimeout(6000);
@@ -313,3 +314,15 @@ check(
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();
 process.exit(ko === 0 ? 0 : 1);
+
+
+/**
+ * Une note neuve s'ouvre sur une page manuscrite vierge. Les essais qui importent
+ * un document veulent une note où ce document est seul — ou une note vraiment
+ * vide : on retire d'abord cette page.
+ */
+async function retirerPageVierge(page) {
+  await page.getByRole("button", { name: "Supprimer le bloc 1" }).click();
+  await page.getByRole("button", { name: "Supprimer", exact: true }).click();
+  await page.locator("section[aria-label^='Bloc']").first().waitFor({ state: "detached" });
+}

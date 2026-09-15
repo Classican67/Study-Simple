@@ -20,7 +20,8 @@ for (const theme of ["light", "dark"]) {
   await page.waitForURL(/\/notes\/[a-z0-9]+/);
   await page.getByLabel("Titre de la note").fill(`Photo annotée ${theme}`);
   await page.getByLabel("Titre de la note").blur();
-  await page.locator('input[type="file"][accept="image/*"]').setInputFiles("photo.png");
+  await retirerPageVierge(page);
+  await page.locator('input[type="file"][accept="image/*"]:not([data-page-image])').setInputFiles("photo.png");
   await page.waitForTimeout(900);
   await page.getByRole("button", { name: "Utiliser" }).click();
   await page.waitForSelector('[data-testid="drawing-canvas"]');
@@ -65,3 +66,14 @@ for (const theme of ["light", "dark"]) {
   await ctx.close();
 }
 await browser.close();
+
+
+/**
+ * Une note neuve s'ouvre sur une page manuscrite vierge. Ce scénario veut une
+ * note dont la première page est la photo : on retire d'abord la page vierge.
+ */
+async function retirerPageVierge(page) {
+  await page.getByRole("button", { name: "Supprimer le bloc 1" }).click();
+  await page.getByRole("button", { name: "Supprimer", exact: true }).click();
+  await page.locator("section[aria-label^='Bloc']").first().waitFor({ state: "detached" });
+}

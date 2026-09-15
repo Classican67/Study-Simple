@@ -94,6 +94,9 @@ await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.getByLabel("Titre de la note").fill(TITRE);
+// Une note neuve s'ouvre sur une page manuscrite : le paragraphe s'ajoute.
+await page.getByRole("button", { name: "Texte", exact: true }).last().click();
+await page.locator('[aria-label^="Bloc paragraphe"]').first().waitFor();
 await page.locator('[aria-label^="Bloc paragraphe"]').click();
 await page.waitForTimeout(1500);
 check(true, "dossier et note créés");

@@ -26,12 +26,16 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const url = page.url();
 check(true, "la note est créée et ouverte");
 check(
-  (await page.locator('[aria-label^="Bloc paragraphe"]').count()) === 1,
-  "elle commence par un bloc de texte, prêt à écrire",
+  (await page.locator('[data-testid="drawing-canvas"]').count()) === 1 &&
+    (await page.locator('[aria-label^="Bloc paragraphe"]').count()) === 0,
+  "elle s'ouvre sur une page manuscrite, pas sur un paragraphe",
 );
 
 // --- 2. Titre et texte enrichi ----------------------------------------------
 await page.getByLabel("Titre de la note").fill(TITRE);
+// Le paragraphe s'ajoute : la note neuve n'en a plus.
+await page.getByRole("button", { name: "Texte", exact: true }).last().click();
+await page.locator('[aria-label^="Bloc paragraphe"]').first().waitFor();
 await page.locator('[aria-label^="Bloc paragraphe"]').click();
 await page.locator('[aria-label^="Bloc paragraphe"]').pressSequentially("Premier principe");
 await page.getByRole("button", { name: "Titre", exact: true }).first().click();
@@ -87,10 +91,10 @@ check(
 );
 
 // --- 4. Croquis au stylet ---------------------------------------------------
-await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
+// La note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 await page.waitForTimeout(900);
 const canvas = page.locator('[data-testid="drawing-canvas"]');
-check((await canvas.count()) === 1, "un bloc croquis est ajouté");
+check((await canvas.count()) === 1, "la page manuscrite de la note neuve est là, une seule");
 
 /** Trace au stylet en émettant de vrais PointerEvent de type « pen ». */
 async function drawWithPen(points, pointerType = "pen") {

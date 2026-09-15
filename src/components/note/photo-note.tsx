@@ -37,7 +37,27 @@ import { addPhotoBlock } from "@/app/(app)/notes/actions";
  */
 
 /** Assez de définition pour zoomer six fois sans voir les pixels. */
-const COTE_MAX = 2400;
+export const COTE_MAX = 2400;
+
+/**
+ * Format d'une image — hauteur sur largeur —, lu par le navigateur qui l'a déjà
+ * en main. Partagé avec l'ajout d'une photo depuis la barre d'outils : les deux
+ * chemins doivent donner à la page le même format.
+ */
+export async function lireFormatImage(file: File): Promise<number> {
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("image illisible"));
+      image.src = url;
+    });
+    return image.naturalWidth > 0 ? image.naturalHeight / image.naturalWidth : 1;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
 
 export function PhotoNote({
   noteId,
@@ -52,26 +72,10 @@ export function PhotoNote({
   const [aRecadrer, setARecadrer] = React.useState<File | null>(null);
   const [envoi, setEnvoi] = React.useState(false);
 
-  /** Format de la photo, lu par le navigateur qui l'a déjà en main. */
-  async function formatDe(file: File): Promise<number> {
-    const url = URL.createObjectURL(file);
-    try {
-      const image = new Image();
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error("image illisible"));
-        image.src = url;
-      });
-      return image.naturalWidth > 0 ? image.naturalHeight / image.naturalWidth : 1;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-
   async function envoyer(file: File) {
     setEnvoi(true);
     try {
-      const ratio = await formatDe(file);
+      const ratio = await lireFormatImage(file);
       const data = new FormData();
       data.set("photo", file);
       data.set("ratio", String(ratio));

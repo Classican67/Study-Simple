@@ -74,11 +74,12 @@ check(await bouton.isVisible(), "la note propose de prendre une photo");
 // Un seul bouton, et c'est le menu du système qui offre ensuite « Prendre une
 // photo » ou « Photothèque » : c'est `accept="image/*"` qui le déclenche.
 check(
-  (await page.locator('input[type="file"][accept="image/*"]').count()) === 1,
+  (await page.locator('input[type="file"][accept="image/*"]:not([data-page-image])').count()) === 1,
   "avec un champ qui ouvre l'appareil photo comme la photothèque",
 );
 
-await page.locator('input[type="file"][accept="image/*"]').setInputFiles(PHOTO);
+await retirerPageVierge(page);
+await page.locator('input[type="file"][accept="image/*"]:not([data-page-image])').setInputFiles(PHOTO);
 await page.waitForTimeout(900);
 
 // Le recadrage : une page photographiée l'est toujours de biais.
@@ -351,3 +352,14 @@ check(
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();
 process.exit(ko === 0 ? 0 : 1);
+
+
+/**
+ * Une note neuve s'ouvre sur une page manuscrite vierge. Ce scénario veut une
+ * note dont la première page est la photo : on retire d'abord la page vierge.
+ */
+async function retirerPageVierge(page) {
+  await page.getByRole("button", { name: "Supprimer le bloc 1" }).click();
+  await page.getByRole("button", { name: "Supprimer", exact: true }).click();
+  await page.locator("section[aria-label^='Bloc']").first().waitFor({ state: "detached" });
+}

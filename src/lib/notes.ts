@@ -341,13 +341,48 @@ export function insertPage(
   paper: Paper,
 ): DrawingContent {
   const pages = content.pages;
-  if (pages.length === 0 || pages.length >= MAX_DOCUMENT_PAGES) return content;
-
+  if (pages.length === 0) return content;
   const rang = Math.max(-1, Math.min(pages.length - 1, Math.trunc(apres)));
   // Le format de la voisine : une feuille glissée dans un polycopié A4 est une
   // feuille A4, sinon la pile se met à bégayer d'une page à l'autre.
   const voisine = pages[rang] ?? pages[0];
-  const nouvelle: BlankPage = { paper, ratio: voisine.ratio };
+  return insererPage(content, rang, { paper, ratio: voisine.ratio });
+}
+
+/**
+ * Glisse une photo, devenue page, juste après la page `apres`.
+ *
+ * C'est `insertPage` pour une image : même place, et surtout mêmes annotations
+ * qui descendent avec leur page. La photo garde **son** format — une photo en
+ * paysage ne se déforme pas pour ressembler à sa voisine A4.
+ *
+ * Une page manuscrite simple n'a pas encore de pile. Elle en devient une : sa
+ * surface forme la première page, avec son format, son fond et ses traits — qui
+ * ne bougent pas, cette page commençant en haut — et la photo vient après.
+ */
+export function insertImagePage(
+  content: DrawingContent,
+  apres: number,
+  image: string,
+  ratio: number,
+): DrawingContent {
+  const format = Math.min(MAX_RATIO, Math.max(0.1, ratio));
+  const pile: DrawingContent =
+    content.pages.length > 0
+      ? content
+      : { ...content, pages: [{ paper: content.paper ?? "blank", ratio: content.ratio }] };
+  const rang = Math.max(-1, Math.min(pile.pages.length - 1, Math.trunc(apres)));
+  return insererPage(pile, rang, { image, ratio: Number(format.toFixed(4)) });
+}
+
+/** Le cœur des deux insertions : la page prend sa place, et ce qui suit descend. */
+function insererPage(
+  content: DrawingContent,
+  rang: number,
+  nouvelle: BlankPage | ImagePage,
+): DrawingContent {
+  const pages = content.pages;
+  if (pages.length >= MAX_DOCUMENT_PAGES) return content;
 
   const bandes = pageBands(pages);
   const decalage = nouvelle.ratio + PAGE_GAP;
@@ -597,7 +632,19 @@ export function buildPreview(kind: string, content: string): NotePreview {
   if (premiere && isImagePage(premiere)) {
     return { kind: "image", file: premiere.image, ratio: premiere.ratio };
   }
-  if (page.strokes.length === 0) return null;
+  if (page.strokes.length === 0) {
+    // Rien d'écrit, mais une photo ou un document plus bas dans la pile : c'est
+    // la page vierge d'une note neuve, dans laquelle on a glissé une image
+    // depuis la barre d'outils. La vignette montre l'image, pas le blanc.
+    const illustree = page.pages.find((p) => isBackdropPage(p) || isImagePage(p));
+    if (illustree && isBackdropPage(illustree)) {
+      return { kind: "pdf", file: illustree.file, page: illustree.page, ratio: illustree.ratio };
+    }
+    if (illustree && isImagePage(illustree)) {
+      return { kind: "image", file: illustree.image, ratio: illustree.ratio };
+    }
+    return null;
+  }
 
   return {
     kind: "ink",
@@ -609,6 +656,40 @@ export function buildPreview(kind: string, content: string): NotePreview {
       points: reduirePoints(stroke.points, PREVIEW_POINTS),
     })),
   };
+}
+
+/**
+ * L'aperçu d'une note : celui de sa première page manuscrite **qui montre
+ * quelque chose**.
+ *
+ * C'était celui de la première page manuscrite, tout court. Tant qu'une note
+ * neuve commençait par un paragraphe, cela revenait au même. Depuis qu'elle
+ * s'ouvre sur une page manuscrite vierge, on y importe un polycopié ou une
+ * photo — qui arrivent **après** cette page — et la vignette restait vide : la
+ * première page n'a ni trait ni image, `buildPreview` rend `null`.
+ *
+ * Les pages sont **lues à la demande**, dans l'ordre de la note, et la lecture
+ * s'arrête à la première qui donne un aperçu. Une page dense pèse jusqu'à deux
+ * mégaoctets, et l'aperçu est recalculé à chaque enregistrement : tout relire
+ * reviendrait à charger la note entière chaque seconde pendant qu'on écrit.
+ *
+ * `source` désigne la page retenue : si elle précède celle qu'on vient
+ * d'enregistrer, l'aperçu n'a pas pu changer et il n'y a rien à réécrire.
+ *
+ * C'est la seule règle : les endroits qui recalculent l'aperçu passent tous par
+ * ici, faute de quoi deux d'entre eux finiraient par désigner deux pages.
+ */
+export async function notePreview(
+  ids: string[],
+  lire: (id: string) => Promise<string | null> | string | null,
+): Promise<{ apercu: NotePreview; source: string | null }> {
+  for (const id of ids) {
+    const contenu = await lire(id);
+    if (contenu === null) continue;
+    const apercu = buildPreview("drawing", contenu);
+    if (apercu) return { apercu, source: id };
+  }
+  return { apercu: null, source: null };
 }
 
 export function parsePreview(raw: string): NotePreview {

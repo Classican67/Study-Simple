@@ -60,7 +60,7 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const noteId = page.url().split("/notes/")[1].split(/[?#]/)[0];
 await page.getByLabel("Titre de la note").fill(`Couleur libre ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
-await page.getByRole("button", { name: "Croquis" }).first().click();
+// Une note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 const canvas = page.locator('[data-testid="drawing-canvas"]').last();
 await canvas.waitFor();
 await page.waitForTimeout(600);

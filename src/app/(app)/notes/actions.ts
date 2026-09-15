@@ -7,13 +7,13 @@ import { prisma } from "@/lib/prisma";
 import { toPlainText } from "@/components/rich-text";
 import { normalizeForSearch } from "@/lib/search";
 import {
-  buildPreview,
   defaultContent,
   surfaceRatio,
   isBlockKind,
   MAX_BLOCK_BYTES,
   MAX_DOCUMENT_PAGES,
   MAX_RATIO,
+  notePreview,
   noteSearchText,
   type BlockKind,
 } from "@/lib/notes";
@@ -57,6 +57,35 @@ async function touch(noteId: string) {
   revalidatePath("/notes");
 }
 
+/**
+ * Recalcule l'aperçu d'une note : sa première page manuscrite qui montre
+ * quelque chose (cf. `notePreview`).
+ *
+ * `enMain` est le bloc qu'on vient d'écrire : son contenu n'est pas relu, et si
+ * l'aperçu vient d'une page qui le précède, il n'a pas pu changer — rien n'est
+ * réécrit. C'est l'économie que faisait l'ancienne règle (« seulement si c'est
+ * la première page »), gardée sous la nouvelle : l'aperçu est recalculé à
+ * chaque enregistrement, donc chaque seconde pendant qu'on écrit.
+ */
+async function recalculerApercu(noteId: string, enMain?: { id: string; content: string }) {
+  const pages = await prisma.noteBlock.findMany({
+    where: { noteId, kind: "drawing" },
+    orderBy: { position: "asc" },
+    select: { id: true },
+  });
+  const ids = pages.map((page) => page.id);
+  const { apercu, source } = await notePreview(ids, async (id) =>
+    id === enMain?.id
+      ? enMain.content
+      : ((await prisma.noteBlock.findUnique({ where: { id }, select: { content: true } }))?.content ?? null),
+  );
+  if (enMain && source !== null && ids.indexOf(source) < ids.indexOf(enMain.id)) return;
+  await prisma.note.update({
+    where: { id: noteId },
+    data: { preview: apercu ? JSON.stringify(apercu) : "" },
+  });
+}
+
 export async function createNote(folderId?: string | null): Promise<string | null> {
   const user = await requireUser();
 
@@ -68,14 +97,20 @@ export async function createNote(folderId?: string | null): Promise<string | nul
       })
     : null;
 
-  // Une note neuve n'est pas vide : elle commence par un bloc de texte, prêt à
-  // recevoir le curseur. Une page entièrement blanche laisse sans prise.
+  /*
+   * Une note neuve s'ouvre sur une page manuscrite vierge.
+   *
+   * Elle commençait par un bloc de texte, comme un document de traitement de
+   * texte : on prend une note pour écrire au stylet, et il fallait d'abord
+   * chercher « Croquis » sous un paragraphe vide. Le texte, le tableau, la photo
+   * et le document restent à un geste, sous la page.
+   */
   const note = await prisma.note.create({
     data: {
       ownerId: user.id,
       folderId: dossier?.id ?? null,
       title: "",
-      blocks: { create: [{ kind: "text", position: 0, content: defaultContent("text") }] },
+      blocks: { create: [{ kind: "drawing", position: 0, content: defaultContent("drawing") }] },
     },
     select: { id: true },
   });
@@ -242,21 +277,9 @@ export async function updateBlock(blockId: string, content: string): Promise<Not
     await nettoyerFichiers(partis);
   }
 
-  // L'aperçu de la note est celui de sa PREMIÈRE page manuscrite : on ne le
-  // recalcule que si c'est elle qu'on vient d'enregistrer, et à partir du
-  // contenu déjà en main — jamais en relisant le bloc.
-  const premiere = await prisma.noteBlock.findFirst({
-    where: { noteId: block.noteId, kind: "drawing" },
-    orderBy: { position: "asc" },
-    select: { id: true },
-  });
-  if (premiere?.id === blockId) {
-    const apercu = buildPreview(block.kind, content);
-    await prisma.note.update({
-      where: { id: block.noteId },
-      data: { preview: apercu ? JSON.stringify(apercu) : "" },
-    });
-  }
+  // L'aperçu de la note : sa première page manuscrite qui montre quelque chose,
+  // à partir du contenu déjà en main — jamais en relisant ce bloc.
+  if (block.kind === "drawing") await recalculerApercu(block.noteId, { id: blockId, content });
 
   await touch(block.noteId);
   return { ok: true };
@@ -279,6 +302,8 @@ export async function deleteBlock(blockId: string): Promise<NoteResult> {
   // servait de fond — sauf si un autre bloc s'en sert, ce qu'une duplication
   // rend possible.
   await nettoyerFichiers(fichiers);
+  // La page retirée donnait peut-être l'aperçu : c'est alors la suivante.
+  if (block.kind === "drawing") await recalculerApercu(block.noteId);
   await touch(block.noteId);
   return { ok: true };
 }
@@ -300,6 +325,8 @@ export async function reorderBlocks(noteId: string, orderedIds: string[]): Promi
       prisma.noteBlock.update({ where: { id }, data: { position: index } }),
     ),
   );
+  // Monter une page au-dessus d'une autre change celle qui donne l'aperçu.
+  await recalculerApercu(noteId);
   await touch(noteId);
   return { ok: true };
 }
@@ -397,19 +424,9 @@ export async function addDocumentBlocks(
     select: { id: true, kind: true, content: true },
   });
 
-  // La première page importée sert d'aperçu, s'il n'y en avait pas déjà une.
-  const premiere = await prisma.noteBlock.findFirst({
-    where: { noteId, kind: "drawing" },
-    orderBy: { position: "asc" },
-    select: { id: true, kind: true, content: true },
-  });
-  if (premiere) {
-    const apercu = buildPreview(premiere.kind, premiere.content);
-    await prisma.note.update({
-      where: { id: noteId },
-      data: { preview: apercu ? JSON.stringify(apercu) : "" },
-    });
-  }
+  // La première page importée sert d'aperçu, s'il n'y en avait pas déjà une —
+  // la page vierge d'une note neuve ne compte pas.
+  await recalculerApercu(noteId);
 
   await touch(noteId);
 
@@ -437,6 +454,42 @@ export type PhotoResult =
  * ce qui suffit — une valeur fausse ne déforme que la page de celui qui l'a
  * envoyée.
  */
+/**
+ * Enregistre une image qui deviendra une page d'une page manuscrite **existante**.
+ *
+ * Le bloc n'est pas touché ici : c'est le client qui insère la page, puis
+ * l'enregistre par le chemin ordinaire. L'insérer au serveur ferait courir deux
+ * versions du bloc — l'enregistrement différé du client, parti d'avant la
+ * photo, écraserait la page, et `updateBlock` supprimerait alors le fichier en
+ * le croyant retiré. Passer par le client fait aussi entrer l'insertion dans
+ * l'historique : Annuler la retire, et l'enregistrement suivant nettoie le
+ * fichier.
+ */
+export async function uploadPageImage(
+  blockId: string,
+  formData: FormData,
+): Promise<{ ok: true; image: string } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const bloc = await prisma.noteBlock.findFirst({
+    where: { id: blockId, kind: "drawing", note: { ownerId: user.id } },
+    select: { id: true },
+  });
+  if (!bloc) return { ok: false, error: "Page introuvable." };
+
+  const file = formData.get("photo");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Aucune image reçue." };
+
+  const { saveUpload, UploadError } = await import("@/lib/uploads");
+  try {
+    return { ok: true, image: await saveUpload(file) };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof UploadError ? error.message : "Cette image n'a pas pu être enregistrée.",
+    };
+  }
+}
+
 export async function addPhotoBlock(noteId: string, formData: FormData): Promise<PhotoResult> {
   const user = await requireUser();
   if (!(await ownsNote(noteId, user.id))) return { ok: false, error: "Note introuvable." };
@@ -479,20 +532,9 @@ export async function addPhotoBlock(noteId: string, formData: FormData): Promise
     select: { id: true, kind: true, content: true },
   });
 
-  // La première page manuscrite sert d'aperçu à la note : si c'est celle-ci,
-  // la vignette montrera la photo.
-  const premiere = await prisma.noteBlock.findFirst({
-    where: { noteId, kind: "drawing" },
-    orderBy: { position: "asc" },
-    select: { id: true, kind: true, content: true },
-  });
-  if (premiere) {
-    const apercu = buildPreview(premiere.kind, premiere.content);
-    await prisma.note.update({
-      where: { id: noteId },
-      data: { preview: apercu ? JSON.stringify(apercu) : "" },
-    });
-  }
+  // La photo sert d'aperçu si aucune page avant elle ne montre quelque chose —
+  // la page vierge d'une note neuve ne compte pas.
+  await recalculerApercu(noteId);
 
   await touch(noteId);
   return { ok: true, block: bloc };

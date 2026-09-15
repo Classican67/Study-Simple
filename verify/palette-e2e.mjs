@@ -25,7 +25,7 @@ page.on("pageerror", (e) => { console.log("   erreur page :", String(e).slice(0,
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
-await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
+// Une note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.waitForTimeout(600);
 

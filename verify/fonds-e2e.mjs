@@ -222,6 +222,7 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const noteId = page.url().split("/").pop();
 await page.getByLabel("Titre de la note").fill(`Fonds ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
+await retirerPageVierge(page);
 await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.getByRole("button", { name: "Document" }).waitFor({ timeout: 60000 });
@@ -694,3 +695,14 @@ await tel.close();
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();
 process.exit(ko === 0 ? 0 : 1);
+
+
+/**
+ * Une note neuve s'ouvre sur une page manuscrite vierge. Ce scénario porte sur
+ * un document importé seul dans sa note : on retire d'abord la page vierge.
+ */
+async function retirerPageVierge(page) {
+  await page.getByRole("button", { name: "Supprimer le bloc 1" }).click();
+  await page.getByRole("button", { name: "Supprimer", exact: true }).click();
+  await page.locator("section[aria-label^='Bloc']").first().waitFor({ state: "detached" });
+}

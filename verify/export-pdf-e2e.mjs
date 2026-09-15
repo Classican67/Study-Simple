@@ -31,6 +31,7 @@ await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 const noteId = page.url().split("/notes/")[1];
 await page.getByLabel("Titre de la note").fill(`Export ${Date.now()}`);
+await retirerPageVierge(page);
 await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("doc-test.pdf");
 await page.waitForTimeout(7000);
 check(
@@ -207,6 +208,7 @@ section("relecture");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
+await retirerPageVierge(page);
 await page.locator('input[type="file"][accept*=".pdf"]').setInputFiles("shots/export-flat.pdf");
 await page.waitForTimeout(8000);
 check(
@@ -238,6 +240,7 @@ section("note sans page manuscrite");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
 await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
+await retirerPageVierge(page);
 const vide = page.url().split("/notes/")[1];
 const refus = await page.request.get(`${BASE}/api/notes/${vide}/pdf`);
 check(refus.status() === 400, "l'export est refusé, avec un code clair", `HTTP ${refus.status()}`);
@@ -249,3 +252,15 @@ check(
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();
 process.exit(ko === 0 ? 0 : 1);
+
+
+/**
+ * Une note neuve s'ouvre sur une page manuscrite vierge. Les essais qui importent
+ * un document veulent une note où ce document est seul — ou une note vraiment
+ * vide : on retire d'abord cette page.
+ */
+async function retirerPageVierge(page) {
+  await page.getByRole("button", { name: "Supprimer le bloc 1" }).click();
+  await page.getByRole("button", { name: "Supprimer", exact: true }).click();
+  await page.locator("section[aria-label^='Bloc']").first().waitFor({ state: "detached" });
+}

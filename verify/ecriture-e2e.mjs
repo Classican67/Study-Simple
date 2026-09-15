@@ -158,7 +158,7 @@ await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.getByLabel("Titre de la note").fill(`Écriture ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
-await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
+// Une note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.waitForTimeout(600);
 

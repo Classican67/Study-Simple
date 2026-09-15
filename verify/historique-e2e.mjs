@@ -29,7 +29,7 @@ await page.getByRole("button", { name: "Nouvelle note" }).first().click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.getByLabel("Titre de la note").fill(`Historique ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
-await page.getByRole("button", { name: "Croquis" }).first().click();
+// Une note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.waitForTimeout(800);
 

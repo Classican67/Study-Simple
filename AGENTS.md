@@ -68,6 +68,12 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   grisés quand il n'y a rien à faire ; deux doigts tapés annulent, trois
   rétablissent, deux doigts qui glissent n'annulent rien ; l'anneau de la gomme
   se montre sous la pointe et disparaît quand elle part
+- `node page-photo-e2e.mjs` — **une photo ajoutée depuis la barre d'outils
+  devient une page** : sur une page simple (qui devient une pile), au milieu
+  d'une pile, sur un document importé ; annotations qui descendent avec leur
+  page, pas de fond de cahier proposé sur une photo, Annuler qui retire la page
+  **et son fichier**, plein écran et téléphone. Et une note neuve s'ouvre sur
+  une page manuscrite vierge
 - `node couleur-e2e.mjs` — **roue chromatique** : réglage au clavier et au
   geste, code tapé pris tel quel, couleur **réellement peinte** sur les tuiles,
   après rechargement, dans le PDF exporté et en thème sombre, couleurs récentes,
@@ -418,6 +424,29 @@ du verrou npm.
   par défaut). Tout passe désormais par `lib/ink-color.ts`. Une couleur libre
   n'a qu'une teinte : elle ne s'éclaircit pas en thème sombre, contrairement aux
   six encres nommées — c'est un choix, et `couleur-e2e.mjs` le vérifie.
+- **Une image glissée dans une pile s'insère au client, pas au serveur.** Le
+  serveur (`uploadPageImage`) n'enregistre que le fichier. S'il insérait
+  lui-même la page, l'enregistrement différé du client — parti d'une version
+  sans la photo — écraserait le bloc, et `updateBlock` supprimerait le fichier en
+  le croyant retiré. Insérée au client, la page passe par l'historique : Annuler
+  la retire, et l'enregistrement suivant nettoie le fichier. Une page manuscrite
+  simple devient pour cela une pile (`insertImagePage`) : sa surface forme la
+  première page, et ses traits ne bougent pas.
+- **L'aperçu d'une note est sa première page qui montre quelque chose.** Il
+  était tiré de « la première page manuscrite » tout court. Le jour où la note
+  neuve s'est ouverte sur une page vierge, tout polycopié ou photo importé
+  **après** elle a laissé la vignette vide — `buildPreview` rend `null` pour une
+  page sans trait ni image. `vignettes-e2e.mjs` l'a vu ; retirer la page vierge
+  dans le script l'aurait caché. La règle vit dans `notePreview` (lib/notes.ts),
+  qui lit les pages **à la demande** et s'arrête à la première utile : l'aperçu
+  est recalculé à chaque enregistrement, et relire toutes les pages chaque
+  seconde chargerait la note entière. Supprimer ou réordonner des blocs le
+  recalcule aussi. Même règle **dans** une pile : une page vierge suivie d'une
+  photo glissée depuis la barre montre la photo.
+- **Une note neuve s'ouvre sur une page manuscrite.** Les scripts qui écrivaient
+  dans « le paragraphe de la note neuve » doivent d'abord l'ajouter (bouton
+  « Texte »), et ceux qui ajoutent un « Croquis » trouvent désormais **deux**
+  canevas : un sélecteur sans `.first()` ni `.last()` échoue en mode strict.
 - **Les flux d'un PDF exporté sont compressés.** `couleur-e2e.mjs` cherchait
   la couleur choisie dans les octets bruts du PDF, n'y trouvait **aucune**
   couleur — pas même le fond du papier — et accusait l'export. L'export était

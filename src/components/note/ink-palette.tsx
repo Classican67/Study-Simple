@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlignJustify, Circle, Crosshair, Eraser, FileMinus2, FilePlus2, Grid3x3, Grip, Highlighter, Lasso, Maximize2, Minus as LineIcon, Pen, PenOff, RectangleVertical, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
+import { AlignJustify, Camera, Circle, Crosshair, Eraser, FileMinus2, FilePlus2, Grid3x3, Grip, Highlighter, Lasso, Loader2, Maximize2, Minus as LineIcon, Pen, PenOff, RectangleVertical, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
 
 import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
 import { inkCss, isCustomInk } from "@/lib/ink-color";
@@ -100,6 +100,13 @@ export type PaletteProps = {
   /** Y a-t-il une action à annuler, ou à refaire ? */
   canUndo: boolean;
   canRedo: boolean;
+  /**
+   * Photographier ou importer une image, qui devient une page après la page
+   * courante. Absent en lecture seule.
+   */
+  onAddImage?: () => void;
+  /** L'image part au serveur : le bouton tourne, et ne se relance pas. */
+  addingImage?: boolean;
   onTool: (tool: InkTool) => void;
   onSettings: (next: InkSettings) => void;
   onShape: (shape: Shape) => void;
@@ -194,6 +201,21 @@ export function InkPalette(props: PaletteProps) {
             label={ruler ? "Ranger la règle" : "Poser la règle"}
           />
         </Group>
+
+        {/* Photographier ou importer : dans la rangée des outils, toujours
+            visible, parce qu'on y pense au milieu d'une page — pas en allant
+            chercher le bas de la note. Sur iPad, le même bouton propose
+            « Prendre une photo », la photothèque et les fichiers. */}
+        {props.onAddImage ? (
+          <Tool
+            onClick={props.onAddImage}
+            icon={props.addingImage ? Loader2 : Camera}
+            busy={props.addingImage}
+            disabled={props.addingImage}
+            label="Ajouter une photo ou une image"
+            title="Photographier ou importer une image : elle devient une page, juste après celle-ci"
+          />
+        ) : null}
 
         {/* L'angle de la règle : c'est le propre d'une règle qu'on puisse
             l'aligner sur une valeur franche. */}
@@ -552,6 +574,7 @@ function Tool({
   title,
   danger,
   disabled,
+  busy,
 }: {
   active?: boolean;
   onClick: () => void;
@@ -561,6 +584,8 @@ function Tool({
   title?: string;
   danger?: boolean;
   disabled?: boolean;
+  /** Une action en cours : l'icône tourne. */
+  busy?: boolean;
 }) {
   return (
     <button
@@ -577,7 +602,7 @@ function Tool({
           : cn("text-on-surface-variant", danger ? "hover:text-error" : "hover:text-on-surface"),
       )}
     >
-      <Icon className="size-5" />
+      <Icon className={cn("size-5", busy && "animate-spin")} />
     </button>
   );
 }

@@ -2,15 +2,20 @@
 
 import * as React from "react";
 
+import { ImageCropper } from "@/components/image-cropper";
 import { InkCanvas, type InkTool } from "@/components/note/ink-canvas";
 import { InkPalette, type InkSettings } from "@/components/note/ink-palette";
+import { COTE_MAX, lireFormatImage } from "@/components/note/photo-note";
+import { uploadPageImage } from "@/app/(app)/notes/actions";
+import { MAX_UPLOAD_BYTES } from "@/lib/upload-path";
 import type { Ruler, Shape } from "@/lib/ink";
 import {
   MAX_DOCUMENT_PAGES,
   MAX_RATIO,
+  insertImagePage,
   insertPage,
-  isBackdropPage,
   pageBands,
+  pageKind,
   removePage,
   type BlankPage,
   type DrawingContent,
@@ -203,18 +208,28 @@ export function DrawingBlock({
    */
   const pages = content.pages;
   const courante = pages[Math.min(pageIndex, pages.length - 1)];
-  const surDocument = Boolean(courante) && isBackdropPage(courante);
-  const ajoutee = Boolean(courante) && !isBackdropPage(courante);
-  const fond = ajoutee ? (courante as BlankPage).paper : content.paper;
+  const genre = courante ? pageKind(courante) : null;
+  /*
+   * Une page du document ou une photo : son image **est** son fond.
+   *
+   * La photo était rangée avec les pages ajoutées, et la palette y proposait
+   * donc des lignes et des carreaux — sans rien à dessiner, la page n'ayant pas
+   * de fond de cahier. Glisser des photos au milieu d'une pile rendait le défaut
+   * courant.
+   */
+  const fondImpose = genre === "document" || genre === "image";
+  // Une feuille ajoutée ou une photo se retire ; une page du document, non.
+  const retirable = genre === "blank" || genre === "image";
+  const fond = genre === "blank" ? (courante as BlankPage).paper : content.paper;
 
   function choisirFond(paper: Paper) {
-    if (!ajoutee) {
+    if (genre !== "blank") {
       onChange({ ...content, paper });
       return;
     }
     onChange({
       ...content,
-      pages: pages.map((p, i) => (i === pageIndex && !isBackdropPage(p) ? { ...p, paper } : p)),
+      pages: pages.map((p, i) => (i === pageIndex && pageKind(p) === "blank" ? { ...p, paper } : p)),
     });
   }
 
@@ -244,6 +259,65 @@ export function DrawingBlock({
     if (suivant === content) return;
     setPageIndex(Math.max(0, Math.min(pageIndex, suivant.pages.length - 1)));
     onChange(suivant);
+  }
+
+  /*
+   * Une photo ou une image, glissée comme une page après la page courante.
+   *
+   * Depuis la barre d'outils, et donc aussi sur une page déjà faite d'une photo
+   * ou d'un document : on annote un polycopié, on photographie le tableau pour
+   * le mettre juste après. Le bouton « Photo » du bas de la note, lui, crée une
+   * nouvelle page manuscrite à part.
+   *
+   * Le serveur ne fait qu'enregistrer le fichier ; l'insertion se fait ici et
+   * part par l'enregistrement ordinaire (cf. `uploadPageImage`). Elle entre ainsi
+   * dans l'historique : Annuler la retire, et le fichier est nettoyé.
+   */
+  const imageRef = React.useRef<HTMLInputElement>(null);
+  const [aRecadrer, setARecadrer] = React.useState<File | null>(null);
+  const [envoiImage, setEnvoiImage] = React.useState(false);
+  const [erreurImage, setErreurImage] = React.useState<string | null>(null);
+
+  async function ajouterImage(file: File) {
+    if (!scrollId) return;
+    // Vérifié avant l'envoi : un fichier enregistré pour une page refusée
+    // resterait sur le disque sans que rien ne le désigne.
+    if (actuel.current.pages.length >= MAX_DOCUMENT_PAGES) {
+      setErreurImage("Cette page manuscrite a déjà le nombre maximal de pages.");
+      return;
+    }
+    setEnvoiImage(true);
+    setErreurImage(null);
+    try {
+      const ratio = await lireFormatImage(file);
+      const data = new FormData();
+      data.set("photo", file);
+      const result = await uploadPageImage(scrollId, data);
+      if (!result.ok) {
+        setErreurImage(result.error);
+        return;
+      }
+      const courant = actuel.current;
+      const rang = courant.pages.length > 0 ? Math.min(pageIndex, courant.pages.length - 1) : 0;
+      const suivant = insertImagePage(courant, rang, result.image, ratio);
+      if (suivant === courant) return;
+      onChange(suivant);
+      const bandes = pageBands(suivant.pages);
+      const cible = Math.min(rang + 1, bandes.length - 1);
+      setPageIndex(cible);
+      // Sans le défilement, la page arrive hors de l'écran : rien ne bouge, et
+      // l'on recommence en croyant que ça n'a pas marché.
+      requestAnimationFrame(() => {
+        const surface = document.querySelector<HTMLElement>(`[data-ink-scroll="${scrollId}"]`);
+        if (surface) surface.scrollTop = bandes[cible].top * surface.clientWidth;
+      });
+    } catch {
+      // Une action peut être rejetée, pas seulement répondre non : sans ce
+      // filet, le bouton tournerait pour toujours.
+      setErreurImage("L'image n'a pas pu être envoyée. Vérifie ta connexion.");
+    } finally {
+      setEnvoiImage(false);
+    }
   }
 
   const surfaceRef = React.useRef<HTMLDivElement>(null);
@@ -343,11 +417,13 @@ export function DrawingBlock({
       selection={selection.length}
       zoom={zoom}
       full={full}
-      paperEditable={!surDocument}
+      paperEditable={!fondImpose}
       canAddPage={pages.length > 0 && pages.length < MAX_DOCUMENT_PAGES}
-      canRemovePage={ajoutee && pages.length > 1}
+      canRemovePage={retirable && pages.length > 1}
       canUndo={historique.annuler}
       canRedo={historique.retablir}
+      onAddImage={readOnly || !scrollId ? undefined : () => imageRef.current?.click()}
+      addingImage={envoiImage}
       ruler={ruler}
       onTool={setTool}
       onSettings={tool === "highlighter" ? setHighlighter : setPen}
@@ -412,6 +488,51 @@ export function DrawingBlock({
     />
   );
 
+  const alerteImage = erreurImage ? (
+    <p role="alert" className="px-2 m3-body-small text-error">
+      {erreurImage}
+    </p>
+  ) : null;
+
+  // Le sélecteur vit dans le plein écran quand il est ouvert : le recadreur est
+  // en position fixe, et placé dehors il passerait sous la feuille.
+  const selecteurImage = readOnly ? null : (
+    <>
+      <input
+        ref={imageRef}
+        type="file"
+        // `image/*` : c'est ce qui fait proposer « Prendre une photo » par iOS.
+        accept="image/*"
+        data-page-image=""
+        className="sr-only"
+        tabIndex={-1}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) return;
+          if (file.size > MAX_UPLOAD_BYTES * 6) {
+            setErreurImage("Image beaucoup trop lourde.");
+            return;
+          }
+          setARecadrer(file);
+        }}
+      />
+      {aRecadrer ? (
+        <ImageCropper
+          key={`${aRecadrer.name}-${aRecadrer.size}-${aRecadrer.lastModified}`}
+          file={aRecadrer}
+          maxSide={COTE_MAX}
+          type="image/jpeg"
+          onCancel={() => setARecadrer(null)}
+          onConfirm={(recadree) => {
+            setARecadrer(null);
+            void ajouterImage(recadree);
+          }}
+        />
+      ) : null}
+    </>
+  );
+
   if (full) {
     return (
       <>
@@ -436,7 +557,9 @@ export function DrawingBlock({
           <div className="scroll-slim min-h-0 flex-1 overflow-y-auto overscroll-contain">
             {canvas}
           </div>
+          {alerteImage}
           {palette}
+          {selecteurImage}
         </div>
       </>
     );
@@ -445,7 +568,9 @@ export function DrawingBlock({
   return (
     <div className="space-y-2">
       {readOnly ? null : palette}
+      {alerteImage}
       {canvas}
+      {selecteurImage}
     </div>
   );
 }

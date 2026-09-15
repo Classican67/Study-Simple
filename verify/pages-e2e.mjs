@@ -56,7 +56,7 @@ await page.getByRole("button", { name: "Nouvelle note" }).click();
 await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.getByLabel("Titre de la note").fill(`Pages ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
-await page.getByRole("button", { name: "Croquis", exact: true }).last().click();
+// Une note neuve porte déjà sa page manuscrite : ajouter un croquis en ferait deux.
 await page.waitForSelector('[data-testid="drawing-canvas"]');
 // Une longue ligne horizontale, bien échantillonnée.
 await tracer(0, Array.from({ length: 40 }, (_, i) => [0.08 + (i * 0.84) / 39, 0.25]));
@@ -88,8 +88,8 @@ await page.waitForTimeout(1200);
 check((await traits(0)) === 1, "la gomme ordinaire emporte le morceau entier", `${await traits(0)} trait(s)`);
 
 section("duplication");
-// La note s'ouvre sur un bloc de texte : la page manuscrite est la deuxième.
-await page.getByRole("button", { name: "Dupliquer le bloc 2" }).click();
+// La note s'ouvre sur sa page manuscrite : c'est le bloc 1.
+await page.getByRole("button", { name: "Dupliquer le bloc 1" }).click();
 await page.waitForTimeout(2500);
 for (const plainte of await page.locator('p[role="alert"]').allInnerTexts()) {
   console.log("   l'app se plaint :", plainte);
