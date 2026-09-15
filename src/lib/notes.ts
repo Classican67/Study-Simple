@@ -176,12 +176,42 @@ export type BackdropPage = Backdrop & { ratio: number };
  */
 export type BlankPage = { paper: Paper; ratio: number };
 
-/** Une page de la surface : celle du document, ou celle qu'on a ajoutée. */
-export type NotePage = BackdropPage | BlankPage;
+/**
+ * Une photo devenue page annotable.
+ *
+ * Le tableau du cours, la page d'un camarade, un schéma d'un livre : on les
+ * photographie, et il faut pouvoir écrire dessus — entourer, flécher,
+ * annoter — exactement comme sur un polycopié importé. C'est donc une **page**
+ * de la surface, et non un bloc à part : elle hérite ainsi de l'écriture, du
+ * zoom, du volet des pages et de l'export, sans rien réinventer.
+ *
+ * `image` est le nom du fichier stocké, comme `file` l'est pour un document.
+ */
+export type ImagePage = { image: string; ratio: number };
+
+/** Une page de la surface : du document importé, ajoutée, ou photographiée. */
+export type NotePage = BackdropPage | BlankPage | ImagePage;
 
 /** Cette page vient-elle du document importé ? */
 export function isBackdropPage(page: NotePage): page is BackdropPage {
   return "file" in page;
+}
+
+/** Cette page est-elle une photo ? */
+export function isImagePage(page: NotePage): page is ImagePage {
+  return "image" in page;
+}
+
+/**
+ * Le genre d'une page, en un mot.
+ *
+ * Trois genres et deux gardes de type : demander « est-ce le document ? » puis
+ * « est-ce une photo ? » à chaque endroit finissait par en oublier un.
+ */
+export function pageKind(page: NotePage): "document" | "image" | "blank" {
+  if (isBackdropPage(page)) return "document";
+  if (isImagePage(page)) return "image";
+  return "blank";
 }
 
 export type DrawingContent = {
@@ -303,6 +333,8 @@ export function removePage(content: DrawingContent, index: number): DrawingConte
   const pages = content.pages;
   const cible = pages[index];
   // On ne laisse pas une pile vide : une surface sans page n'a plus de hauteur.
+  // Une page du document, elle, ne se retire pas — la pile serait en désaccord
+  // avec le fichier. Une photo, si : elle n'appartient qu'à cette note.
   if (!cible || pages.length < 2 || isBackdropPage(cible)) return content;
 
   const bandes = pageBands(pages);
@@ -352,13 +384,21 @@ export function parseDrawing(raw: string): DrawingContent {
    * s'ouvrent sans conversion.
    */
   const page = (brut: unknown, secours: number): NotePage | null => {
-    const b = brut as (Partial<BackdropPage> & Partial<BlankPage>) | null | undefined;
+    const b = brut as
+      | (Partial<BackdropPage> & Partial<BlankPage> & Partial<ImagePage>)
+      | null
+      | undefined;
     if (!b) return null;
     const r = typeof b.ratio === "number" && b.ratio > 0.1 && b.ratio <= MAX_RATIO ? b.ratio : secours;
     // Une page de document se reconnaît à son fichier ; tout le reste est une
     // page ajoutée, et son fond vaut « uni » si l'on n'en reconnaît pas le nom.
     if (typeof b.file === "string" && Number.isInteger(b.page) && (b.page as number) >= 1) {
       return { file: b.file.slice(0, 128), page: b.page as number, ratio: r };
+    }
+    // Une photo : le nom est validé à l'affichage comme partout, mais on borne
+    // ici pour qu'un contenu abîmé ne fasse pas grossir le bloc.
+    if (typeof b.image === "string" && b.image.length > 0) {
+      return { image: b.image.slice(0, 128), ratio: r };
     }
     if ((PAPERS as readonly unknown[]).includes(b.paper)) {
       return { paper: b.paper as Paper, ratio: r };
@@ -466,6 +506,7 @@ export function noteSearchText(
  */
 export type NotePreview =
   | { kind: "pdf"; file: string; page: number; ratio: number }
+  | { kind: "image"; file: string; ratio: number }
   | { kind: "ink"; ratio: number; strokes: { color: string; points: number[] }[] }
   | null;
 
@@ -489,6 +530,9 @@ export function buildPreview(kind: string, content: string): NotePreview {
   if (premiere && isBackdropPage(premiere)) {
     return { kind: "pdf", file: premiere.file, page: premiere.page, ratio: premiere.ratio };
   }
+  if (premiere && isImagePage(premiere)) {
+    return { kind: "image", file: premiere.image, ratio: premiere.ratio };
+  }
   if (page.strokes.length === 0) return null;
 
   return {
@@ -509,6 +553,9 @@ export function parsePreview(raw: string): NotePreview {
     const data = JSON.parse(raw);
     if (data?.kind === "pdf" && typeof data.file === "string" && Number.isInteger(data.page)) {
       return { kind: "pdf", file: data.file, page: data.page, ratio: ratioOf(data.ratio) };
+    }
+    if (data?.kind === "image" && typeof data.file === "string") {
+      return { kind: "image", file: data.file, ratio: ratioOf(data.ratio) };
     }
     if (data?.kind === "ink" && Array.isArray(data.strokes)) {
       return {

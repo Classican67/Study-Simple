@@ -6,12 +6,17 @@ import path from "node:path";
 import {
   PAGE_GAP,
   PAPER_STEPS,
+  buildPreview,
   insertPage,
   isBackdropPage,
+  isImagePage,
   pageBands,
+  pageKind,
   parseDrawing,
+  parsePreview,
   removePage,
   surfaceRatio,
+  type BlankPage,
   type DrawingContent,
   type NotePage,
   type Stroke,
@@ -52,7 +57,7 @@ describe("insertPage", () => {
     const suivant = insertPage(contenu(doc(3)), 0, "ruled");
     assert.equal(suivant.pages.length, 4);
     assert.deepEqual(
-      suivant.pages.map((p) => (isBackdropPage(p) ? `doc${p.page}` : `ajout:${p.paper}`)),
+      suivant.pages.map((p) => (isBackdropPage(p) ? `doc${p.page}` : `ajout:${(p as BlankPage).paper}`)),
       ["doc1", "ajout:ruled", "doc2", "doc3"],
     );
   });
@@ -215,7 +220,7 @@ describe("relecture d'une pile mêlée", () => {
       }),
     );
     assert.deepEqual(
-      contenuRelu.pages.map((p) => (isBackdropPage(p) ? "doc" : p.paper)),
+      contenuRelu.pages.map((p) => (isBackdropPage(p) ? "doc" : (p as BlankPage).paper)),
       // Le fond inconnu est écarté, comme tout champ non reconnu ; une page
       // sans format prend celui par défaut.
       ["doc", "ruled", "dots"],
@@ -331,5 +336,73 @@ describe("interlignes", () => {
     assert.equal(Math.round(PAPER_STEPS.grid * 210), 5);
     assert.equal(Math.round(PAPER_STEPS.dots * 210), 5);
     assert.equal(PAPER_STEPS.blank, 0);
+  });
+});
+
+/**
+ * Une photo est une page, pas un bloc d'image à côté.
+ *
+ * C'est ce choix qui lui donne le stylet, le zoom, le volet des pages et
+ * l'export sans qu'on ait à les réécrire. Il a un coût : **trois** genres de
+ * page cohabitent désormais dans la même pile, et en oublier un est l'erreur
+ * naturelle. `pageKind` existe pour qu'elle soit impossible à commettre en
+ * silence — un `switch` incomplet ne compile pas.
+ */
+describe("pages photographiées", () => {
+  it("se relisent, et se distinguent des autres", () => {
+    const relu = parseDrawing(
+      JSON.stringify({
+        pages: [
+          { file: "cours.pdf", page: 1, ratio: 1.4 },
+          { image: "a29d00c2-5afd-4b0f-afb0-1de8f3647367.jpg", ratio: 0.6667 },
+          { paper: "ruled", ratio: 1.4 },
+        ],
+      }),
+    );
+    assert.deepEqual(relu.pages.map(pageKind), ["document", "image", "blank"]);
+    assert.equal(isImagePage(relu.pages[1]) && relu.pages[1].image.endsWith(".jpg"), true);
+    assert.equal(relu.pages[1].ratio, 0.6667);
+  });
+
+  it("donnent leur format à la page", () => {
+    // Une photo n'est ni A4 ni carrée : la page prend **son** format, sinon
+    // elle apparaîtrait avec des bandes ou déformée.
+    const relu = parseDrawing(JSON.stringify({ pages: [{ image: "p.jpg", ratio: 0.5625 }] }));
+    assert.equal(relu.ratio, 0.5625);
+  });
+
+  it("servent d'aperçu à la note", () => {
+    const apercu = buildPreview(
+      "drawing",
+      JSON.stringify({ pages: [{ image: "p.jpg", ratio: 0.75 }], strokes: [] }),
+    );
+    assert.deepEqual(apercu, { kind: "image", file: "p.jpg", ratio: 0.75 });
+    // Et l'aperçu se relit tel qu'il a été écrit.
+    assert.deepEqual(parsePreview(JSON.stringify(apercu)), apercu);
+  });
+
+  it("se retirent d'une pile, contrairement aux pages du document", () => {
+    // Une photo n'appartient qu'à cette note : la retirer ne met rien en
+    // désaccord. Une page du document, si — le fichier, lui, la garde.
+    const pages: NotePage[] = [
+      { file: "cours.pdf", page: 1, ratio: 1 },
+      { image: "p.jpg", ratio: 1 },
+    ];
+    const avant = contenu(pages);
+    assert.equal(removePage(avant, 1).pages.length, 1);
+    assert.equal(removePage(avant, 0), avant);
+  });
+
+  it("acceptent qu'on glisse une feuille après elles", () => {
+    const avant = contenu([{ image: "p.jpg", ratio: 0.75 }, { image: "q.jpg", ratio: 0.75 }]);
+    const suivant = insertPage(avant, 0, "grid");
+    assert.deepEqual(suivant.pages.map(pageKind), ["image", "blank", "image"]);
+    // La feuille reprend le format de sa voisine — celui de la photo.
+    assert.equal(suivant.pages[1].ratio, 0.75);
+  });
+
+  it("écartent un nom de photo vide", () => {
+    const relu = parseDrawing(JSON.stringify({ pages: [{ image: "", ratio: 1 }] }));
+    assert.deepEqual(relu.pages, []);
   });
 });

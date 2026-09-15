@@ -23,6 +23,7 @@ import {
   DEFAULT_RATIO,
   MAX_RATIO,
   isBackdropPage,
+  isImagePage,
   pageAtY,
   pageBands,
   paperClass,
@@ -1556,8 +1557,12 @@ export function InkCanvas({
           // Le fond de la pile est plus sombre que le papier : sans ce contraste
           // la gouttière entre deux pages ne se voit pas, et l'on ne sait plus
           // où l'une finit.
+          //
+          // `ink-clair` : une pile de pages est du **papier**, et le papier ne
+          // suit pas le thème de l'app. Sans elle, le stylo écrivait en blanc
+          // sur un polycopié blanc dès qu'on passait en thème sombre.
           bands.length > 0
-            ? "bg-surface-container-high"
+            ? "ink-clair bg-surface-container-high"
             : cn("bg-surface-lowest", paperClass(paper)),
         )}
         style={
@@ -1578,7 +1583,11 @@ export function InkCanvas({
             ce fond part du haut de **sa** page, pas du haut de la pile, sinon
             les lignes ne tomberaient au bon endroit que sur la première. */}
         {bands.map((band, index) => {
-          const cle = isBackdropPage(band) ? `${band.file}-${band.page}` : `ajout-${index}`;
+          const cle = isBackdropPage(band)
+            ? `${band.file}-${band.page}`
+            : isImagePage(band)
+              ? `photo-${band.image}`
+              : `ajout-${index}`;
           const place = {
             top: `${Math.round(band.top * pageW)}px`,
             height: `${Math.round(band.ratio * pageW)}px`,
@@ -1586,6 +1595,32 @@ export function InkCanvas({
           // Hors de la fenêtre, la place est gardée mais rien n'est rendu :
           // sans cela le document se replierait dès qu'on s'en éloigne.
           const visible = index >= fenetre.premiere && index <= fenetre.derniere;
+
+          if (isImagePage(band)) {
+            return (
+              <div
+                key={cle}
+                aria-hidden
+                className="pointer-events-none absolute left-0 w-full overflow-hidden bg-surface-lowest elevation-1"
+                style={place}
+              >
+                {/* Une photo devenue page. `object-contain` : la page a déjà le
+                    format de la photo, mais un format arrondi au millième la
+                    déformerait imperceptiblement — autant ne pas la déformer.
+                    Le navigateur la décode et la met à l'échelle lui-même, ce
+                    qui la garde nette au zoom sans rien coûter à l'app. */}
+                {visible ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`/api/uploads/${band.image}`}
+                    alt=""
+                    draggable={false}
+                    className="absolute inset-0 h-full w-full object-contain"
+                  />
+                ) : null}
+              </div>
+            );
+          }
 
           if (!isBackdropPage(band)) {
             return (

@@ -7,9 +7,12 @@ import { NoteThumbnail } from "@/components/note/note-thumbnail";
 import {
   buildPreview,
   isBackdropPage,
+  isImagePage,
+  pageKind,
   pageBands,
   paperClass,
   parseDrawing,
+  type BlankPage,
   type NotePreview,
   type Paper,
 } from "@/lib/notes";
@@ -69,6 +72,8 @@ export function PageNavigator({
     ratio: number;
     /** Numéro de page du document, ou `null` pour une page ajoutée. */
     page: number | null;
+    /** Photo, pour la montrer telle qu'elle est. */
+    image: string | null;
     /** Fond d'une page ajoutée, pour la montrer telle qu'elle est. */
     paper: Paper | null;
   }[] = [];
@@ -76,7 +81,7 @@ export function PageNavigator({
     const contenu = parseDrawing(bloc.content);
     const bandes = pageBands(contenu.pages);
     if (bandes.length === 0) {
-      entrees.push({ blockId: bloc.id, top: 0, ratio: contenu.ratio, page: null, paper: null });
+      entrees.push({ blockId: bloc.id, top: 0, ratio: contenu.ratio, page: null, image: null, paper: null });
       continue;
     }
     for (const bande of bandes) {
@@ -85,7 +90,8 @@ export function PageNavigator({
         top: bande.top,
         ratio: bande.ratio,
         page: isBackdropPage(bande) ? bande.page : null,
-        paper: isBackdropPage(bande) ? null : bande.paper,
+        image: isImagePage(bande) ? bande.image : null,
+        paper: pageKind(bande) === "blank" ? (bande as BlankPage).paper : null,
       });
     }
   }
@@ -175,6 +181,8 @@ export function PageNavigator({
         .find((p) => p.page === entree.page);
       if (bande) return { kind: "pdf", file: bande.file, page: bande.page, ratio: bande.ratio };
     }
+    // Une photo se montre elle-même.
+    if (entree.image !== null) return { kind: "image", file: entree.image, ratio: entree.ratio };
     // Une page ajoutée n'a pas d'image : c'est son fond qui la distingue, et
     // il est dessiné directement dans la vignette.
     if (entree.paper !== null) return null;

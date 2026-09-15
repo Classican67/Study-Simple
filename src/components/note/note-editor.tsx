@@ -17,6 +17,7 @@ import {
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { ExportPdf } from "@/components/note/export-pdf";
 import { ImportDocument } from "@/components/note/import-document";
+import { PhotoNote } from "@/components/note/photo-note";
 import { PageNavigator } from "@/components/note/page-navigator";
 import { DrawingBlock } from "@/components/note/drawing-block";
 import { TableBlock } from "@/components/note/table-block";
@@ -198,6 +199,19 @@ export function NoteEditor({
         <ExportPdf
           noteId={noteId}
           disabled={!blocks.some((b) => b.kind === "drawing")}
+        />
+        {/* Photographier une page pour l'annoter : le tableau du cours, la
+            page d'un camarade, un schéma d'un livre. */}
+        <PhotoNote
+          noteId={noteId}
+          onError={setError}
+          onAdded={(block) => {
+            setError(null);
+            setBlocks((current) => [
+              ...current,
+              { id: block.id, kind: block.kind as BlockKind, content: block.content },
+            ]);
+          }}
         />
         <ImportDocument
           noteId={noteId}

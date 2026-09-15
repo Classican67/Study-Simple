@@ -8,10 +8,13 @@ import { prisma } from "@/lib/prisma";
 import { boundsOf, translateStroke } from "@/lib/ink";
 import {
   isBackdropPage,
+  isImagePage,
   pageAtY,
+  pageKind,
   pageBands,
   parseDrawing,
   UNTITLED,
+  type BlankPage,
   type PageBand,
   type Paper,
   type Stroke,
@@ -108,9 +111,9 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
     bandes.forEach((band, index) =>
       feuilles.push({
         band,
-        // Une page ajoutée porte son propre fond ; une page du document n'en a
-        // pas besoin, son image en tient lieu.
-        paper: isBackdropPage(band) ? "blank" : band.paper,
+        // Une page ajoutée porte son propre fond ; une page du document et une
+        // photo n'en ont pas besoin, leur image en tient lieu.
+        paper: pageKind(band) === "blank" ? (band as BlankPage).paper : "blank",
         ratio: band.ratio,
         strokes: parPage[index],
       }),
@@ -158,6 +161,45 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
         // bonnes dimensions plutôt que d'abandonner tout l'export.
         console.error("[pdf] fond illisible :", error);
         cible = sortie.addPage([595, Math.round(595 * page.ratio)]);
+      }
+    } else if (page.band && isImagePage(page.band)) {
+      /*
+       * Une photo annotée : la page **est** la photo.
+       *
+       * Sans elle, la page sortait blanche et les annotations flottaient dans
+       * le vide — le même défaut que pour les fonds de cahier, et pour la même
+       * raison : ce que l'écran affiche en HTML, le PDF ne le sait pas.
+       */
+      const image = page.band.image;
+      cible = sortie.addPage([595, Math.round(595 * page.ratio)]);
+      try {
+        if (!isValidUploadName(image)) throw new Error("nom de fichier invalide");
+        const octets = await readFile(path.join(UPLOAD_DIR, image));
+        // pdf-lib ne sait embarquer que le JPEG et le PNG. Les photos prises
+        // dans l'app sont en JPEG pour cette raison précise ; on se fie aux
+        // octets et non à l'extension, qui vient de nous mais pourrait changer.
+        const jpeg = octets[0] === 0xff && octets[1] === 0xd8;
+        const embarquee = jpeg
+          ? await sortie.embedJpg(new Uint8Array(octets))
+          : await sortie.embedPng(new Uint8Array(octets));
+        // Ajustée au papier en gardant ses proportions : la page a le format
+        // de la photo, mais arrondi au millième.
+        const echelle = Math.min(
+          cible.getWidth() / embarquee.width,
+          cible.getHeight() / embarquee.height,
+        );
+        const l = embarquee.width * echelle;
+        const h = embarquee.height * echelle;
+        cible.drawImage(embarquee, {
+          x: (cible.getWidth() - l) / 2,
+          y: (cible.getHeight() - h) / 2,
+          width: l,
+          height: h,
+        });
+      } catch (error) {
+        // Photo manquante ou illisible : on garde la page et ses annotations
+        // plutôt que d'abandonner tout l'export.
+        console.error("[pdf] photo illisible :", error);
       }
     } else {
       // Sans document, la page prend la largeur d'un A4 et le format du bloc.

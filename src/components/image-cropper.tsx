@@ -28,7 +28,17 @@ import { cn } from "@/lib/utils";
  * une carte de révision n'a aucun usage.
  */
 
-// Plus grand côté de l'image enregistrée. Au-delà, on ne gagne que du poids.
+/*
+ * Plus grand côté de l'image enregistrée, et format de sortie.
+ *
+ * Ce sont les valeurs d'une image de carte : au-delà, on ne gagne que du poids,
+ * et le WebP pèse un tiers de moins que le JPEG à qualité égale.
+ *
+ * Une photo destinée à être **annotée** demande les deux autres réglages, et
+ * pour deux raisons distinctes : on y zoome jusqu'à six fois, donc il faut de
+ * la définition ; et elle finit dans un PDF exporté, où seuls le JPEG et le
+ * PNG s'embarquent — pdf-lib ne sait pas lire le WebP.
+ */
 const MAX_SIDE = 1600;
 const OUTPUT_TYPE = "image/webp";
 const OUTPUT_QUALITY = 0.9;
@@ -41,10 +51,16 @@ export function ImageCropper({
   file,
   onCancel,
   onConfirm,
+  maxSide = MAX_SIDE,
+  type = OUTPUT_TYPE,
 }: {
   file: File;
   onCancel: () => void;
   onConfirm: (cropped: File) => void;
+  /** Plus grand côté de l'image produite. */
+  maxSide?: number;
+  /** Format de sortie. Le JPEG pour ce qui doit s'embarquer dans un PDF. */
+  type?: "image/webp" | "image/jpeg";
 }) {
   // Initialiseur paresseux : le fichier ne change pas pendant la vie du
   // composant (le parent le remonte pour chaque nouvelle photo), donc l'URL
@@ -175,7 +191,7 @@ export function ImageCropper({
 
     try {
       const { sx, sy, sw, sh } = toSourceRect(crop, image.naturalWidth, image.naturalHeight);
-      const target = fitWithin(sw, sh, MAX_SIDE);
+      const target = fitWithin(sw, sh, maxSide);
 
       const canvas = document.createElement("canvas");
       canvas.width = target.width;
@@ -189,8 +205,9 @@ export function ImageCropper({
       context.imageSmoothingQuality = "high";
       context.drawImage(image, sx, sy, sw, sh, 0, 0, target.width, target.height);
 
-      const blob = await toBlob(canvas, OUTPUT_TYPE, OUTPUT_QUALITY);
-      onConfirm(new File([blob], "photo.webp", { type: OUTPUT_TYPE }));
+      const blob = await toBlob(canvas, type, OUTPUT_QUALITY);
+      const extension = type === "image/jpeg" ? "jpg" : "webp";
+      onConfirm(new File([blob], `photo.${extension}`, { type }));
     } catch {
       setError("Recadrage impossible. Réessaie, ou envoie la photo sans la recadrer.");
       setBusy(false);

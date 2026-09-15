@@ -380,3 +380,82 @@ export async function addDocumentBlocks(
   // l'import avait échoué.
   return { ok: true, blocks: [bloc] };
 }
+
+export type PhotoResult =
+  | { ok: true; block: { id: string; kind: string; content: string } }
+  | { ok: false; error: string };
+
+/**
+ * Fait d'une photo une page manuscrite, prête à être annotée.
+ *
+ * Le tableau du cours, la page d'un camarade, un schéma d'un livre : on les
+ * photographie pour écrire dessus. La photo devient donc une **page** de la
+ * surface, comme une page de document importé — elle hérite ainsi de
+ * l'écriture, du zoom, du volet des pages et de l'export, sans rien
+ * réinventer.
+ *
+ * Le format vient du navigateur, qui a la photo en main : le serveur ne sait
+ * pas lire les dimensions d'une image sans embarquer un décodeur. Il le borne,
+ * ce qui suffit — une valeur fausse ne déforme que la page de celui qui l'a
+ * envoyée.
+ */
+export async function addPhotoBlock(noteId: string, formData: FormData): Promise<PhotoResult> {
+  const user = await requireUser();
+  if (!(await ownsNote(noteId, user.id))) return { ok: false, error: "Note introuvable." };
+
+  const file = formData.get("photo");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Aucune photo reçue." };
+
+  const brut = Number(formData.get("ratio"));
+  const ratio = Number.isFinite(brut) && brut > 0.1 && brut <= MAX_RATIO ? brut : 1;
+
+  const { saveUpload, UploadError } = await import("@/lib/uploads");
+  let image: string;
+  try {
+    image = await saveUpload(file);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof UploadError ? error.message : "Cette photo n'a pas pu être enregistrée.",
+    };
+  }
+
+  const last = await prisma.noteBlock.findFirst({
+    where: { noteId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+
+  const bloc = await prisma.noteBlock.create({
+    data: {
+      noteId,
+      kind: "drawing",
+      position: (last?.position ?? -1) + 1,
+      content: JSON.stringify({
+        strokes: [],
+        ratio: Number(ratio.toFixed(4)),
+        paper: "blank",
+        pages: [{ image, ratio: Number(ratio.toFixed(4)) }],
+      }),
+    },
+    select: { id: true, kind: true, content: true },
+  });
+
+  // La première page manuscrite sert d'aperçu à la note : si c'est celle-ci,
+  // la vignette montrera la photo.
+  const premiere = await prisma.noteBlock.findFirst({
+    where: { noteId, kind: "drawing" },
+    orderBy: { position: "asc" },
+    select: { id: true, kind: true, content: true },
+  });
+  if (premiere) {
+    const apercu = buildPreview(premiere.kind, premiere.content);
+    await prisma.note.update({
+      where: { id: noteId },
+      data: { preview: apercu ? JSON.stringify(apercu) : "" },
+    });
+  }
+
+  await touch(noteId);
+  return { ok: true, block: bloc };
+}

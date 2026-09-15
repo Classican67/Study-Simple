@@ -368,6 +368,32 @@
   .paper-grid  { --paper-step: calc(var(--paper-width) * 0.023810); }
   .paper-dots  { --paper-step: calc(var(--paper-width) * 0.023810); }
 
+  /* --- Une pile de pages est du papier, pas une interface ------------------
+     Un document importé et une photo ne suivent pas le thème de
+     l'application : ils sont clairs, toujours. Or l'encre, elle, le suivait —
+     et en thème sombre le stylo écrit en blanc. On annotait donc un polycopié
+     blanc à l'encre blanche, et une photo claire de même : le trait n'était
+     visible que si l'on repassait en thème clair.
+
+     La règle est celle des applications dédiées : dès qu'une surface porte des
+     pages, elle est du **papier**. Ses encres, son blanc et ses réglures
+     prennent leurs valeurs claires dans les deux thèmes — y compris pour les
+     pages ajoutées au milieu, qui doivent ressembler à leurs voisines et non
+     trancher en noir entre deux pages blanches.
+
+     Redéfini sur le conteneur de la page : les trois couches du canevas et les
+     fonds y sont tous, et relisent ces variables. */
+  .ink-clair {
+    --ink-default: oklch(20% 0.01 292);
+    --ink-rose: oklch(52% 0.20 15);
+    --ink-amber: oklch(52% 0.13 70);
+    --ink-emerald: oklch(48% 0.14 160);
+    --ink-blue: oklch(50% 0.16 250);
+    --ink-violet: oklch(50% 0.20 292);
+    --color-surface-lowest: oklch(100% 0 0);
+    --color-outline-variant: oklch(86% 0.010 292);
+  }
+
   /* --- Surface d'écriture --------------------------------------------------
      iPadOS déclenche sa sélection de texte sur un appui maintenu : au milieu
      d'une phrase, toute la page passait en surbrillance bleue, comme si l'on

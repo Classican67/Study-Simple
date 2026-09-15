@@ -58,6 +58,11 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node regard-fonds.mjs` — captures des quatre fonds, en clair et en sombre
 - `node regard-export.mjs` — le PDF exporté, relu par l'application et
   photographié page par page
+- `node photo-e2e.mjs` — **photographier une page pour l'annoter** : la photo
+  devient une page au format de l'image, on écrit dessus, tout survit au
+  rechargement, la vignette la montre, le PDF l'embarque, et l'encre reste
+  lisible dessus en thème sombre
+- `node regard-photo.mjs` — captures d'une photo annotée, en clair et en sombre
 - `node import-e2e.mjs` — **importer un document depuis le système** : dépôt
   d'un fichier sur la liste des notes, rangement dans le dossier ouvert, titre
   repris du nom de fichier, refus d'un autre format, et la réponse attendue par
@@ -135,6 +140,30 @@ du verrou npm.
   serveur : on n'y reçoit qu'une référence, et l'appeler échoue à l'exécution
   sur un « includes is not a function » peu parlant. Les tableaux et listes
   partagés vont dans un module neutre de `src/lib/`.
+- **Une photo est une *page*, pas un bloc d'image.** C'est ce qui lui donne le
+  stylet, le surligneur, le zoom, le volet des pages et l'export sans qu'on ait
+  rien à réécrire. La pile compte donc **trois** genres de page — du document,
+  ajoutée, photographiée — et en oublier un est l'erreur naturelle. `pageKind`
+  existe pour cela, et le typage l'attrape : une branche manquante ne compile
+  pas, parce que `BlankPage` et `ImagePage` n'ont pas les mêmes champs.
+- **pdf-lib n'embarque que le JPEG et le PNG.** Les photos de note sortent donc
+  du recadreur en **JPEG**, là où celles des cartes restent en WebP — qui pèse
+  un tiers de moins mais qu'aucun PDF ne sait lire. Et la définition est plus
+  grande (2400 px contre 1600) : on zoome jusqu'à six fois sur une page annotée.
+- **L'encre suivait le thème de l'app, pas le papier.** En thème sombre le
+  stylo écrit en blanc : on annotait donc un polycopié blanc à l'encre blanche,
+  et une photo claire de même. Le défaut existait déjà sur les documents
+  importés, sans que rien ne le signale — aucun audit ne regarde la couleur
+  d'un trait posé sur une image. Règle désormais : **une surface qui porte des
+  pages est du papier** et prend les valeurs claires dans les deux thèmes
+  (classe `.ink-clair`), y compris pour les pages ajoutées au milieu, qui
+  doivent ressembler à leurs voisines. Une surface sans pages, elle, continue
+  de suivre le thème. La sonde mesure la couleur **réellement peinte** sur les
+  tuiles, pas la variable CSS.
+- **`npm run build` affiche « Compiled successfully » *avant* de typer.** Un
+  `grep -c "Compiled successfully"` annonce donc un succès sur un build qui
+  échoue au typage — et l'on part chercher ailleurs pourquoi le serveur sert un
+  vieux code, voire pourquoi `.next` a disparu. **Se fier au code de sortie.**
 - **Un PWA ne peut pas figurer dans la feuille de partage d'iOS.** Ni
   `share_target` ni `file_handlers` n'existent sur iOS ni iPadOS : Safari ne
   sait pas faire d'une application web la destination d'un partage ou d'un

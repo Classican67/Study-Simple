@@ -41,6 +41,22 @@ export function NoteThumbnail({
     );
   }
 
+  if (preview.kind === "image") {
+    return (
+      <div style={style} className={cn("overflow-hidden bg-surface-lowest", className)}>
+        {/* `object-cover` : une vignette est un cadre fixe, et une photo au
+            format libre y laisserait des bandes. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`/api/uploads/${preview.file}`}
+          alt="Photo annotée"
+          loading="lazy"
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+  }
+
   if (preview.kind === "pdf") {
     return (
       <div style={style} className={cn("overflow-hidden bg-surface-lowest", className)}>
