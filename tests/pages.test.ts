@@ -11,7 +11,10 @@ import {
   isBackdropPage,
   isImagePage,
   pageBands,
+  PAPER_COLORS,
+  blockFiles,
   pageKind,
+  paperStepPx,
   parseDrawing,
   parsePreview,
   removePage,
@@ -311,23 +314,63 @@ describe("paperGuides", () => {
 describe("interlignes", () => {
   const css = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
 
-  it("la feuille de style emploie les fractions de PAPER_STEPS", () => {
-    // Un littéral plutôt qu'une expression construite : les échappements d'une
-    // regex écrite dans une chaîne se trompent d'un niveau sans prévenir, et le
-    // test échoue alors pour une raison qui n'a rien à voir avec la feuille.
-    const pas = new Map<string, number>();
-    const re = /\.paper-(ruled|grid|dots)\s*\{[^}]*--paper-step:\s*calc\(var\(--paper-width\)\s*\*\s*([0-9.]+)\)/g;
-    let trouve: RegExpExecArray | null;
-    while ((trouve = re.exec(css))) pas.set(trouve[1], Number(trouve[2]));
-
-    for (const fond of ["ruled", "grid", "dots"] as const) {
-      const fraction = pas.get(fond);
-      assert.ok(fraction !== undefined, `.paper-${fond} doit tirer son pas de --paper-width`);
-      assert.ok(
-        Math.abs(fraction - PAPER_STEPS[fond]) < 1e-4,
-        `.paper-${fond} : ${fraction} en CSS pour ${PAPER_STEPS[fond]} dans lib/notes.ts`,
+  it("s'arrête sur un pixel de l'écran, pas entre deux", () => {
+    /*
+     * Une proportion exacte tombe entre deux pixels — 25,4291 px pour une page
+     * de mille soixante-huit — et le navigateur étale alors chaque trait sur
+     * deux rangées, différemment selon l'orientation : les verticales d'un
+     * quadrillage sortaient plus épaisses que les horizontales, et les carreaux
+     * n'étaient pas carrés.
+     */
+    for (const densite of [1, 2, 3]) {
+      const pas = paperStepPx("grid", 1068, densite);
+      assert.equal(
+        Math.round(pas * densite) === pas * densite,
+        true,
+        `${pas} px à la densité ${densite} ne tombe pas sur un pixel`,
       );
     }
+  });
+
+  it("sans s'éloigner des sept millimètres d'un cahier", () => {
+    // L'arrondi ne doit pas déformer le cahier : moins d'un pour cent d'écart.
+    for (const [fond, fraction] of [["ruled", 7 / 210], ["grid", 5 / 210]] as const) {
+      const exact = fraction * 1068;
+      const pas = paperStepPx(fond, 1068, 2);
+      assert.ok(Math.abs(pas - exact) / exact < 0.01, `${fond} : ${pas} pour ${exact}`);
+    }
+  });
+
+  it("carreaux et points ont le même pas : un carreau est carré", () => {
+    assert.equal(paperStepPx("grid", 1068, 2), paperStepPx("dots", 1068, 2));
+  });
+
+  it("le papier uni n'a pas de réglage", () => {
+    assert.equal(paperStepPx("blank", 1068, 2), 0);
+  });
+
+  it("et une page sans largeur non plus", () => {
+    assert.equal(paperStepPx("ruled", 0, 2), 0);
+  });
+
+  it("la feuille de style emploie les couleurs de PAPER_COLORS", () => {
+    // Une page imprimée doit ressembler à celle qu'on avait sous les yeux : le
+    // fond et le réglage viennent de la même source des deux côtés.
+    assert.ok(
+      new RegExp(`--paper-fond:\\s*${PAPER_COLORS.fond}`, "i").test(css),
+      `globals.css doit déclarer --paper-fond: ${PAPER_COLORS.fond}`,
+    );
+    assert.ok(
+      new RegExp(`--paper-trait:\\s*${PAPER_COLORS.trait}`, "i").test(css),
+      `globals.css doit déclarer --paper-trait: ${PAPER_COLORS.trait}`,
+    );
+  });
+
+  it("et le papier est un blanc cassé, pas un blanc d'écran", () => {
+    // Un blanc pur fatigue à la lecture et n'appartient à aucun cahier.
+    assert.notEqual(PAPER_COLORS.fond.toLowerCase(), "#ffffff");
+    const [r, , b] = [1, 3, 5].map((i) => Number.parseInt(PAPER_COLORS.fond.slice(i, i + 2), 16));
+    assert.ok(r > b, "le papier doit tirer vers le chaud, pas vers le bleu");
   });
 
   it("et les pas sont ceux d'un vrai cahier sur une page A4", () => {
@@ -404,5 +447,43 @@ describe("pages photographiées", () => {
   it("écartent un nom de photo vide", () => {
     const relu = parseDrawing(JSON.stringify({ pages: [{ image: "", ratio: 1 }] }));
     assert.deepEqual(relu.pages, []);
+  });
+});
+
+/**
+ * Ce qu'une note emporte avec elle.
+ *
+ * Un document importé et une photo vivent sur le disque ; le bloc n'en garde
+ * que le nom. Supprimer la note sans les effacer laissait des fichiers que plus
+ * rien ne désigne. C'est cette fonction qui décide de ce qui sera effacé — une
+ * erreur ici efface ce qu'il ne fallait pas.
+ */
+describe("blockFiles", () => {
+  it("relève le document et la photo d'une pile", () => {
+    const content = JSON.stringify({
+      pages: [
+        { file: "cours.pdf", page: 1, ratio: 1 },
+        { file: "cours.pdf", page: 2, ratio: 1 },
+        { image: "photo.jpg", ratio: 0.75 },
+        { paper: "ruled", ratio: 1 },
+      ],
+      strokes: [],
+    });
+    // Le document n'est compté qu'une fois, même servant à plusieurs pages.
+    assert.deepEqual(blockFiles("drawing", content).sort(), ["cours.pdf", "photo.jpg"]);
+  });
+
+  it("ne relève rien d'un bloc sans fond", () => {
+    assert.deepEqual(blockFiles("drawing", JSON.stringify({ pages: [], strokes: [] })), []);
+  });
+
+  it("ni d'un bloc qui n'est pas une page manuscrite", () => {
+    // Un texte peut contenir n'importe quoi : on ne va pas y chercher des
+    // noms de fichiers à effacer.
+    assert.deepEqual(blockFiles("text", JSON.stringify({ markup: "cours.pdf" })), []);
+  });
+
+  it("ni d'un contenu abîmé", () => {
+    assert.deepEqual(blockFiles("drawing", "{ pas du json"), []);
   });
 });

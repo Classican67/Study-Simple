@@ -140,6 +140,34 @@ du verrou npm.
   serveur : on n'y reçoit qu'une référence, et l'appeler échoue à l'exécution
   sur un « includes is not a function » peu parlant. Les tableaux et listes
   partagés vont dans un module neutre de `src/lib/`.
+- **Un réglage doit tomber *sur* un pixel de l'écran.** Sept millimètres d'une
+  page A4 valent 25,4291 px pour une page de mille soixante-huit : le navigateur
+  étale alors chaque trait sur deux rangées, et il ne l'étale pas de la même
+  façon selon l'orientation. Les verticales d'un quadrillage sortaient plus
+  épaisses et plus sombres que les horizontales, et les carreaux n'étaient pas
+  carrés — un désordre qui se voit tout de suite et qu'aucune mesure de
+  proportion ne révèle. Le pas est donc arrondi (`paperStepPx`) à la densité de
+  **l'écran**, qu'il ne faut pas confondre avec celle du **dessin** : cette
+  dernière est plafonnée à deux pour la mémoire vidéo, et arrondir dessus
+  laissait un pas de 25,5 px sur un écran à trois pixels par point — toujours
+  entre deux rangées.
+- **Le papier n'est pas blanc.** Un blanc pur est un écran, pas une feuille.
+  `PAPER_COLORS` porte le blanc cassé du fond et le gris chaud du réglage, pour
+  l'écran comme pour l'export — une page imprimée doit ressembler à celle qu'on
+  avait sous les yeux. Un gris bleuté sur du crème jure : les deux couleurs se
+  choisissent ensemble.
+- **Une sonde qui cherche une couleur écrite en dur rouille.** Celle de
+  `fonds-e2e.mjs` comptait les traits de réglage d'un PDF en cherchant
+  `0.84 0.84 0.86` ; le jour où le papier est passé au blanc cassé, elle a
+  accusé l'export d'avoir perdu le réglage. Elle lit désormais la couleur
+  **dans l'application** avant de la chercher dans le PDF.
+- **Un fichier téléversé ne part pas tout seul.** Un document importé et une
+  photo vivent sur le disque ; le bloc n'en garde que le nom. Supprimer la note,
+  le bloc ou la page les laissait derrière — invisibles, et jamais repris.
+  `lib/note-uploads.ts` s'en charge, avec les deux précautions de
+  `deleteUnreferencedUploads` : **après** l'écriture en base, et seulement si
+  plus aucun bloc ne s'en sert — dupliquer une page manuscrite donne deux blocs
+  qui désignent le même fichier.
 - **Une photo est une *page*, pas un bloc d'image.** C'est ce qui lui donne le
   stylet, le surligneur, le zoom, le volet des pages et l'export sans qu'on ait
   rien à réécrire. La pile compte donc **trois** genres de page — du document,

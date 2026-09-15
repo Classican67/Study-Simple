@@ -20,6 +20,7 @@ import {
   type Stroke,
 } from "@/lib/notes";
 import {
+  PAPER_FOND_RGB,
   PAPER_RGB,
   inkRgb,
   paperGuides,
@@ -215,6 +216,23 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
      * CSS et l'export les ignorait. Ce qui était écrit entre les lignes se
      * retrouvait suspendu dans le vide.
      */
+    /*
+     * Le papier lui-même, avant son réglage.
+     *
+     * Une page sans image de fond sortait d'un blanc d'écran ; celle qu'on
+     * avait sous les yeux est un blanc cassé légèrement chaud. Une page de
+     * document ou une photo, elles, apportent leur propre fond.
+     */
+    if (!page.band || pageKind(page.band) === "blank") {
+      cible.drawRectangle({
+        x: 0,
+        y: 0,
+        width: taille.width,
+        height: taille.height,
+        color: rgb(...PAPER_FOND_RGB),
+      });
+    }
+
     const repere = paperGuides(page.paper, taille);
     const grisPapier = rgb(...PAPER_RGB);
     for (const [x1, y1, x2, y2] of repere.lines) {

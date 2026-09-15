@@ -150,6 +150,16 @@
   --ink-blue: oklch(50% 0.16 250);
   --ink-violet: oklch(50% 0.20 292);
 
+  /* --- Le papier ----------------------------------------------------------
+     Un blanc pur est un écran, pas une feuille. Ce blanc cassé très légèrement
+     chaud est celui d'un papier ordinaire, et son réglage un gris chaud
+     assorti — un gris bleuté sur du crème jure.
+
+     Les mêmes valeurs qu'à l'export (`PAPER_COLORS` dans `lib/notes.ts`) :
+     une page imprimée doit ressembler à celle qu'on avait sous les yeux, et
+     `tests/pages.test.ts` vérifie qu'elles ne se séparent pas. */
+  --paper-fond: #fcf8ee;
+  --paper-trait: #d7d0c0;
 }
 
 .dark {
@@ -206,30 +216,29 @@
   --ink-blue: oklch(82% 0.11 250);
   --ink-violet: oklch(82% 0.13 292);
 
+  /* Une feuille de croquis suit le thème : on n'allume pas une page blanche au
+     milieu de la nuit. Une pile de **pages** — document, photo — ne le suit
+     pas : cf. `.ink-clair`. */
+  --paper-fond: var(--m3-surface-lowest);
+  --paper-trait: var(--m3-outline-variant);
+
 }
 
-/* Les deux propriétés du papier sont **déclarées**, et non laissées libres.
+/* Le pas du papier est **déclaré**, et non laissé libre.
 
    Une propriété personnalisée ordinaire n'a pas de type : sa valeur calculée
-   reste la suite de jetons écrite dans la feuille, `calc(var(--paper-width) *
-   0.0333)`, et non une longueur. Deux conséquences, et la seconde est la plus
+   reste la suite de jetons écrite dans la feuille, et non une longueur. Deux conséquences, et la seconde est la plus
    ennuyeuse :
 
-   - le navigateur ne peut pas l'animer ni la contrôler ;
-   - elle n'est **pas mesurable** : `getComputedStyle` rend le calcul, pas le
+   - le navigateur ne peut pas l'animer ni le contrôler ;
+   - il n'est **pas mesurable** : `getComputedStyle` rend le calcul, pas le
      nombre de pixels. Une vérification qui lit l'interligne pour s'assurer
      qu'il suit bien la largeur de la page — donc le zoom — n'y lisait que
      « NaN ».
 
-   Déclarées en `<length>`, elles se calculent en pixels comme n'importe quelle
-   longueur, et `verify/fonds-e2e.mjs` peut les mesurer. */
-@property --paper-width {
-  syntax: "<length>";
-  inherits: true;
-  /* Repli pour la vignette et l'aperçu, où il n'y a pas de zoom. */
-  initial-value: 820px;
-}
-
+   Déclaré en `<length>`, il se calcule en pixels comme n'importe quelle
+   longueur, et `verify/fonds-e2e.mjs` peut le mesurer. La valeur elle-même est
+   publiée par la surface d'écriture, arrondie au pixel de l'écran. */
 @property --paper-step {
   syntax: "<length>";
   inherits: true;
@@ -320,8 +329,8 @@
       to bottom,
       transparent 0,
       transparent calc(var(--paper-step) - 1px),
-      var(--color-outline-variant) calc(var(--paper-step) - 1px),
-      var(--color-outline-variant) var(--paper-step)
+      var(--paper-trait) calc(var(--paper-step) - 1px),
+      var(--paper-trait) var(--paper-step)
     );
   }
   .paper-grid {
@@ -330,43 +339,33 @@
         to bottom,
         transparent 0,
         transparent calc(var(--paper-step) - 1px),
-        var(--color-outline-variant) calc(var(--paper-step) - 1px),
-        var(--color-outline-variant) var(--paper-step)
+        var(--paper-trait) calc(var(--paper-step) - 1px),
+        var(--paper-trait) var(--paper-step)
       ),
       repeating-linear-gradient(
         to right,
         transparent 0,
         transparent calc(var(--paper-step) - 1px),
-        var(--color-outline-variant) calc(var(--paper-step) - 1px),
-        var(--color-outline-variant) var(--paper-step)
+        var(--paper-trait) calc(var(--paper-step) - 1px),
+        var(--paper-trait) var(--paper-step)
       );
   }
   .paper-dots {
-    background-image: radial-gradient(var(--color-outline-variant) 1px, transparent 1px);
+    background-image: radial-gradient(var(--paper-trait) 1px, transparent 1px);
     background-size: var(--paper-step) var(--paper-step);
   }
   /* Interligne : une proportion de la largeur de la page, jamais une taille
-     figée.
+     figée — mais **arrondie au pixel de l'écran**.
 
      Un pas en `rem` laissait des lignes serrées sur une page agrandie six fois,
-     et l'on n'écrivait plus entre elles. La surface d'écriture publie sa largeur
-     dans `--paper-width` ; chaque fond en tire son propre pas, celui d'un vrai
-     cahier ramené à une page A4 large de 210 mm — 7 mm pour des lignes, 5 mm
-     pour des carreaux et des points.
+     et l'on n'écrivait plus entre elles. Une proportion exacte, elle, tombe
+     entre deux pixels : le navigateur étale alors chaque trait sur deux rangées,
+     différemment selon l'orientation, et les verticales d'un quadrillage
+     sortent plus épaisses que les horizontales.
 
-     Ces fractions sont les mêmes que `PAPER_STEPS` dans `lib/notes.ts`, dont
-     l'export PDF se sert pour redessiner les mêmes lignes : `tests/styles.test.ts`
-     vérifie qu'elles ne se séparent pas. Sans quoi ce qu'on écrit entre deux
-     lignes ne serait plus entre les lignes sur le papier. */
-  /* Surtout ne pas redéclarer `--paper-width` ici : une déclaration posée sur
-     la page elle-même l'emporte sur celle qu'elle hérite de la surface, et
-     l'interligne restait figé à la valeur de repli quel que soit le zoom —
-     mesuré à 27,3 px là où la page en demandait 35,6. Le repli est
-     l'`initial-value` de la déclaration `@property`, qui ne fait de l'ombre à
-     personne. */
-  .paper-ruled { --paper-step: calc(var(--paper-width) * 0.033333); }
-  .paper-grid  { --paper-step: calc(var(--paper-width) * 0.023810); }
-  .paper-dots  { --paper-step: calc(var(--paper-width) * 0.023810); }
+     Le pas est donc calculé par la surface d'écriture (`paperStepPx` dans
+     `lib/notes.ts`, densité de l'écran comprise) et publié page par page — deux
+     pages d'une même pile peuvent porter des fonds différents. */
 
   /* --- Une pile de pages est du papier, pas une interface ------------------
      Un document importé et une photo ne suivent pas le thème de
@@ -392,6 +391,14 @@
     --ink-violet: oklch(50% 0.20 292);
     --color-surface-lowest: oklch(100% 0 0);
     --color-outline-variant: oklch(86% 0.010 292);
+    --paper-fond: #fcf8ee;
+    --paper-trait: #d7d0c0;
+  }
+
+  /* Le fond de la feuille. Posé à part des réglures : une feuille unie en a
+     besoin aussi. */
+  .papier {
+    background-color: var(--paper-fond);
   }
 
   /* --- Surface d'écriture --------------------------------------------------

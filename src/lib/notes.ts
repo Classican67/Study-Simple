@@ -155,6 +155,48 @@ export const PAPER_STEPS: Record<Paper, number> = {
 };
 
 /**
+ * Pas du réglage, en pixels CSS, **aligné sur la grille de pixels de l'écran**.
+ *
+ * Le pas vaut sept millimètres d'une page A4, ce qui tombe sur 25,4291 px pour
+ * une page de mille soixante-huit. Une valeur pareille ne tombe jamais sur un
+ * pixel : le navigateur étale alors chaque trait sur deux rangées au lieu
+ * d'une, et il ne les étale pas de la même façon selon l'orientation. Les
+ * verticales d'un quadrillage sortaient donc plus épaisses et plus sombres que
+ * les horizontales, et les carreaux n'étaient pas carrés — un désordre qui se
+ * voit tout de suite et qu'aucune mesure de proportion ne révèle.
+ *
+ * On arrondit donc au pixel **de l'écran**, densité comprise. L'écart avec les
+ * sept millimètres exacts reste sous un pour cent, et l'export garde la
+ * proportion juste : c'est à l'écran seul que la grille de pixels impose sa
+ * loi.
+ */
+export function paperStepPx(paper: Paper, pageWidth: number, dpr = 1): number {
+  const fraction = PAPER_STEPS[paper];
+  if (!fraction || pageWidth <= 0) return 0;
+  const densite = dpr > 0 ? dpr : 1;
+  // Deux pixels au minimum : en dessous, le réglage devient un aplat.
+  return Math.max(2, Math.round(fraction * pageWidth * densite) / densite);
+}
+
+/**
+ * Couleur du papier, et de son réglage.
+ *
+ * Un blanc pur est un écran, pas une feuille : il fatigue à la lecture et fait
+ * ressortir l'encre d'une façon qui n'appartient à aucun cahier. Ce blanc cassé
+ * très légèrement chaud est celui d'un papier ordinaire, et son réglage est un
+ * gris chaud assorti — un gris bleuté sur du crème jure.
+ *
+ * Partagées par l'écran et l'export, comme `PAPER_STEPS` : une page imprimée
+ * doit ressembler à celle qu'on avait sous les yeux.
+ */
+export const PAPER_COLORS = {
+  /** Fond de la feuille. */
+  fond: "#fcf8ee",
+  /** Lignes, carreaux et points. */
+  trait: "#d7d0c0",
+} as const;
+
+/**
  * Page de document servant de fond, pour l'annoter.
  *
  * `file` est le PDF stocké — tout import est converti en PDF — et `page` le
@@ -353,6 +395,28 @@ export function removePage(content: DrawingContent, index: number): DrawingConte
 
   const suivantes = pages.filter((_, i) => i !== index);
   return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes };
+}
+
+/**
+ * Fichiers auxquels le contenu d'un bloc se réfère.
+ *
+ * Un document importé et une photo vivent sur le disque, pas dans la note : le
+ * bloc n'en garde que le nom. Supprimer la note sans les effacer laisse des
+ * fichiers que plus rien ne désigne — et une photothèque de cours en accumule
+ * vite plusieurs centaines de mégaoctets.
+ *
+ * Fonction **pure**, pour être éprouvée sans disque ni base : c'est elle qui
+ * décide de ce qui sera effacé, et une erreur ici efface ce qu'il ne fallait
+ * pas.
+ */
+export function blockFiles(kind: string, content: string): string[] {
+  if (kind !== "drawing") return [];
+  const noms = new Set<string>();
+  for (const page of parseDrawing(content).pages) {
+    if (isBackdropPage(page)) noms.add(page.file);
+    else if (isImagePage(page)) noms.add(page.image);
+  }
+  return [...noms];
 }
 
 /** Un polycopié de plus de deux cents pages n'est pas une note. */

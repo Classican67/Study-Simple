@@ -27,6 +27,7 @@ import {
   pageAtY,
   pageBands,
   paperClass,
+  paperStepPx,
   type DrawingContent,
   type Stroke,
   type Tool,
@@ -413,9 +414,30 @@ export function InkCanvas({
   const generation = React.useRef("");
 
   const dpr = React.useRef(1);
+  /*
+   * Deux densités, et il ne faut pas les confondre.
+   *
+   * Celle du **dessin** est plafonnée (`DPR_MAX`) : au-delà de deux, la mémoire
+   * vidéo double pour une netteté que l'œil ne distingue plus, et sur iPad
+   * c'est la mémoire qui décide si l'onglet survit.
+   *
+   * Celle de l'**écran** ne se plafonne pas : c'est elle qui dit où tombent les
+   * pixels, et c'est sur elle que le pas du réglage doit s'arrondir. Les avoir
+   * confondues laissait un pas de 25,5 px sur un écran à trois pixels par
+   * point — soit 76,5 pixels réels, toujours entre deux rangées.
+   *
+   * `useSyncExternalStore` plutôt qu'un effet : le serveur ne connaît pas la
+   * densité, et poser un état dans un effet ferait un rendu de plus à chaque
+   * montage de page manuscrite.
+   */
+  const densite = React.useSyncExternalStore(
+    () => () => {},
+    () => window.devicePixelRatio || 1,
+    () => 1,
+  );
   React.useEffect(() => {
-    dpr.current = Math.min(window.devicePixelRatio || 1, DPR_MAX);
-  }, []);
+    dpr.current = Math.min(densite, DPR_MAX);
+  }, [densite]);
 
   /* ------------------------------------------------------------------ *
    * Pages du document importé : seules celles proches de l'écran sont
@@ -1563,17 +1585,22 @@ export function InkCanvas({
           // sur un polycopié blanc dès qu'on passait en thème sombre.
           bands.length > 0
             ? "ink-clair bg-surface-container-high"
-            : cn("bg-surface-lowest", paperClass(paper)),
+            : cn("papier", paperClass(paper)),
         )}
         style={
           {
             width: pageW || "100%",
             height: `${pageH}px`,
-            // L'interligne se calcule en CSS depuis cette largeur : c'est ce qui
-            // fait grossir le cahier avec le zoom, au lieu de resserrer ses
-            // lignes sous une écriture devenue six fois plus grande. Chaque fond
-            // a son propre pas — 7 mm pour des lignes, 5 mm pour des carreaux.
-            "--paper-width": `${pageW}px`,
+            /*
+             * Le pas du réglage, arrondi au pixel de l'écran.
+             *
+             * Il suit la largeur de la page — donc le zoom — mais une
+             * proportion exacte tombe entre deux pixels, et le navigateur étale
+             * alors les traits différemment selon leur orientation : les
+             * verticales d'un quadrillage sortaient plus épaisses que les
+             * horizontales, et les carreaux n'étaient pas carrés.
+             */
+            "--paper-step": `${paperStepPx(paper, pageW, densite)}px`,
           } as React.CSSProperties
         }
       >
@@ -1628,10 +1655,12 @@ export function InkCanvas({
                 key={cle}
                 aria-hidden
                 className={cn(
-                  "pointer-events-none absolute left-0 w-full bg-surface-lowest elevation-1",
+                  "pointer-events-none absolute left-0 w-full papier elevation-1",
                   paperClass(band.paper),
                 )}
-                style={place}
+                // Chaque page porte son propre pas : deux pages d'une même pile
+                // peuvent avoir des fonds différents.
+                style={{ ...place, "--paper-step": `${paperStepPx(band.paper, pageW, densite)}px` } as React.CSSProperties}
               />
             );
           }

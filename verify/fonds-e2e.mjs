@@ -112,6 +112,7 @@ const bandes = () =>
     const r = feuille.getBoundingClientRect();
     return {
       largeur: r.width,
+      densite: window.devicePixelRatio || 1,
       bandes: [...feuille.children]
         .filter((el) => el.matches("div[aria-hidden]") && !el.hasAttribute("data-ink-tiles"))
         .map((el) => {
@@ -305,7 +306,7 @@ const FONDS = [
 for (const [nom, classe, fraction] of FONDS) {
   await allerPage(1);
   await page.getByRole("button", { name: nom, exact: true }).click();
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1400);
   const etat = await bandes();
   const bande = etat.bandes[1];
 
@@ -317,9 +318,25 @@ for (const [nom, classe, fraction] of FONDS) {
     const attendu = etat.largeur * fraction;
     const mesure = parseFloat(bande.pas);
     check(
-      Math.abs(mesure - attendu) < 1,
+      Math.abs(mesure - attendu) / attendu < 0.01,
       `l'interligne vaut ${fraction === 7 / 210 ? "7" : "5"} mm sur une page A4`,
-      `${mesure.toFixed(1)} px pour ${attendu.toFixed(1)} attendus`,
+      `${mesure.toFixed(2)} px pour ${attendu.toFixed(2)} attendus`,
+    );
+    /*
+     * Et il tombe **sur** un pixel de l'écran.
+     *
+     * Une proportion exacte tombe entre deux — 25,4291 px pour une page de mille
+     * soixante-huit — et le navigateur étale alors chaque trait sur deux rangées,
+     * différemment selon l'orientation : les verticales du quadrillage sortaient
+     * plus épaisses que les horizontales, et les carreaux n'étaient pas carrés.
+     * Le défaut ne se voit ni dans une proportion ni dans une classe CSS ; il se
+     * voit à l'œil, et il se mesure ici.
+     */
+    const reels = mesure * etat.densite;
+    check(
+      Math.abs(reels - Math.round(reels)) < 0.001,
+      "et il tombe sur un pixel de l'écran, pas entre deux",
+      `${reels.toFixed(3)} pixels réels à la densité ${etat.densite}`,
     );
   } else {
     check(!bande.classe.includes("paper-"), "« Uni » n'en pose aucun", bande.classe);
@@ -334,10 +351,83 @@ for (const [nom, classe, fraction] of FONDS) {
   );
 }
 
+/*
+ * Un carreau est carré.
+ *
+ * Les deux directions du quadrillage viennent de deux dégradés distincts, et
+ * rien ne les oblige à partager leur pas : c'est le même `--paper-step` qui
+ * les tient ensemble. Les points s'y ajoutent, qui doivent s'aligner dessus.
+ */
+const pasDe = async (nom) => {
+  await allerPage(1);
+  await page.getByRole("button", { name: nom, exact: true }).click();
+  // Au-delà du différé d'enregistrement : sous les sept cents millisecondes,
+  // on enchaîne sur le changement suivant avant que le précédent ne soit parti.
+  await page.waitForTimeout(1400);
+  return parseFloat((await bandes()).bandes[1].pas);
+};
+const pasCarreaux = await pasDe("Carreaux");
+const pasPoints = await pasDe("Points");
+check(
+  pasCarreaux === pasPoints,
+  "carreaux et points partagent le même pas",
+  `${pasCarreaux} contre ${pasPoints}`,
+);
+
 // On repose des lignes pour la suite : c'est le fond le plus courant.
 await allerPage(1);
 await page.getByRole("button", { name: "Lignes", exact: true }).click();
 await page.waitForTimeout(1000);
+
+// --- La couleur du papier -----------------------------------------------------
+/*
+ * Un blanc pur est un écran, pas une feuille.
+ *
+ * La couleur se lit sur le fond **réellement calculé** de la page : une classe
+ * ne prouve rien, elle peut être écrasée ou ne rien déclarer.
+ */
+section("couleur du papier");
+await allerPage(1);
+await page.getByRole("button", { name: "Uni", exact: true }).click();
+await page.waitForTimeout(700);
+const papier = await page.evaluate(() => {
+  const feuille = document.querySelector("[data-ink-scroll]").firstElementChild;
+  const bande = [...feuille.children].filter(
+    (el) => el.matches("div[aria-hidden]") && !el.hasAttribute("data-ink-tiles"),
+  )[1];
+  // Chromium rend les couleurs calculées en oklch : on passe par un canevas
+  // pour en obtenir des composantes, comme partout ailleurs dans ces essais.
+  const c = document.createElement("canvas");
+  c.width = 1;
+  c.height = 1;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = getComputedStyle(bande).backgroundColor;
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, v, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return { r, v, b };
+});
+dire("fond de la page", `rgb(${papier.r}, ${papier.v}, ${papier.b})`);
+check(
+  !(papier.r === 255 && papier.v === 255 && papier.b === 255),
+  "le papier n'est pas d'un blanc d'écran",
+  JSON.stringify(papier),
+);
+check(
+  papier.r > papier.b + 4,
+  "il tire vers le chaud, comme une feuille",
+  `rouge ${papier.r} contre bleu ${papier.b}`,
+);
+check(
+  papier.r > 240,
+  "tout en restant clair, pour ne pas ternir l'encre",
+  `rouge ${papier.r}`,
+);
+
+// On repose des lignes : la suite les mesure, et les laisser en « uni » faisait
+// échouer trois vérifications pour une raison qui n'a rien à voir avec elles.
+await allerPage(1);
+await page.getByRole("button", { name: "Lignes", exact: true }).click();
+await page.waitForTimeout(1500);
 
 // --- L'interligne suit le zoom ----------------------------------------------
 section("interligne et zoom");
@@ -390,6 +480,24 @@ const { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } = await import
   "../node_modules/pdf-lib/cjs/index.js"
 );
 
+/** La couleur du réglage, telle que l'application la déclare, de 0 à 1. */
+const couleurTrait = await page.evaluate(() => {
+  const c = document.createElement("canvas");
+  c.width = 1;
+  c.height = 1;
+  const ctx = c.getContext("2d");
+  ctx.fillStyle = getComputedStyle(document.documentElement)
+    .getPropertyValue("--paper-trait")
+    .trim();
+  ctx.fillRect(0, 0, 1, 1);
+  const [r, v, b] = ctx.getImageData(0, 0, 1, 1).data;
+  return { r: r / 255, v: v / 255, b: b / 255 };
+});
+dire(
+  "couleur du réglage",
+  `${couleurTrait.r.toFixed(3)} ${couleurTrait.v.toFixed(3)} ${couleurTrait.b.toFixed(3)}`,
+);
+
 /**
  * Nombre de segments tracés dans le flux de contenu d'une page.
  *
@@ -415,18 +523,28 @@ const segments = (doc, index) => {
    * prétendument nue et concluait que le réglage y était — alors que c'était
    * une annotation tombée au mauvais endroit.
    *
-   * Le réglage se reconnaît à sa **couleur** : un gris que rien d'autre
-   * n'emploie, posé en couleur de trait (`RG`) pour les lignes et en couleur de
-   * remplissage (`rg`) pour les points.
+   * Le réglage se reconnaît à sa **couleur**, posée en couleur de trait (`RG`)
+   * pour les lignes et en couleur de remplissage (`rg`) pour les points. Cette
+   * couleur est **lue dans l'application** plutôt qu'écrite ici : la sonde a
+   * cherché un gris périmé le jour où le papier est passé au blanc cassé, et
+   * elle a accusé l'export d'avoir perdu le réglage.
    */
-  const gris = /0\.84 0\.84 0\.86 (RG|rg)/g;
-  return {
-    repere: (texte.match(gris) ?? []).length,
-    lignes: (texte.match(/\bl\s/g) ?? []).length,
-  };
+  let repere = 0;
+  for (const [, r, v, b] of texte.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) (?:RG|rg)\b/g)) {
+    if (
+      Math.abs(Number(r) - couleurTrait.r) < 0.01 &&
+      Math.abs(Number(v) - couleurTrait.v) < 0.01 &&
+      Math.abs(Number(b) - couleurTrait.b) < 0.01
+    ) {
+      repere++;
+    }
+  }
+  return { repere, lignes: (texte.match(/\bl\s/g) ?? []).length };
 };
 
-await page.waitForTimeout(1200);
+// Le temps que le dernier changement de fond soit parti à la base : l'export
+// lit ce qui y est enregistré, pas ce qui est à l'écran.
+await page.waitForTimeout(2500);
 const reponse = await page.request.get(`${BASE}/api/notes/${noteId}/pdf?mode=flat`);
 check(reponse.status() === 200, "l'export répond", `HTTP ${reponse.status()}`);
 const octets = Buffer.from(await reponse.body());
@@ -456,7 +574,7 @@ check(
 // Puis en uni : le même export ne doit plus rien tracer.
 await allerPage(1);
 await page.getByRole("button", { name: "Uni", exact: true }).click();
-await page.waitForTimeout(1400);
+await page.waitForTimeout(2500);
 const nu = await PDFDocument.load(Buffer.from(await (await page.request.get(`${BASE}/api/notes/${noteId}/pdf?mode=flat`)).body()));
 const sansFond = segments(nu, 1);
 dire("page uni", `${sansFond.repere} traits de réglage`);

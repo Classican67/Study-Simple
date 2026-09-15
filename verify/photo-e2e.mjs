@@ -301,6 +301,53 @@ check(
 );
 await sombre.close();
 
+// --- La photo part avec la note -----------------------------------------------
+/*
+ * Un document importé et une photo vivent sur le disque ; la note n'en garde
+ * que le nom. Les laisser derrière soi remplissait le stockage de fichiers que
+ * plus rien ne désigne — invisibles, et jamais repris par personne.
+ *
+ * Deux cas, et le second est celui qui fait peur : dupliquer une page
+ * manuscrite donne deux blocs qui désignent la **même** photo. N'en supprimer
+ * qu'un ne doit rien effacer, sans quoi l'autre perdrait son image.
+ */
+section("la photo part avec la note");
+
+/** Le fichier est-il encore servi ? */
+const existe = async (chemin) => (await page.request.get(`${BASE}${chemin}`)).status() === 200;
+
+// 1. Une copie de la page : les deux désignent le même fichier.
+await page.goto(`${BASE}/notes/${noteId}`, { waitUntil: "networkidle" });
+await page.waitForSelector('[data-testid="drawing-canvas"]');
+await page.waitForTimeout(1500);
+await page.getByRole("button", { name: /Dupliquer le bloc/ }).last().click();
+await page.waitForTimeout(2500);
+check(
+  (await page.locator('[data-testid="drawing-canvas"]').count()) === 2,
+  "la page se duplique",
+  String(await page.locator('[data-testid="drawing-canvas"]').count()),
+);
+
+await page.getByRole("button", { name: /Supprimer le bloc 2/ }).click();
+await page.getByRole("button", { name: "Supprimer", exact: true }).click();
+await page.waitForTimeout(2500);
+check(
+  await existe(posees[0].photo),
+  "supprimer une des deux pages laisse la photo en place",
+  "l'autre page en a besoin",
+);
+
+// 2. La note entière : plus rien ne s'en sert.
+await page.getByRole("button", { name: "Supprimer la note" }).click();
+await page.getByRole("button", { name: "Supprimer", exact: true }).click();
+await page.waitForURL(`${BASE}/notes`);
+await page.waitForTimeout(2000);
+check(
+  !(await existe(posees[0].photo)),
+  "supprimer la note efface la photo du disque",
+  "le fichier est encore servi",
+);
+
 console.log(ko === 0 ? "\nTout passe." : `\n${ko} échec(s).`);
 await browser.close();
 process.exit(ko === 0 ? 0 : 1);

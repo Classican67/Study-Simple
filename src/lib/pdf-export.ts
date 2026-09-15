@@ -1,7 +1,7 @@
 import { getStroke } from "perfect-freehand";
 
 import { INK_OPTIONS, INK_REF, hasRealPressure } from "@/lib/ink";
-import { PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
+import { PAPER_COLORS, PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
 
 /**
  * Conversion des traits manuscrits vers le PDF — géométrie pure, testable.
@@ -219,5 +219,18 @@ export function paperGuides(paper: Paper, page: PageSize): PaperGuides {
   return guides;
 }
 
-/** Gris du papier réglé. Sur le papier on est toujours en clair. */
-export const PAPER_RGB: [number, number, number] = [0.84, 0.84, 0.86];
+/** Convertit une couleur `#rrggbb` en composantes de 0 à 1, comme l'attend le PDF. */
+function hexRgb(hex: string): [number, number, number] {
+  const n = Number.parseInt(hex.slice(1), 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+}
+
+/**
+ * Couleurs du papier, tirées de la même source que la feuille de style.
+ *
+ * Une page imprimée doit ressembler à celle qu'on avait sous les yeux : le
+ * blanc cassé du fond comme le gris chaud du réglage. Sur le papier, on est
+ * toujours en thème clair.
+ */
+export const PAPER_FOND_RGB = hexRgb(PAPER_COLORS.fond);
+export const PAPER_RGB = hexRgb(PAPER_COLORS.trait);

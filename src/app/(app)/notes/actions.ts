@@ -98,9 +98,21 @@ export async function renameNote(noteId: string, title: string): Promise<NoteRes
 
 export async function deleteNote(noteId: string): Promise<NoteResult> {
   const user = await requireUser();
+  const { fichiersDeLaNote, nettoyerFichiers } = await import("@/lib/note-uploads");
+
+  // Relevés **avant** la suppression : après, plus rien ne dit de quels
+  // fichiers la note se servait.
+  const fichiers = await fichiersDeLaNote(noteId);
+
   // Les blocs partent avec la note : la cascade est déclarée dans le schéma.
   const { count } = await prisma.note.deleteMany({ where: { id: noteId, ownerId: user.id } });
   if (count !== 1) return { ok: false, error: "Note introuvable." };
+
+  // Et **après** l'écriture : c'est l'état final qui dit si un fichier est
+  // devenu orphelin. Les documents importés et les photos ne vivent pas dans
+  // la note, seulement leur nom.
+  await nettoyerFichiers(fichiers);
+
   revalidatePath("/notes");
   return { ok: true };
 }
@@ -206,11 +218,29 @@ export async function updateBlock(blockId: string, content: string): Promise<Not
 
   const block = await prisma.noteBlock.findFirst({
     where: { id: blockId, note: { ownerId: user.id } },
-    select: { noteId: true, kind: true },
+    select: { noteId: true, kind: true, content: true },
   });
   if (!block) return { ok: false, error: "Bloc introuvable." };
 
+  /*
+   * Une page retirée de la pile emporte son fichier.
+   *
+   * On compare les fichiers d'avant à ceux d'après : c'est une comparaison de
+   * deux petites listes de noms, faite à chaque enregistrement, et la base
+   * n'est interrogée que lorsqu'un nom a **réellement** disparu — ce qui
+   * n'arrive qu'au retrait d'une page.
+   */
+  const { blockFiles } = await import("@/lib/notes");
+  const avant = blockFiles(block.kind, block.content);
+  const apres = new Set(blockFiles(block.kind, content));
+  const partis = avant.filter((nom) => !apres.has(nom));
+
   await prisma.noteBlock.update({ where: { id: blockId }, data: { content } });
+
+  if (partis.length > 0) {
+    const { nettoyerFichiers } = await import("@/lib/note-uploads");
+    await nettoyerFichiers(partis);
+  }
 
   // L'aperçu de la note est celui de sa PREMIÈRE page manuscrite : on ne le
   // recalcule que si c'est elle qu'on vient d'enregistrer, et à partir du
@@ -236,11 +266,19 @@ export async function deleteBlock(blockId: string): Promise<NoteResult> {
   const user = await requireUser();
   const block = await prisma.noteBlock.findFirst({
     where: { id: blockId, note: { ownerId: user.id } },
-    select: { noteId: true },
+    select: { noteId: true, kind: true, content: true },
   });
   if (!block) return { ok: false, error: "Bloc introuvable." };
 
+  const { blockFiles } = await import("@/lib/notes");
+  const { nettoyerFichiers } = await import("@/lib/note-uploads");
+  const fichiers = blockFiles(block.kind, block.content);
+
   await prisma.noteBlock.delete({ where: { id: blockId } });
+  // Supprimer une page manuscrite emporte le document ou la photo qui lui
+  // servait de fond — sauf si un autre bloc s'en sert, ce qu'une duplication
+  // rend possible.
+  await nettoyerFichiers(fichiers);
   await touch(block.noteId);
   return { ok: true };
 }
