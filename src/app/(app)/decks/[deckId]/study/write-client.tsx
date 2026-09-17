@@ -21,7 +21,7 @@ import { checkAnswer, type AnswerVerdict } from "@/lib/answer-check";
 import { reorderQueue, type StudyOrder } from "@/lib/study-order";
 import { facesOf, type StudySide } from "@/lib/study-side";
 import { cn } from "@/lib/utils";
-import { finishSession, recordAnswer } from "./actions";
+import { repondre, terminerSession } from "@/lib/hors-ligne/client";
 import type { StudyCard } from "./study-client";
 
 /**
@@ -74,7 +74,7 @@ export function WriteClient({
   React.useEffect(() => {
     if (queue.length > 0 || done === 0 || finishedRef.current) return;
     finishedRef.current = true;
-    if (deckId) void finishSession(deckId, stats.correct, stats.miss);
+    if (deckId) void terminerSession(deckId, stats.correct, stats.miss);
   }, [queue.length, done, deckId, stats.correct, stats.miss]);
 
   // Passe à la carte suivante en enregistrant le résultat.
@@ -83,7 +83,7 @@ export function WriteClient({
       const card = queue[0];
       if (!card) return;
 
-      void recordAnswer(card.id, knew);
+      void repondre(card.id, knew);
       setStats((s) => ({
         correct: s.correct + (knew ? 1 : 0),
         miss: s.miss + (knew ? 0 : 1),

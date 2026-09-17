@@ -25,6 +25,7 @@ import { NewFolderButton } from "./new-folder-button";
 import { FolderSettings } from "./folder-settings";
 import { DropZone } from "@/components/drag-move";
 import { DeckDragHandle } from "./deck-drag-handle";
+import { BoutonHorsLigne, PastilleHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
 
 // Vue commune à la racine et à un dossier : la seule différence est le
 // contenu passé en paramètre, donc les deux pages partagent tout ce fichier.
@@ -72,6 +73,9 @@ export function FolderBrowser({
             <p className="mt-2 m3-body-large text-on-surface-variant">
               {describe(folders.length, decks.length, totalKnown, totalCards)}
             </p>
+            {current ? (
+              <BoutonHorsLigne genre="dossier" id={current.id} nom={current.name} className="mt-3" />
+            ) : null}
           </div>
         </div>
 
@@ -163,8 +167,7 @@ export function FolderBrowser({
                           {folder.dueCount}
                         </Badge>
                       ) : null}
-                      <span className="contents">
-                      </span>
+                      <PastilleHorsLigne genre="dossier" id={folder.id} />
                       <ChevronRight className="size-4 shrink-0 text-on-surface-variant transition-transform group-hover:translate-x-0.5" />
                     </Link>
                   </DropZone>
@@ -234,9 +237,10 @@ export function FolderBrowser({
 
                           <div className="mt-auto pt-5">
                             <div className="mb-2 flex items-center justify-between m3-body-small text-on-surface-variant">
-                              <span className="tabular-nums">
+                              <span className="flex items-center gap-1.5 tabular-nums">
                                 {deck.knownCount}/{deck.cardCount} carte
                                 {deck.cardCount > 1 ? "s" : ""}
+                                <PastilleHorsLigne genre="paquet" id={deck.id} />
                               </span>
                               <span className="flex items-center gap-1 font-medium text-on-surface-variant opacity-0 transition-opacity group-hover:opacity-100">
                                 Ouvrir

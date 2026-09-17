@@ -31,6 +31,7 @@ model User {
   progress CardProgress[]
   sessions StudySession[]
   notes    Note[]
+  answers  ReviewAnswer[]
 }
 
 // Arborescence de classement. `parentId` nul = dossier à la racine.
@@ -133,6 +134,7 @@ model Card {
 
   deck     Deck           @relation(fields: [deckId], references: [id], onDelete: Cascade)
   progress CardProgress[]
+  answers  ReviewAnswer[]
 
   @@index([deckId, position])
   // Sert à repérer les copies déjà faites, pour ne pas dupliquer deux fois.
@@ -188,6 +190,34 @@ model CardProgress {
   // Sert à retrouver le dernier paquet révisé, lu à chaque affichage de
   // l'accueil : sans index, c'est un parcours de toute la progression.
   @@index([userId, lastSeenAt])
+}
+
+// Une réponse donnée en révision, telle qu'elle a été donnée.
+//
+// La progression (`CardProgress`) est un état : rejouer deux fois la même
+// réponse dessus compterait deux réussites et allongerait la série à tort. Or
+// une réponse donnée hors ligne est **renvoyée** tant que le serveur n'a pas
+// confirmé — et une confirmation perdue en route (le réseau coupe pendant la
+// réponse) la fait repartir. L'identifiant est donc choisi **par l'appareil**,
+// au moment où l'on répond : le serveur reconnaît un envoi déjà reçu et ne
+// l'applique qu'une fois.
+//
+// `answeredAt` est l'heure de la réponse, pas celle de sa réception : une
+// carte révisée dans le train mardi est planifiée depuis mardi, même si
+// l'iPad ne retrouve le serveur que jeudi.
+model ReviewAnswer {
+  id         String   @id
+  userId     String
+  cardId     String
+  knew       Boolean
+  answeredAt DateTime
+  receivedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([userId, answeredAt])
+  @@index([cardId])
 }
 
 // Une passe de révision terminée, pour afficher un historique et des stats.

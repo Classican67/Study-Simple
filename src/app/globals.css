@@ -336,6 +336,15 @@
    ========================================================================== */
 @layer components {
 
+  /* --- Page hors ligne ----------------------------------------------------
+     Le message d'échec du repli n'apparaît qu'après deux secondes : les
+     scripts de la page, s'ils sont en cache, l'ont remplacée bien avant. Par
+     CSS, parce que c'est justement le cas où JavaScript manque. */
+  .coquille-repli {
+    opacity: 0;
+    animation: fade-in 200ms var(--ease-emphasized) 2s forwards;
+  }
+
   /* --- Fonds de page manuscrite -------------------------------------------
      Dessinés en CSS et non au canevas : ils ne font pas partie du contenu,
      n'ont pas à être enregistrés, et suivent le thème tout seuls. */

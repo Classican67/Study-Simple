@@ -14,6 +14,7 @@ import { CardEditor } from "./card-editor";
 import { DeckSettings } from "./deck-toolbar";
 import { ImportDialog } from "./import-dialog";
 import { SearchDialog } from "@/components/search-dialog";
+import { BoutonHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
 
 export const dynamic = "force-dynamic";
 
@@ -80,6 +81,7 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
               {deck.description ? (
                 <p className="mt-1.5 text-sm leading-relaxed text-on-surface-variant">{deck.description}</p>
               ) : null}
+
             </div>
           </div>
 
@@ -90,6 +92,17 @@ export default async function DeckPage(props: PageProps<"/decks/[deckId]">) {
             folderOptions={folderOptions}
           />
         </div>
+
+        {/* Sous l'en-tête et non dans la colonne du titre : sur téléphone, les
+            icônes de droite ne laissent à cette colonne qu'un tiers de l'écran,
+            et la puce s'y étirait sur six lignes. */}
+        <BoutonHorsLigne
+          genre="paquet"
+          id={deck.id}
+          folderId={deck.folderId}
+          nom={deck.title}
+          className="mt-3 sm:ml-[3.875rem]"
+        />
       </div>
 
       <div className="rounded-xl border border-outline-variant bg-surface-container p-5 elevation-1 sm:p-6">

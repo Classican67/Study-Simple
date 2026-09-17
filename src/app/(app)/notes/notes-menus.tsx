@@ -35,6 +35,7 @@ import { MoveDialog } from "../move-dialog";
 import { createNote, deleteNote, duplicateNote, renameNote, setNoteMastered } from "./actions";
 import { MoveNote } from "./[noteId]/move-note";
 import { NoteDragHandle } from "./note-drag-handle";
+import { useActionHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
 
 /**
  * Menus des notes et des dossiers de la liste : ouvrir, créer, renommer,
@@ -118,6 +119,8 @@ export function NoteMenu({
     }
   }
 
+  const horsLigne = useActionHorsLigne({ genre: "note", id: note.id, folderId: note.folderId });
+
   const actions: MenuAction[] = [
     { label: "Ouvrir", icon: SquareArrowOutUpRight, onSelect: () => router.push(`/notes/${note.id}`) },
     note.mastered
@@ -126,6 +129,7 @@ export function NoteMenu({
     { label: "Renommer", icon: Pencil, onSelect: () => setDialogue("renommer") },
     { label: "Dupliquer", icon: Copy, onSelect: () => void dupliquer() },
     { label: "Ranger dans un dossier", icon: FolderInput, onSelect: () => setDialogue("ranger") },
+    ...(horsLigne ? [horsLigne] : []),
     { label: "Supprimer", icon: Trash2, destructive: true, onSelect: () => setDialogue("supprimer") },
   ];
 
@@ -278,6 +282,8 @@ export function FolderMenu({
     }
   }
 
+  const horsLigne = useActionHorsLigne({ genre: "dossier", id: folder.id });
+
   const actions: MenuAction[] = [
     { label: "Ouvrir", icon: FolderOpen, onSelect: () => router.push(href) },
     { label: "Nouvelle note ici", icon: FilePlus2, onSelect: () => void nouvelleNote() },
@@ -289,6 +295,7 @@ export function FolderMenu({
     },
     { label: "Renommer ou changer la couleur", icon: Pencil, onSelect: () => setDialogue("modifier") },
     { label: "Déplacer", icon: FolderInput, onSelect: () => setDialogue("deplacer") },
+    ...(horsLigne ? [horsLigne] : []),
     { label: "Supprimer", icon: Trash2, destructive: true, onSelect: () => setDialogue("supprimer") },
   ];
 

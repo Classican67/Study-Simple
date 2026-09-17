@@ -22,6 +22,7 @@ import {
 } from "@/lib/brouillons";
 import { creerSauvegarde, type Diagnostic, type Verdict } from "@/lib/sauvegarde";
 import { cn } from "@/lib/utils";
+import { blocConfirme } from "@/lib/hors-ligne/client";
 
 /**
  * Transport HTTP d'un brouillon, et **traduction d'un échec en conduite**.
@@ -113,7 +114,13 @@ export function useSauvegarde({
   const sauvegarde = React.useMemo(
     () =>
       creerSauvegarde({
-        envoyer: envoyerBrouillon,
+        envoyer: async (brouillon) => {
+          const verdict = await envoyerBrouillon(brouillon);
+          // La copie gardée hors ligne suit ce que le serveur a confirmé — et
+          // rien d'autre : cf. `blocConfirme`.
+          if (verdict.sort === "ok") blocConfirme(brouillon.noteId, brouillon.blockId, brouillon.content);
+          return verdict;
+        },
         journal: journalLocal,
         // Sans cela, une coupure franche se présentait comme « Reprise en
         // cours » : la file tentait un envoi voué à l'échec au lieu de dire

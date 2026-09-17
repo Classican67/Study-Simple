@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { reorderQueue, type StudyOrder } from "@/lib/study-order";
 import { facesOf, type CardFaces, type StudySide } from "@/lib/study-side";
 import { cn } from "@/lib/utils";
-import { finishSession, recordAnswer } from "./actions";
+import { repondre, terminerSession } from "@/lib/hors-ligne/client";
 
 export type StudyCard = {
   id: string;
@@ -105,9 +105,9 @@ export function StudyClient({
 
       setExitDirection(knew ? 1 : -1);
       setEnterDirection(0);
-      // Envoi sans attendre : l'animation ne doit pas dépendre du réseau.
-      // Chaque réponse est persistée seule, donc rien n'est perdu si on quitte.
-      void recordAnswer(card.id, knew);
+      // Posée sur l'appareil, puis envoyée : l'animation ne dépend ni du
+      // réseau ni du disque, et une réponse donnée sans réseau n'est pas perdue.
+      void repondre(card.id, knew);
 
       setStats((s) => ({
         correct: s.correct + (knew ? 1 : 0),
@@ -152,7 +152,7 @@ export function StudyClient({
     finishedRef.current = true;
     // La progression par carte est enregistrée au fil de l'eau dans tous les
     // cas ; seul l'historique de session suppose un paquet identifié.
-    if (deckId) void finishSession(deckId, stats.correct, stats.miss);
+    if (deckId) void terminerSession(deckId, stats.correct, stats.miss);
   }, [queue.length, done, deckId, stats.correct, stats.miss]);
 
   // Raccourcis clavier : réviser au clavier est plus rapide qu'à la souris,

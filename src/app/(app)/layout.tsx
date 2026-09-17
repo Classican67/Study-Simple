@@ -1,6 +1,7 @@
 import { AppBar } from "@/components/app-bar";
 import { BottomNavigation, NavigationSpacer } from "@/components/navigation-bar";
 import { ServiceWorkerRegistrar } from "@/components/service-worker";
+import { SynchroHorsLigne } from "@/components/hors-ligne/synchro-hors-ligne";
 import { requireUser } from "@/lib/auth";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
@@ -22,6 +23,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       <NavigationSpacer />
       <BottomNavigation isAdmin={isAdmin} />
       <ServiceWorkerRegistrar />
+      <SynchroHorsLigne />
     </div>
   );
 }

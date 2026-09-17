@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 import { NoteEditor, type EditableBlock } from "@/components/note/note-editor";
 import { Button } from "@/components/ui/button";
 import { MasteredToggle } from "./mastered-toggle";
+import { BoutonHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
 import { MoveNote } from "./move-note";
 import { NotesTrail } from "../notes-trail";
 import { requireUser } from "@/lib/auth";
@@ -77,6 +78,13 @@ export default async function NotePage(props: PageProps<"/notes/[noteId]">) {
         <NotesTrail trail={trail.map(({ id, name }) => ({ id, name }))} inNote />
 
         <div className="flex flex-wrap items-center justify-end gap-0.5">
+          <BoutonHorsLigne
+            genre="note"
+            id={note.id}
+            folderId={note.folderId}
+            nom={note.title.trim() || UNTITLED}
+            className="mr-1"
+          />
           <MasteredToggle noteId={note.id} mastered={note.mastered} />
 
           <MoveNote

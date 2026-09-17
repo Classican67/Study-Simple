@@ -69,5 +69,8 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node glisser-e2e.mjs` | Glisser une note ou un paquet dans un dossier, au doigt |
 | `node copies-e2e.mjs` | Regroupement : indépendance des copies dans les deux sens, et sûreté des images partagées |
 | `node selection-e2e.mjs` | Choix des paquets : rien de coché d'avance, comptes par paquet, total qui suit |
+| `node hors-ligne-e2e.mjs` | Hors ligne, paquets : épingler un paquet ou un dossier, héritage, révision sans réseau, rechargement en pleine panne, réponses envoyées une fois et datées, retrait et déconnexion |
+| `node hors-ligne-notes-e2e.mjs` | Hors ligne, notes : copie qui suit ce que le serveur confirme, menu d'un dossier de notes, fichiers complets avant la pastille (réseau ralenti), polycopié dessiné sans réseau, trait hors ligne qui arrive au retour |
+| `node regard-hors-ligne.mjs` | Puce, pastilles, menu et page hors ligne : téléphone et desktop, clair et sombre, contraste et cibles |
 
 Chacun sort en code non nul s'il trouve quelque chose.

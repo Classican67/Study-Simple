@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import {
   parseTable,
   parseText,
+  UNTITLED,
   type BlockKind,
   type DrawingContent,
   type TableContent,
@@ -41,6 +42,7 @@ import {
   renameNote,
   reorderBlocks,
 } from "@/app/(app)/notes/actions";
+import { noteRestructuree } from "@/lib/hors-ligne/client";
 
 export type EditableBlock = { id: string; kind: BlockKind; content: string };
 
@@ -65,12 +67,21 @@ export function NoteEditor({
   initialTitle,
   initialBlocks,
   noteModifiee,
+  horsLigne = false,
 }: {
   noteId: string;
   initialTitle: string;
   initialBlocks: EditableBlock[];
   /** Date de dernière modification côté serveur : cf. `useSauvegarde`. */
   noteModifiee: number;
+  /**
+   * Ouverte depuis la page hors ligne. On y lit et on y annote les blocs
+   * existants — leur contenu passe par le journal local, qui l'enverra au
+   * retour du réseau. Ce qui a besoin du serveur pour exister (un bloc
+   * créé, dupliqué, déplacé ou supprimé, un titre, un import, un export) est
+   * retiré plutôt que proposé pour échouer.
+   */
+  horsLigne?: boolean;
 }) {
   const [blocks, setBlocks] = React.useState(initialBlocks);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -151,6 +162,7 @@ export function NoteEditor({
       setError("Impossible d'ajouter ce bloc.");
       return;
     }
+    noteRestructuree(noteId);
     setBlocks((current) => {
       const block = { id: created.id, kind: created.kind as BlockKind, content: created.content };
       if (!afterBlockId) return [...current, block];
@@ -168,6 +180,7 @@ export function NoteEditor({
       return;
     }
     setError(null);
+    noteRestructuree(noteId);
     setBlocks((current) => {
       const at = current.findIndex((b) => b.id === blockId);
       const copie = { id: created.id, kind: created.kind as BlockKind, content: created.content };
@@ -179,6 +192,7 @@ export function NoteEditor({
     setBlocks((current) => current.filter((b) => b.id !== blockId));
     const result = await deleteBlock(blockId);
     if (!result.ok) setError(result.error ?? "Suppression impossible.");
+    else noteRestructuree(noteId);
   }
 
   function move(index: number, direction: -1 | 1) {
@@ -189,6 +203,7 @@ export function NoteEditor({
     setBlocks(next);
     void reorderBlocks(noteId, next.map((b) => b.id)).then((result) => {
       if (!result.ok) setError(result.error ?? "Réordonnancement impossible.");
+      else noteRestructuree(noteId);
     });
   }
 
@@ -197,7 +212,11 @@ export function NoteEditor({
     // Le plafond de la mise en page suffit, en remettre un ici laissait de
     // larges bandes vides de chaque côté.
     <div className="w-full space-y-4">
-      <NoteTitle noteId={noteId} initial={initialTitle} onError={setError} />
+      {horsLigne ? (
+        <h1 className="m3-display-small text-on-surface">{initialTitle.trim() || UNTITLED}</h1>
+      ) : (
+        <NoteTitle noteId={noteId} initial={initialTitle} onError={setError} />
+      )}
 
       {error ? (
         <p role="alert" className="m3-body-medium text-error">
@@ -251,10 +270,12 @@ export function NoteEditor({
             onDuplicate={() => duplicate(block.id)}
             onMove={(direction) => move(index, direction)}
             onDelete={() => remove(block.id)}
+            structure={!horsLigne}
           />
         ))}
       </div>
 
+      {horsLigne ? <div className="pb-8" /> : (
       <div className="flex flex-wrap items-center justify-center gap-2 pb-8">
         {KINDS.map(({ kind, label, icon: Icon }) => (
           <Button key={kind} variant="outlined" onClick={() => add(kind, null)} disabled={busy === "end"}>
@@ -296,6 +317,7 @@ export function NoteEditor({
           }}
         />
       </div>
+      )}
 
       {/* Repère de page, flottant : un polycopié de quarante pages devient
           quarante blocs, et retrouver la page 27 demanderait sinon de faire
@@ -355,6 +377,7 @@ function NoteTitle({
       if (result.ok) {
         saved.current = title;
         onError(null);
+        noteRestructuree(noteId);
       } else {
         onError(result.error ?? "Renommage impossible.");
       }
@@ -404,6 +427,7 @@ function BlockCard({
   onMove,
   onDelete,
   registre,
+  structure,
 }: {
   noteId: string;
   block: EditableBlock;
@@ -419,6 +443,8 @@ function BlockCard({
   onDelete: () => void;
   /** Vidanges à déclencher avant que l'onglet ne parte. Cf. `NoteEditor`. */
   registre: Set<() => void>;
+  /** Faux hors ligne : dupliquer, déplacer, supprimer et insérer demandent le serveur. */
+  structure: boolean;
 }) {
   const timer = React.useRef<number | null>(null);
   const [full, setFull] = React.useState(false);
@@ -538,6 +564,8 @@ function BlockCard({
             <Maximize2 />
           </Button>
         ) : null}
+        {structure ? (
+          <>
         <Button
           variant="text"
           size="icon"
@@ -582,6 +610,8 @@ function BlockCard({
           confirmLabel="Supprimer"
           action={async () => onDelete()}
         />
+          </>
+        ) : null}
       </div>
 
       {full ? (
@@ -618,6 +648,7 @@ function BlockCard({
 
       {/* Insertion entre deux blocs, au pied de celui-ci — comme pour les
           cartes, le geste se lit là où le nouveau bloc va apparaître. */}
+      {structure ? (
       <div className="mt-3 flex items-center gap-2 border-t border-outline-variant pt-2 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <span className="h-px flex-1 bg-outline-variant" />
         {KINDS.map(({ kind, label, icon: Icon }) => (
@@ -636,6 +667,7 @@ function BlockCard({
         ))}
         <span className="h-px flex-1 bg-outline-variant" />
       </div>
+      ) : null}
     </section>
   );
 }

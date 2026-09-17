@@ -10,6 +10,7 @@ import { InlineNavigation, isImmersive } from "@/components/navigation-bar";
 import { SearchDialog } from "@/components/search-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { logout } from "@/app/(auth)/login/actions";
+import { oublierLeContenu } from "@/lib/hors-ligne/client";
 
 /**
  * Barre supérieure Material 3.
@@ -54,7 +55,9 @@ export function AppBar({ userName, isAdmin }: { userName: string; isAdmin: boole
           <SearchDialog />
           <ThemeToggle />
 
-          <form action={logout}>
+          {/* Ce qui était gardé hors ligne part avec la session ; les réponses
+              pas encore envoyées, elles, attendent la prochaine connexion. */}
+          <form action={logout} onSubmit={() => void oublierLeContenu()}>
             <Button
               variant="toolbar-icon"
               size="icon"

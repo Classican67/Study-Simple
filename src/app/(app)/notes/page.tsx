@@ -13,6 +13,7 @@ import { NoteViewOptions } from "./note-view-options";
 import { FolderMenu, NoteMenu, NotesMenusProvider } from "./notes-menus";
 import { NotesTrail } from "./notes-trail";
 import { NoteThumbnail } from "@/components/note/note-thumbnail";
+import { BoutonHorsLigne, PastilleHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
 import { requireUser } from "@/lib/auth";
 import { deckColor } from "@/lib/deck-colors";
 import { getNotesView, isNoteSort, type NoteFilters } from "@/lib/note-queries";
@@ -90,6 +91,9 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                   ? `${view.notes.length} note${view.notes.length > 1 ? "s" : ""} trouvée${view.notes.length > 1 ? "s" : ""}.`
                   : `${view.notes.length} note${view.notes.length > 1 ? "s" : ""} ici.`}
             </p>
+            {view.current ? (
+              <BoutonHorsLigne genre="dossier" id={view.current.id} nom={view.current.name} className="mt-3" />
+            ) : null}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -141,6 +145,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                     <span className="min-w-0 flex-1 truncate m3-title-small text-on-surface">
                       {folder.name}
                     </span>
+                    <PastilleHorsLigne genre="dossier" id={folder.id} />
                     <span className="m3-label-small tabular-nums text-on-surface-variant">
                       {folder.noteCount}
                     </span>
@@ -188,6 +193,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                       </span>
                       <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 m3-body-small text-on-surface-variant">
                         Modifiée {describeAgo(note.updatedAt)}
+                        <PastilleHorsLigne genre="note" id={note.id} />
                         {note.mastered ? <Maitrisee /> : null}
                       </span>
                     </span>
@@ -212,8 +218,9 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                       <span className="block truncate m3-title-small text-on-surface">
                         {note.title.trim() || UNTITLED}
                       </span>
-                      <span className="block m3-body-small text-on-surface-variant">
+                      <span className="flex items-center gap-1.5 m3-body-small text-on-surface-variant">
                         Modifiée {describeAgo(note.updatedAt)}
+                        <PastilleHorsLigne genre="note" id={note.id} />
                       </span>
                       {note.mastered ? <Maitrisee /> : null}
                       <Composition kinds={note.kinds} />

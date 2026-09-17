@@ -46,6 +46,20 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   états, mesurée et photographiée en clair et en sombre, sur téléphone et en
   desktop. `audit.mjs` ne la voit pas : il saute les éléments qui ont des
   enfants et ceux dont l'opacité est nulle
+- `node hors-ligne-e2e.mjs` — **réviser sans le serveur** : épingler un
+  paquet ou un dossier (et l'héritage qui en découle), révision servie par la
+  page hors ligne, rechargement en pleine panne, réponses qui partent seules au
+  retour du réseau, **une fois**, datées de l'heure où elles ont été données ;
+  retrait qui libère la place sans réseau, déconnexion qui vide l'appareil
+- `node hors-ligne-notes-e2e.mjs` — **consulter et annoter une note sans le
+  serveur** : copie gardée qui suit ce que le serveur confirme, option du menu
+  d'un dossier de notes, fichiers tous en cache avant que la pastille ne
+  paraisse (réseau ralenti exprès), polycopié dont on lit les pixels hors
+  ligne, trait écrit hors ligne qui arrive au retour du réseau
+- `node regard-hors-ligne.mjs` — la puce « Garder hors ligne » dans ses états,
+  les pastilles, le menu et la page hors ligne, en clair et en sombre, sur
+  téléphone et en desktop. `audit.mjs` ne voit rien de tout cela : il faut
+  d'abord garder quelque chose, puis couper le réseau
 - `node notes-e2e.mjs` — notes : texte, tableau calculé, croquis au stylet,
   et persistance de tout cela
 - `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
@@ -581,6 +595,56 @@ du verrou npm.
   "Document" })` trouve aussi « Ajouter une photo, une image ou un document » :
   renommer un bouton a fait échouer deux scripts en mode strict. Un nom court se
   cherche avec `exact: true`.
+- **Le hors ligne est une page, pas un cache de pages.** L'app est rendue au
+  serveur et multi-comptes : le service worker ne met en cache **aucune** page
+  qui porte des données. Les paquets et les notes gardés vivent dans IndexedDB
+  (`lib/hors-ligne/`), et une navigation qui ne trouve pas le serveur est
+  renvoyée vers `/offline?de=<adresse>` — une page statique, sans donnée, qui
+  lit l'appareil et retrouve l'intention (`lireDestination`). Ses liens restent
+  les vraies adresses de l'app.
+- **Hors ligne, un lien de Next ne mène nulle part.** La navigation côté client
+  demande au serveur la charge de la page suivante et reste suspendue. Hors
+  ligne franc, les liens internes partent donc en navigation complète
+  (`lienADetourner`), que le service worker sait servir.
+- **La page hors ligne ne cite pas tous ses scripts.** Son HTML ne nomme que
+  ceux de son premier affichage ; pdf.js, chargé à la demande, n'y figure pas.
+  La coquille met donc en cache le build entier (`/api/hors-ligne/coquille`,
+  moins de deux mégaoctets) et le worker de pdf.js, et le service worker
+  rejoue lui-même les requêtes **par plage** depuis un fichier en cache :
+  pdf.js attend un 206.
+- **Mettre à jour le worker ne doit pas vider l'iPad.** L'activation effaçait
+  tout cache autre que la version courante — y compris, désormais, les
+  polycopiés gardés et la coquille. Seuls les caches `fiches-v*` partent ;
+  `tests/hors-ligne.test.ts` exécute le worker pour le vérifier.
+- **Une réponse de révision est un fait daté, pas un état.** Rejouée par la
+  file après une confirmation perdue, une réponse comptait double. Chacune
+  porte un identifiant choisi par l'appareil (`ReviewAnswer`), et la plus
+  récente décide de la date de retour : une réponse plus ancienne que la
+  dernière connue compte dans les statistiques sans replanifier la carte. Tout
+  passe par `lib/revision.ts` — l'action du web et l'API mobile avaient chacune
+  leur copie du calcul.
+- **La copie gardée d'une note ne prend que ce que le serveur a confirmé.**
+  Mise à jour à chaque frappe, elle aurait porté des brouillons non envoyés ;
+  or à la réouverture, `useSauvegarde` tient pour « déjà en base » tout
+  brouillon identique au contenu reçu, et l'efface. Et **pas** mise à jour du
+  tout, elle restait à la dernière synchronisation : écrire en cours puis
+  partir dans la minute ouvrait une copie ancienne, dont l'enregistrement
+  aurait écrasé au serveur la fin du cours. D'où `blocConfirme`, branché sur
+  la confirmation.
+- **« Disponible hors ligne » se dit une fois tout descendu.** L'épingle était
+  marquée résolue avant ses fichiers : la pastille paraissait, on partait, et
+  le second polycopié du dossier s'ouvrait sur « Document illisible ». En
+  local, les fichiers arrivent en quelques millisecondes et la sonde ne voyait
+  **jamais** le défaut — elle ne l'a attrapé qu'une fois les téléchargements
+  ralentis par `context.route`. Un ordre d'arrivée se prouve sur un réseau
+  lent, pas sur `localhost`.
+- **Attendre une file vide en relisant, pas en espérant.** Une attente qui
+  interrogeait IndexedDB par `waitForFunction` a conclu « file vide » avant
+  l'envoi ; le contrôle en base est passé trop tôt et la sonde accusait l'app
+  d'avoir perdu deux réponses, que la trace montrait bien arrivées. Les scripts
+  hors ligne relisent en boucle (`attendre`).
+- **`/notes` n'est plus un exemple de page indisponible hors ligne.** Un script
+  qui veut la page « a besoin du serveur » vise `/admin`.
 - **Tri de texte en SQLite.** La comparaison est octet par octet : « Écrite »
   se range après « Note », parce que « É » s'encode sur deux octets dont le
   premier vaut plus que « N ». Aucune collation française sans extension — trier
