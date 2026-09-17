@@ -50,6 +50,10 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   et persistance de tout cela
 - `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
   par mots-clés et filtres de contenu, page manuscrite en plein écran
+- `node ajout-page-e2e.mjs` — **« Ajouter une page » depuis une surface qui
+  n'est pas encore une pile** : la page d'une note neuve et un croquis simple
+  peuvent grandir, le trait déjà posé ne bouge pas, et la feuille ajoutée après
+  une photo a la forme d'une feuille, pas celle du cliché
 - `node pages-e2e.mjs` — pages d'une note : la gomme précise coupe le trait au
   lieu de l'effacer, la duplication rend une copie indépendante, et le volet
   montre les pages en vignettes
@@ -362,6 +366,26 @@ du verrou npm.
   premier mouvement. Chromium ne connaît pas `-webkit-touch-callout` : il la
   jette à l'analyse, donc elle est invisible au style calculé comme à
   `cssText` — la sonde relit la feuille **telle qu'elle est livrée**.
+- **Une page manuscrite simple n'est pas une pile, et cela lui coûtait sa
+  feuille.** Une surface neuve a `pages: []` ; `insertPage` rendait le contenu
+  inchangé et la palette masquait le bouton (`canAddPage` exigeait
+  `pages.length > 0`). Il n'y avait donc **aucun** moyen d'ajouter une page à
+  celle sur laquelle s'ouvre chaque note neuve, ni à un croquis ajouté à la
+  main. La réponse d'alors — « pour une page de plus, ajoute un bloc » — n'est
+  pas la même chose : un bloc est une autre surface, avec sa palette, sans
+  annotation à cheval et sans numéro de page. `insertPage` passe maintenant par
+  `enPile`, comme le faisaient déjà `insertImagePage` et `insertDocumentPages`.
+- **Une photo n'est pas un format à imiter.** La feuille ajoutée reprenait le
+  format de sa voisine — juste dans un polycopié A4, absurde après un cliché en
+  paysage : on se retrouvait à écrire sur une bande deux fois plus large que
+  haute. `formatDeFeuille` saute les pages image et prend le papier le plus
+  proche, à défaut `DEFAULT_RATIO`.
+- **La hauteur du canevas ne dit rien du nombre de pages.** La fenêtre d'une
+  page manuscrite est bornée à l'écran (`100svh` moins le reste) et c'est la
+  surface qui défile dedans : une sonde qui mesurait `getBoundingClientRect()`
+  voyait 757 px avant comme après l'ajout et accusait l'application. Mesurer
+  `scrollHeight / clientWidth` sur `[data-ink-scroll]`, ou lire les pages dans
+  la base du bac à sable.
 - **Une feuille glissée au milieu décale tout ce qui suit.** Les traits sont
   repérés d'un bout à l'autre de la pile — c'est ce qui permet d'annoter à
   cheval sur deux pages — donc ajouter une page au milieu d'un polycopié doit

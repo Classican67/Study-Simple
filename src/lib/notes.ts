@@ -340,13 +340,41 @@ export function insertPage(
   apres: number,
   paper: Paper,
 ): DrawingContent {
-  const pages = content.pages;
-  if (pages.length === 0) return content;
-  const rang = Math.max(-1, Math.min(pages.length - 1, Math.trunc(apres)));
-  // Le format de la voisine : une feuille glissée dans un polycopié A4 est une
-  // feuille A4, sinon la pile se met à bégayer d'une page à l'autre.
-  const voisine = pages[rang] ?? pages[0];
-  return insererPages(content, rang, [{ paper, ratio: voisine.ratio }]);
+  /*
+   * Une page manuscrite simple n'est pas encore une pile ; elle le devient,
+   * exactement comme pour une photo ou un document.
+   *
+   * On rendait ici le contenu inchangé, au motif qu'« ajouter une feuille à une
+   * page simple, c'est ajouter un bloc ». Ce n'est pas la même chose : un bloc
+   * est une autre surface, avec sa propre palette, sans annotation à cheval et
+   * sans numéro de page. Et comme la palette masquait le bouton dans ce cas, la
+   * page sur laquelle s'ouvre **chaque note neuve** ne pouvait pas grandir.
+   */
+  const pile = enPile(content);
+  const rang = Math.max(-1, Math.min(pile.pages.length - 1, Math.trunc(apres)));
+  return insererPages(pile, rang, [{ paper, ratio: formatDeFeuille(pile.pages, rang) }]);
+}
+
+/**
+ * Le format d'une feuille qu'on ajoute : celui du **papier** le plus proche.
+ *
+ * Une feuille glissée dans un polycopié A4 est une feuille A4, sinon la pile se
+ * met à bégayer d'une page à l'autre. Mais une **photo** n'est pas un format à
+ * imiter : une feuille ajoutée après un cliché en paysage sortait en paysage,
+ * et l'on écrivait ses notes sur une bande deux fois plus large que haute. On
+ * saute donc les images — en arrière d'abord, puisque c'est la voisine
+ * immédiate qui compte, puis en avant — et à défaut de tout papier, on prend le
+ * format par défaut d'une page.
+ */
+function formatDeFeuille(pages: NotePage[], rang: number): number {
+  const depart = Math.max(0, rang);
+  for (let i = depart; i >= 0; i--) {
+    if (pages[i] && pageKind(pages[i]) !== "image") return pages[i].ratio;
+  }
+  for (let i = depart + 1; i < pages.length; i++) {
+    if (pageKind(pages[i]) !== "image") return pages[i].ratio;
+  }
+  return DEFAULT_RATIO;
 }
 
 /**

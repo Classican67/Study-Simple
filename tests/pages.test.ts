@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import {
+  DEFAULT_RATIO,
   PAGE_GAP,
   PAPER_STEPS,
   buildPreview,
@@ -154,11 +155,43 @@ describe("insertPage", () => {
     );
   });
 
-  it("ne fait rien sur une surface sans pages", () => {
-    // Une page simple n'est pas une pile : pour en ajouter une, on ajoute un
-    // bloc — ce que la note sait déjà faire.
-    const simple = contenu([]);
-    assert.equal(insertPage(simple, 0, "ruled"), simple);
+  it("fait d'une surface simple une pile, au lieu de refuser", () => {
+    /*
+     * Une page manuscrite neuve n'est pas encore une pile : `pages` est vide.
+     * `insertPage` rendait alors le contenu inchangé, et la palette masquait
+     * le bouton — il n'y avait **aucun** moyen d'ajouter une feuille à la page
+     * sur laquelle s'ouvre chaque note neuve. La réponse d'alors — « ajouter
+     * un bloc » — n'est pas la même chose : un bloc est une autre surface,
+     * avec sa palette, sans annotation à cheval et sans numéro de page.
+     *
+     * C'est exactement ce que font déjà `insertImagePage` et
+     * `insertDocumentPages` : la surface devient la première page de sa pile.
+     */
+    const simple = contenu([], [trait(0.1)]);
+    const suivant = insertPage(simple, 0, "ruled");
+    assert.notEqual(suivant, simple);
+    assert.equal(suivant.pages.length, 2);
+    assert.equal(pageKind(suivant.pages[0]), "blank");
+    assert.equal((suivant.pages[1] as BlankPage).paper, "ruled");
+    // La première page commence en haut : ce qui y est écrit ne bouge pas.
+    assert.deepEqual(suivant.strokes[0].points, simple.strokes[0].points);
+  });
+
+  it("donne à la feuille ajoutée le format du papier voisin, jamais celui d'une photo", () => {
+    /*
+     * Une photo n'est pas un format à imiter : une feuille glissée après un
+     * cliché en paysage sortait en paysage, et l'on écrivait ses notes sur une
+     * bande large de deux fois sa hauteur. Le format d'une page de document,
+     * lui, se copie — c'est un polycopié, donc du papier.
+     */
+    const photo = contenu([{ image: "a.jpg", ratio: 0.66 }]);
+    const apres = insertPage(photo, 0, "ruled");
+    assert.equal(apres.pages[1].ratio, DEFAULT_RATIO);
+
+    // Du papier à côté : c'est lui qui donne le format.
+    const mixte = contenu([{ paper: "blank", ratio: 1.414 }, { image: "a.jpg", ratio: 0.66 }]);
+    assert.equal(insertPage(mixte, 1, "grid").pages[2].ratio, 1.414);
+    assert.equal(insertPage(contenu(doc(2, 1.414)), 1, "grid").pages[2].ratio, 1.414);
   });
 
   it("refuse de dépasser le nombre de pages permis", () => {

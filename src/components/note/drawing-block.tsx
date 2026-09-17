@@ -252,7 +252,9 @@ export function DrawingBlock({
    * l'on appuie une deuxième fois en croyant que ça n'a pas marché.
    */
   function ajouterPage() {
-    if (pages.length === 0 || pages.length >= MAX_DOCUMENT_PAGES) return;
+    // Une surface simple n'a pas encore de pile : `insertPage` la convertit.
+    // Refuser ici privait de feuille la page de toute note neuve.
+    if (pages.length >= MAX_DOCUMENT_PAGES) return;
     const suivant = insertPage(content, pageIndex, fond);
     if (suivant === content) return;
     onChange(suivant);
@@ -528,7 +530,7 @@ export function DrawingBlock({
       zoom={zoom}
       full={full}
       paperEditable={!fondImpose}
-      canAddPage={pages.length > 0 && pages.length < MAX_DOCUMENT_PAGES}
+      canAddPage={pages.length < MAX_DOCUMENT_PAGES}
       canRemovePage={retirable && pages.length > 1}
       canUndo={historique.annuler}
       canRedo={historique.retablir}
