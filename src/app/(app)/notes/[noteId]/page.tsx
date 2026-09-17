@@ -25,6 +25,10 @@ async function load(noteId: string, userId: string) {
       title: true,
       folderId: true,
       mastered: true,
+      // Départage un brouillon local d'un enregistrement venu d'ailleurs, sans
+      // rien ajouter au schéma : `touch()` la met à jour à chaque écriture
+      // réussie. Cf. `useSauvegarde`.
+      updatedAt: true,
       blocks: {
         orderBy: { position: "asc" },
         select: { id: true, kind: true, content: true },
@@ -110,6 +114,7 @@ export default async function NotePage(props: PageProps<"/notes/[noteId]">) {
         noteId={note.id}
         initialTitle={note.title}
         initialBlocks={blocks}
+        noteModifiee={note.updatedAt.getTime()}
       />
     </div>
   );

@@ -37,6 +37,15 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   ouvrent le même menu, chaque option (créer, renommer, dupliquer, ranger,
   déplacer, supprimer) fait ce qu'elle annonce, et la pastille « maîtrisée »
   s'allume et s'éteint sans toucher au tri
+- `node sauvegarde-e2e.mjs` — **ce qui est écrit ne se perd pas** : on coupe
+  l'enregistrement pour de vrai, on écrit, **on recharge en pleine panne** et
+  l'encre doit être là ; la file repart seule au retour du réseau ; un 401 et
+  une redirection vers `/login` se disent au lieu de passer pour un succès ; et
+  la sauvegarde de secours se télécharge
+- `node regard-sauvegarde.mjs` — la pastille d'enregistrement dans ses cinq
+  états, mesurée et photographiée en clair et en sombre, sur téléphone et en
+  desktop. `audit.mjs` ne la voit pas : il saute les éléments qui ont des
+  enfants et ceux dont l'opacité est nulle
 - `node notes-e2e.mjs` — notes : texte, tableau calculé, croquis au stylet,
   et persistance de tout cela
 - `node notes-avancees-e2e.mjs` — notes : dossiers et fil d'Ariane, recherche
@@ -573,6 +582,66 @@ du verrou npm.
   supprimant l'une priverait l'autre de son image. Toute suppression d'image
   passe donc par `deleteUnreferencedUploads`, **après** l'écriture en base :
   c'est l'état final qui dit si un fichier est devenu orphelin.
+- **Un enregistrement qui échoue doit revenir, pas s'annoncer.** L'éditeur
+  envoyait chaque modification **une fois** ; en cas d'échec il affichait un
+  message, et le contenu ne vivait plus que dans la mémoire de l'onglet. Le
+  sort du travail dépendait alors du hasard : si l'on écrivait à nouveau juste
+  après la coupure, l'enregistrement suivant rattrapait tout ; sinon rien ne
+  repartait jamais. La règle est désormais celle d'un journal d'écriture
+  anticipée : **rien ne part au réseau avant d'être posé sur l'appareil**
+  (`lib/brouillons.ts`, IndexedDB), **rien n'en sort avant que le serveur n'ait
+  confirmé**, et la file (`lib/sauvegarde.ts`) rejoue avec un délai croissant.
+  Rouvrir la note remet en place ce qui n'était jamais parti.
+- **Confirmer n'autorise pas à effacer.** L'aller-retour dure quelques
+  centaines de millisecondes et la main n'attend pas : deux mots de plus sont
+  posés entre l'envoi et sa confirmation. Effacer le brouillon sur confirmation
+  jetterait précisément ces deux mots, que le serveur n'a jamais vus. D'où le
+  rang d'écriture (`seq`) : on n'efface que si rien n'a été écrit depuis.
+- **Un échec doit se nommer.** « Le réseau a coupé », « la session a expiré » et
+  « ce bloc est trop volumineux » demandent trois conduites opposées — réessayer
+  en silence, demander de se reconnecter, arrêter de réessayer — et une action
+  serveur rejetée ne dit laquelle. D'où la route `PUT
+  /api/notes/<note>/blocks/<bloc>`, qui rend un code HTTP. Son cœur vit dans
+  `lib/note-save.ts` et **pas** dans le fichier d'actions : il prend un
+  `userId`, et une telle fonction exportée d'un module « use server » serait
+  appelable par le client avec le compte de son choix.
+- **Une redirection n'est pas un enregistrement.** Suivie, une redirection vers
+  `/login` rend la page de connexion avec un 200 : `response.ok` est vrai, et
+  l'app annoncerait avoir enregistré sa page dans un écran de login — le même
+  piège que le jeton périmé, côté application cette fois. L'envoi se fait donc
+  en `redirect: "manual"`, où une redirection arrive avec le statut 0 et se voit.
+- **`navigator.onLine` doit être branché, sinon tout se ressemble.** La file
+  distingue « pas de réseau » d'« une requête qui échoue sur un réseau
+  présent » ; faute d'avoir passé `enLigne`, une coupure franche se présentait
+  comme « Reprise en cours ». Couper une requête dans Playwright
+  (`route.abort`) n'éprouve donc **pas** le hors-ligne : il faut
+  `context.setOffline(true)`, qui seul émet l'événement `online`.
+- **`tertiary-container` tire au rose, à un cheveu de `error-container`.**
+  « Hors ligne » se résout tout seul au retour du réseau ; le peindre comme une
+  alarme fait craindre une perte au moment précis où l'app garantit qu'il n'y en
+  aura pas. L'attente est en `secondary-container`, l'alarme reste pour ce qui
+  demande un geste. Aucune mesure ne le dit — les deux passent le contraste.
+- **Un choix logé derrière un indicateur masqué n'existe pas.** Les brouillons
+  qu'on ne s'autorise pas à remettre d'office — la note a changé depuis — vivaient
+  dans le panneau qu'ouvre la pastille d'enregistrement. Or cette pastille est
+  masquée quand tout est enregistré, ce qui est précisément leur cas : ils
+  n'attendent pas un envoi mais une décision. Le choix était donc invisible pour
+  toujours. Il s'affiche maintenant **dans la note**. Trouvé en écrivant le
+  scénario, pas en relisant le code : le script ne pouvait pas cliquer la
+  pastille, et c'était la bonne raison.
+- **Une pastille à enfants échappe à `audit.mjs`.** La sonde saute les éléments
+  qui ont des enfants (icône + libellé + compteur) et ceux dont l'opacité est
+  nulle. Un indicateur qui n'apparaît que sous condition n'est donc jamais
+  examiné : `regard-sauvegarde.mjs` le mesure état par état.
+- **`page.evaluate` avec une chaîne ignore son argument.** Playwright évalue la
+  chaîne comme une expression ; un `(sel) => {…}` passé ainsi rend une fonction,
+  jamais son résultat, et la sonde annonce « introuvable » sans rien avoir
+  cherché. Écrire une expression auto-appelée, comme le fait `audit.mjs`.
+- **Un identifiant de note codé en dur rouille.** `telephone-e2e.mjs` vise
+  `PDF_NOTE`, une note qui n'existe plus dès que `verify/verif.db` est recopié
+  depuis `data/dev.db` : le script échoue sur un délai d'attente qui accuse
+  l'application. Il accepte `PDF_NOTE=<id>` en variable d'environnement — y
+  passer une note qui porte un document.
 - **Jeton de session périmé.** Les scripts de `scratchpad/` s'authentifient par
   un cookie stocké dans `ctx.json`. Expiré, il fait rediriger vers `/login` : le
   script mesure alors l'écran de connexion et annonce que tout va bien. Devant

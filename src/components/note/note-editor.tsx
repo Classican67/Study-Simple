@@ -20,6 +20,7 @@ import { ImportDocument } from "@/components/note/import-document";
 import { PhotoNote } from "@/components/note/photo-note";
 import { PageNavigator } from "@/components/note/page-navigator";
 import { DrawingBlock } from "@/components/note/drawing-block";
+import { EtatSauvegarde, LitigesSauvegarde, useSauvegarde } from "@/components/note/sauvegarde";
 import { TableBlock } from "@/components/note/table-block";
 import { TextBlock } from "@/components/note/text-block";
 import { Button } from "@/components/ui/button";
@@ -39,7 +40,6 @@ import {
   duplicateBlock,
   renameNote,
   reorderBlocks,
-  updateBlock,
 } from "@/app/(app)/notes/actions";
 
 export type EditableBlock = { id: string; kind: BlockKind; content: string };
@@ -64,43 +64,84 @@ export function NoteEditor({
   noteId,
   initialTitle,
   initialBlocks,
+  noteModifiee,
 }: {
   noteId: string;
   initialTitle: string;
   initialBlocks: EditableBlock[];
+  /** Date de dernière modification côté serveur : cf. `useSauvegarde`. */
+  noteModifiee: number;
 }) {
   const [blocks, setBlocks] = React.useState(initialBlocks);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
-  const [saving, setSaving] = React.useState(0);
   // Une page manuscrite ouverte en plein écran pose sa palette en bas de
   // l'écran : le repère de page doit lui laisser la place.
   const [canvasFull, setCanvasFull] = React.useState(false);
 
-  async function persist(blockId: string, content: string) {
-    setSaving((n) => n + 1);
-    try {
-      const result = await updateBlock(blockId, content);
-      if (!result.ok) setError(result.error ?? "Enregistrement impossible.");
-      else setError(null);
-    } catch (cause) {
-      /*
-       * Une action serveur peut être **rejetée**, pas seulement répondre non.
-       *
-       * Une page manuscrite dense dépasse le mégaoctet du corps d'une action :
-       * Next refusait alors la requête avant tout appel de code, la promesse
-       * était rejetée, et comme personne ne l'attrapait, le compteur
-       * d'enregistrement restait bloqué — l'app affichait « Enregistrement… »
-       * pour toujours et le travail était perdu sans un mot. Le plafond est
-       * relevé dans `next.config.ts`, mais le réseau peut couper aussi : on le
-       * dit.
-       */
-      console.error("[notes] enregistrement impossible :", cause);
-      setError("Enregistrement impossible — vérifie ta connexion. Ne quitte pas la page.");
-    } finally {
-      setSaving((n) => n - 1);
-    }
+  /*
+   * Enregistrement : journal local d'abord, serveur ensuite.
+   *
+   * L'éditeur n'appelle plus l'action serveur. Il dépose la modification dans
+   * `useSauvegarde`, qui l'écrit sur l'appareil **avant** toute tentative
+   * réseau, puis la rejoue jusqu'à ce que le serveur la confirme. Un échec
+   * n'est donc plus un message d'erreur suivi d'un contenu perdu : c'est une
+   * entrée en attente, qui repart au retour du réseau ou à la réouverture de
+   * la note.
+   *
+   * L'ancien chemin — un appel, un message si ça rate — laissait le sort du
+   * travail dépendre du hasard : avait-on écrit à nouveau juste après la
+   * coupure ? Si oui l'enregistrement suivant rattrapait tout, si non rien ne
+   * repartait jamais.
+   */
+  const blocsCourants = React.useRef(blocks);
+  React.useEffect(() => {
+    blocsCourants.current = blocks;
+  });
+
+  const sauvegarde = useSauvegarde({
+    noteId,
+    noteModifiee,
+    contenus: () => new Map(blocsCourants.current.map((b) => [b.id, b.content])),
+    onReprise: (reprises) =>
+      setBlocks((current) =>
+        current.map((bloc) => {
+          const reprise = reprises.find((r) => r.blockId === bloc.id);
+          return reprise ? { ...bloc, content: reprise.content } : bloc;
+        }),
+      ),
+  });
+
+  function persist(blockId: string, kind: BlockKind, content: string) {
+    void sauvegarde.enregistrer({ blockId, kind, content });
   }
+
+  /*
+   * Vidanger avant que l'onglet ne disparaisse.
+   *
+   * L'enregistrement est différé de 700 ms ; passer à une autre application sur
+   * iPad, ou verrouiller l'écran, laissait ces 700 ms dans le vide. Les blocs
+   * déposent ici de quoi forcer leur vidange, et `visibilitychange` la
+   * déclenche — il arrive **avant** que le système ne gèle ou n'évince
+   * l'onglet, ce qui laisse à l'écriture du journal le temps d'aboutir.
+   */
+  // Un ensemble stable, et non une ref : il se lit pendant le rendu pour être
+  // passé aux blocs.
+  const vidanges = React.useMemo(() => new Set<() => void>(), []);
+  React.useEffect(() => {
+    const tout = () => {
+      for (const vidanger of vidanges) vidanger();
+    };
+    const surVisibilite = () => {
+      if (document.visibilityState === "hidden") tout();
+    };
+    document.addEventListener("visibilitychange", surVisibilite);
+    window.addEventListener("pagehide", tout);
+    return () => {
+      document.removeEventListener("visibilitychange", surVisibilite);
+      window.removeEventListener("pagehide", tout);
+    };
+  }, [vidanges]);
 
   async function add(kind: BlockKind, afterBlockId: string | null) {
     setBusy(afterBlockId ?? "end");
@@ -164,6 +205,31 @@ export function NoteEditor({
         </p>
       ) : null}
 
+      {/* Du travail écrit hors ligne vient d'être remis en place : le dire,
+          sinon la page semble simplement avoir gardé son contenu et l'on ne
+          sait pas que ce qui manquait est revenu. */}
+      {sauvegarde.repris > 0 ? (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-3 rounded-xl bg-secondary-container px-4 py-3 m3-body-medium text-on-secondary-container"
+        >
+          <span className="flex-1">
+            {sauvegarde.repris === 1
+              ? "Une modification non enregistrée a été retrouvée sur cet appareil et remise en place."
+              : `${sauvegarde.repris} modifications non enregistrées ont été retrouvées sur cet appareil et remises en place.`}
+          </span>
+          <Button variant="text" onClick={sauvegarde.oublierReprise}>
+            J&apos;ai compris
+          </Button>
+        </div>
+      ) : null}
+
+      {/* Des versions que l'app ne s'autorise pas à remettre d'office : la note
+          a changé depuis qu'elles ont été écrites. Le choix est posé ici, pas
+          derrière la pastille — celle-ci est masquée quand tout est enregistré,
+          et c'est justement le cas. */}
+      <LitigesSauvegarde outils={sauvegarde} />
+
       <div className="space-y-2">
         {blocks.map((block, index) => (
           <BlockCard
@@ -172,7 +238,8 @@ export function NoteEditor({
             index={index}
             total={blocks.length}
             busy={busy === block.id}
-            onSave={(content) => persist(block.id, content)}
+            onSave={(content) => persist(block.id, block.kind, content)}
+            registre={vidanges}
             onLocalChange={(content) =>
               setBlocks((current) =>
                 current.map((b) => (b.id === block.id ? { ...b, content } : b)),
@@ -256,16 +323,15 @@ export function NoteEditor({
       </div>
 
       {/* Discret mais présent : sans retour, on ne sait pas si le croquis
-          qu'on vient de tracer est parti. */}
-      <p
-        aria-live="polite"
-        className={cn(
-          "fixed bottom-24 right-4 rounded-full bg-surface-container px-4 py-2 m3-label-medium text-on-surface-variant elevation-2 transition-opacity md:bottom-6",
-          saving > 0 ? "opacity-100" : "pointer-events-none opacity-0",
-        )}
-      >
-        Enregistrement…
-      </p>
+          qu'on vient de tracer est parti. Et surtout, la pastille **nomme** la
+          panne quand il y en a une — « hors ligne », « session expirée » ne
+          demandent pas la même chose — et s'ouvre sur la porte de sortie :
+          réessayer, se reconnecter, ou emporter son travail dans un fichier. */}
+      <EtatSauvegarde
+        noteId={noteId}
+        outils={sauvegarde}
+        className="fixed bottom-24 right-4 z-50 md:bottom-6"
+      />
     </div>
   );
 }
@@ -284,12 +350,26 @@ function NoteTitle({
 
   async function save() {
     if (title === saved.current) return;
-    const result = await renameNote(noteId, title);
-    if (result.ok) {
-      saved.current = title;
-      onError(null);
-    } else {
-      onError(result.error ?? "Renommage impossible.");
+    try {
+      const result = await renameNote(noteId, title);
+      if (result.ok) {
+        saved.current = title;
+        onError(null);
+      } else {
+        onError(result.error ?? "Renommage impossible.");
+      }
+    } catch {
+      /*
+       * Une action serveur peut être **rejetée**, pas seulement répondre non —
+       * réseau coupé, session expirée. Non attrapée, la promesse remontait en
+       * rejet non géré.
+       *
+       * Le titre ne passe pas par le journal des brouillons, qui range par
+       * bloc : il reste dans le champ, et `saved` n'avance qu'en cas de
+       * succès, donc le prochain départ du champ retente. C'est peu, mais un
+       * titre se retape en deux secondes — une page manuscrite non.
+       */
+      onError("Titre non enregistré — il repartira en quittant le champ à nouveau.");
     }
   }
 
@@ -323,6 +403,7 @@ function BlockCard({
   onDuplicate,
   onMove,
   onDelete,
+  registre,
 }: {
   noteId: string;
   block: EditableBlock;
@@ -336,6 +417,8 @@ function BlockCard({
   onDuplicate: () => void;
   onMove: (direction: -1 | 1) => void;
   onDelete: () => void;
+  /** Vidanges à déclencher avant que l'onglet ne parte. Cf. `NoteEditor`. */
+  registre: Set<() => void>;
 }) {
   const timer = React.useRef<number | null>(null);
   const [full, setFull] = React.useState(false);
@@ -355,41 +438,51 @@ function BlockCard({
     };
   }, [full]);
 
-  // Enregistrement différé : on écrit une fois la main levée, pas à chaque
-  // point du tracé ni à chaque frappe.
-  const schedule = React.useCallback(
-    (content: string) => {
-      onLocalChange(content);
-      if (timer.current) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => onSave(content), SAVE_DELAY);
-    },
-    [onLocalChange, onSave],
-  );
-
   /*
-   * Page manuscrite : la sérialisation attend, elle aussi.
+   * Ce qui attend d'être enregistré — **un seul endroit pour les deux formes**.
    *
-   * Le canevas rend un objet. Le transformer en texte tout de suite, puis le
-   * renvoyer dans l'état de l'éditeur, refaisait analyser et repeindre la page
-   * entière au lever de chaque lettre. Le contenu est donc gardé tel quel, et
-   * converti une seule fois, au moment d'enregistrer.
+   * Page manuscrite : le canevas rend un objet. Le transformer en texte tout de
+   * suite, puis le renvoyer dans l'état de l'éditeur, refaisait analyser et
+   * repeindre la page entière au lever de chaque lettre. Le contenu est donc
+   * gardé tel quel, et converti une seule fois, au moment d'enregistrer.
+   *
+   * Texte et tableau arrivent déjà sérialisés. Ils passaient auparavant
+   * directement au minuteur, sans rien laisser derrière eux : une vidange
+   * forcée — départ de page, onglet qui disparaît — ne trouvait donc rien à
+   * enregistrer et les abandonnait. Les deux formes attendent ici.
    */
-  const enAttente = React.useRef<DrawingContent | null>(null);
+  const enAttente = React.useRef<{ texte: string } | { dessin: DrawingContent } | null>(null);
 
   const vidanger = React.useCallback(() => {
     const next = enAttente.current;
     enAttente.current = null;
     if (!next) return;
-    const raw = JSON.stringify(next);
+    if ("texte" in next) {
+      onSave(next.texte);
+      return;
+    }
+    const raw = JSON.stringify(next.dessin);
     // L'écho reviendra à l'identique : cf. `souvenirDessin`.
-    souvenirDessin(raw, next);
+    souvenirDessin(raw, next.dessin);
     onLocalChange(raw);
     onSave(raw);
   }, [onLocalChange, onSave]);
 
+  // Enregistrement différé : on écrit une fois la main levée, pas à chaque
+  // point du tracé ni à chaque frappe.
+  const schedule = React.useCallback(
+    (content: string) => {
+      onLocalChange(content);
+      enAttente.current = { texte: content };
+      if (timer.current) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(vidanger, SAVE_DELAY);
+    },
+    [onLocalChange, vidanger],
+  );
+
   const scheduleDrawing = React.useCallback(
     (next: DrawingContent) => {
-      enAttente.current = next;
+      enAttente.current = { dessin: next };
       if (timer.current) window.clearTimeout(timer.current);
       timer.current = window.setTimeout(vidanger, SAVE_DELAY);
     },
@@ -404,6 +497,17 @@ function BlockCard({
   React.useEffect(() => {
     dernier.current = vidanger;
   }, [vidanger]);
+
+  // Même vidange, déclenchée de l'extérieur : l'onglet qui passe à l'arrière-
+  // plan n'est pas un démontage, et n'appellerait donc rien.
+  React.useEffect(() => {
+    const forcer = () => dernier.current();
+    registre.add(forcer);
+    return () => {
+      registre.delete(forcer);
+    };
+  }, [registre]);
+
   React.useEffect(
     () => () => {
       if (timer.current) window.clearTimeout(timer.current);

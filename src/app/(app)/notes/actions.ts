@@ -4,17 +4,16 @@ import { revalidatePath } from "next/cache";
 
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { toPlainText } from "@/components/rich-text";
-import { normalizeForSearch } from "@/lib/search";
+// Le cœur de l'écriture d'un bloc vit hors de ce fichier : il prend un
+// `userId`, et une telle fonction exportée depuis un module « use server »
+// serait appelable par le client avec le compte de son choix.
+import { enregistrerBloc, recalculerApercu, touch } from "@/lib/note-save";
 import {
   defaultContent,
   surfaceRatio,
   isBlockKind,
-  MAX_BLOCK_BYTES,
   MAX_DOCUMENT_PAGES,
   MAX_RATIO,
-  notePreview,
-  noteSearchText,
   type BlockKind,
 } from "@/lib/notes";
 
@@ -28,62 +27,6 @@ async function ownsNote(noteId: string, userId: string): Promise<boolean> {
     select: { id: true },
   });
   return note !== null;
-}
-
-/**
- * Marque la note comme modifiée et reconstruit son texte de recherche.
- *
- * Les blocs de croquis sont volontairement exclus de la relecture : une page
- * dense au stylet pèse des centaines de kilooctets, et la recharger à chaque
- * enregistrement automatique coûterait plus que l'écriture elle-même.
- */
-async function touch(noteId: string) {
-  const note = await prisma.note.findUnique({
-    where: { id: noteId },
-    select: {
-      title: true,
-      blocks: { where: { kind: { in: ["text", "table"] } }, select: { kind: true, content: true } },
-    },
-  });
-  if (!note) return;
-
-  await prisma.note.update({
-    where: { id: noteId },
-    data: {
-      updatedAt: new Date(),
-      searchText: normalizeForSearch(noteSearchText(note.title, note.blocks, toPlainText)),
-    },
-  });
-  revalidatePath("/notes");
-}
-
-/**
- * Recalcule l'aperçu d'une note : sa première page manuscrite qui montre
- * quelque chose (cf. `notePreview`).
- *
- * `enMain` est le bloc qu'on vient d'écrire : son contenu n'est pas relu, et si
- * l'aperçu vient d'une page qui le précède, il n'a pas pu changer — rien n'est
- * réécrit. C'est l'économie que faisait l'ancienne règle (« seulement si c'est
- * la première page »), gardée sous la nouvelle : l'aperçu est recalculé à
- * chaque enregistrement, donc chaque seconde pendant qu'on écrit.
- */
-async function recalculerApercu(noteId: string, enMain?: { id: string; content: string }) {
-  const pages = await prisma.noteBlock.findMany({
-    where: { noteId, kind: "drawing" },
-    orderBy: { position: "asc" },
-    select: { id: true },
-  });
-  const ids = pages.map((page) => page.id);
-  const { apercu, source } = await notePreview(ids, async (id) =>
-    id === enMain?.id
-      ? enMain.content
-      : ((await prisma.noteBlock.findUnique({ where: { id }, select: { content: true } }))?.content ?? null),
-  );
-  if (enMain && source !== null && ids.indexOf(source) < ids.indexOf(enMain.id)) return;
-  await prisma.note.update({
-    where: { id: noteId },
-    data: { preview: apercu ? JSON.stringify(apercu) : "" },
-  });
 }
 
 export async function createNote(folderId?: string | null): Promise<string | null> {
@@ -242,47 +185,19 @@ export async function duplicateBlock(blockId: string) {
   return block;
 }
 
+/**
+ * Enregistrement d'un bloc, par action serveur.
+ *
+ * L'enregistrement automatique de l'éditeur ne passe **plus** par ici : il
+ * emprunte `PUT /api/notes/<note>/blocks/<bloc>`, qui rend un code HTTP et
+ * permet de distinguer une coupure réseau d'une session expirée. Cette action
+ * reste le chemin simple pour tout ce qui écrit un bloc en une fois, sans file
+ * de reprise.
+ */
 export async function updateBlock(blockId: string, content: string): Promise<NoteResult> {
   const user = await requireUser();
-
-  // Borne avant d'écrire : une page dense au stylet reste loin sous la limite,
-  // mais rien n'empêcherait un client fautif d'envoyer dix mégaoctets.
-  if (Buffer.byteLength(content, "utf8") > MAX_BLOCK_BYTES) {
-    return { ok: false, error: "Ce bloc est trop volumineux pour être enregistré." };
-  }
-
-  const block = await prisma.noteBlock.findFirst({
-    where: { id: blockId, note: { ownerId: user.id } },
-    select: { noteId: true, kind: true, content: true },
-  });
-  if (!block) return { ok: false, error: "Bloc introuvable." };
-
-  /*
-   * Une page retirée de la pile emporte son fichier.
-   *
-   * On compare les fichiers d'avant à ceux d'après : c'est une comparaison de
-   * deux petites listes de noms, faite à chaque enregistrement, et la base
-   * n'est interrogée que lorsqu'un nom a **réellement** disparu — ce qui
-   * n'arrive qu'au retrait d'une page.
-   */
-  const { blockFiles } = await import("@/lib/notes");
-  const avant = blockFiles(block.kind, block.content);
-  const apres = new Set(blockFiles(block.kind, content));
-  const partis = avant.filter((nom) => !apres.has(nom));
-
-  await prisma.noteBlock.update({ where: { id: blockId }, data: { content } });
-
-  if (partis.length > 0) {
-    const { nettoyerFichiers } = await import("@/lib/note-uploads");
-    await nettoyerFichiers(partis);
-  }
-
-  // L'aperçu de la note : sa première page manuscrite qui montre quelque chose,
-  // à partir du contenu déjà en main — jamais en relisant ce bloc.
-  if (block.kind === "drawing") await recalculerApercu(block.noteId, { id: blockId, content });
-
-  await touch(block.noteId);
-  return { ok: true };
+  const resultat = await enregistrerBloc(user.id, blockId, content);
+  return resultat.ok ? { ok: true } : { ok: false, error: resultat.error };
 }
 
 export async function deleteBlock(blockId: string): Promise<NoteResult> {
