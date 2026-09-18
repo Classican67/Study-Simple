@@ -48,95 +48,176 @@ export type Block =
   | { kind: "bullets"; items: Inline[][] }
   | { kind: "numbers"; items: Inline[][] };
 
+type Found = { index: number; length: number; content: string; arg?: string };
+
 type Rule = {
-  pattern: RegExp;
-  build: (match: RegExpExecArray, children: Inline[]) => Inline;
+  find: (text: string) => Found | null;
+  build: (found: Found, children: Inline[]) => Inline;
   recurse: boolean;
 };
+
+/** Règle tirée d'un motif dont le groupe de contenu est le dernier. */
+function byPattern(pattern: RegExp): Rule["find"] {
+  return (text) => {
+    const match = pattern.exec(text);
+    if (!match) return null;
+    return {
+      index: match.index,
+      length: match[0].length,
+      content: match[match.length - 1] ?? "",
+      arg: match.length > 2 ? match[1] : undefined,
+    };
+  };
+}
+
+/**
+ * Couleur, balancée à la main : une couleur posée sur un texte déjà coloré
+ * s'est longtemps stockée imbriquée (`{c:rose}a {c:blue}b{/c} c{/c}`), et un
+ * motif paresseux fermait la première couleur sur le `{/c}` de la seconde.
+ */
+function findColor(text: string): Found | null {
+  const open = /\{c:([a-z]+)\}/g;
+  const first = open.exec(text);
+  if (!first) return null;
+
+  const token = /\{c:[a-z]+\}|\{\/c\}/g;
+  token.lastIndex = first.index + first[0].length;
+  let depth = 1;
+  for (let t = token.exec(text); t; t = token.exec(text)) {
+    depth += t[0] === "{/c}" ? -1 : 1;
+    if (depth === 0) {
+      const start = first.index + first[0].length;
+      return {
+        index: first.index,
+        length: t.index + t[0].length - first.index,
+        content: text.slice(start, t.index),
+        arg: first[1],
+      };
+    }
+  }
+  // Ouverture jamais refermée : on cherche une couleur plus loin.
+  const rest = findColor(text.slice(first.index + first[0].length));
+  if (!rest) return null;
+  return { ...rest, index: rest.index + first.index + first[0].length };
+}
 
 const INLINE_RULES: Rule[] = [
   {
     // Le contenu du code littéral n'est pas réinterprété : `**x**` entre
     // accents graves reste `**x**`.
-    pattern: /`([^`]+)`/,
+    find: byPattern(/`([^`]+)`/),
     recurse: false,
-    build: (_m, children) => ({ kind: "code", children }),
+    build: (_f, children) => ({ kind: "code", children }),
   },
   {
     // Couleur : la syntaxe n'est jamais vue par l'utilisateur, l'éditeur
     // étant visuel. Le nom est validé à l'analyse.
-    pattern: /\{c:([a-z]+)\}([\s\S]*?)\{\/c\}/,
+    find: findColor,
     recurse: true,
-    build: (match, children) => ({
+    build: (found, children) => ({
       kind: "color",
-      color: isTextColor(match[1]) ? match[1] : "violet",
+      color: found.arg && isTextColor(found.arg) ? found.arg : "violet",
       children,
     }),
   },
   {
     // Paresseux plutôt que « tout sauf une étoile » : le gras doit pouvoir
     // contenir de l'italique (**a *b* c**).
-    pattern: /\*\*(?=\S)([\s\S]*?\S)\*\*/,
+    //
+    // Tolérances pour ce que l'ancien éditeur a stocké :
+    //   - un espace collé à l'intérieur d'un marqueur (`**mot **`,
+    //     `un** mot**`), qui venait avec la sélection d'un mot au double-tap —
+    //     mais pas des deux côtés à la fois, sans quoi `x ** 2 + y ** 2`
+    //     deviendrait gras ;
+    //   - un marqueur fermant suivi d'une étoile seule (`**a *b***`) : c'est
+    //     l'italique intérieur qui se ferme d'abord. Deux étoiles derrière,
+    //     en revanche, ouvrent un gras voisin (`**a****b**`).
+    find: byPattern(/\*\*(\S[\s\S]*?|\s+[\s\S]*?\S)\*\*(?!\*(?!\*))/),
     recurse: true,
-    build: (_m, children) => ({ kind: "strong", children }),
+    build: (_f, children) => ({ kind: "strong", children }),
   },
   {
-    pattern: /~~(?=\S)([\s\S]*?\S)~~/,
+    find: byPattern(/~~(\S[\s\S]*?|\s+[\s\S]*?\S)~~/),
     recurse: true,
-    build: (_m, children) => ({ kind: "del", children }),
+    build: (_f, children) => ({ kind: "del", children }),
   },
   {
-    // Le dernier caractère doit être non-espace ET non-marqueur : avec un
-    // simple \S, « **** » se lisait comme une italique contenant une étoile.
-    pattern: /\*(?=[^\s*])([^*]*?[^\s*])\*/,
+    // L'italique peut contenir un gras entier (`*a **b***`), jamais une
+    // étoile seule. Le premier caractère doit être non-espace ET
+    // non-marqueur : avec un simple \S, « **** » se lisait comme une
+    // italique contenant une étoile.
+    find: byPattern(/\*(?=[^\s*])((?:[^*]|\*\*[^*]+\*\*)+?)\*(?!\*(?!\*))/),
     recurse: true,
-    build: (_m, children) => ({ kind: "em", children }),
+    build: (_f, children) => ({ kind: "em", children }),
   },
   {
-    pattern: /_(?=[^\s_])([^_]*?[^\s_])_/,
+    // C'est la forme qu'écrit l'éditeur : `_` ne se confond jamais avec
+    // l'étoile du gras, là où `**a *b***` était ambigu.
+    find: byPattern(/_(?=[^\s_])([^_]*?[^\s_])_/),
     recurse: true,
-    build: (_m, children) => ({ kind: "em", children }),
+    build: (_f, children) => ({ kind: "em", children }),
   },
 ];
 
-// Le groupe capturant du contenu est le dernier de chaque motif.
-function contentOf(match: RegExpExecArray): string {
-  return match[match.length - 1] ?? "";
+// --- Échappement ------------------------------------------------------------
+
+// Un marqueur tapé pour de vrai (« 5*3*2 ») est précédé d'une barre oblique
+// inverse à l'écriture. À la lecture, il est remplacé par un caractère de la
+// zone d'usage privé, qu'aucun motif ne reconnaît, puis rendu tel quel.
+const ESCAPABLE = "\\*_~`{}";
+const PRIVATE_BASE = 0xe000;
+
+function protect(source: string): string {
+  return source.replace(/\\([\\*_~`{}])/g, (_m, char: string) =>
+    String.fromCharCode(PRIVATE_BASE + ESCAPABLE.indexOf(char)),
+  );
+}
+
+function restore(value: string): string {
+  return value.replace(/[\ue000-\ue006]/g, (char) => ESCAPABLE[char.charCodeAt(0) - PRIVATE_BASE]);
+}
+
+/** Échappe un texte littéral pour qu'aucun de ses caractères ne devienne un marqueur. */
+export function escapeMarkup(text: string): string {
+  return text.replace(/[\\*_~`{}]/g, "\\$&");
 }
 
 // Découpe une ligne selon la règle qui apparaît le plus tôt. À position égale,
 // la correspondance la plus longue gagne, pour que ** batte *.
 function parseInline(text: string): Inline[] {
-  let best: { index: number; length: number; rule: Rule; match: RegExpExecArray } | null = null;
+  let best: { found: Found; rule: Rule } | null = null;
 
   for (const rule of INLINE_RULES) {
-    const match = rule.pattern.exec(text);
-    if (!match) continue;
+    const found = rule.find(text);
+    if (!found) continue;
     if (
       !best ||
-      match.index < best.index ||
-      (match.index === best.index && match[0].length > best.length)
+      found.index < best.found.index ||
+      (found.index === best.found.index && found.length > best.found.length)
     ) {
-      best = { index: match.index, length: match[0].length, rule, match };
+      best = { found, rule };
     }
   }
 
-  if (!best) return text ? [{ kind: "text", value: text }] : [];
+  const textNode = (value: string): Inline => ({ kind: "text", value: restore(value) });
 
-  const before = text.slice(0, best.index);
-  const after = text.slice(best.index + best.length);
-  const inner = contentOf(best.match);
-  const children: Inline[] = best.rule.recurse
-    ? parseInline(inner)
-    : inner
-      ? [{ kind: "text", value: inner }]
+  if (!best) return text ? [textNode(text)] : [];
+
+  const { found, rule } = best;
+  const before = text.slice(0, found.index);
+  const after = text.slice(found.index + found.length);
+  const children: Inline[] = rule.recurse
+    ? parseInline(found.content)
+    : found.content
+      ? [textNode(found.content)]
       : [];
+  const node = rule.build(found, children);
 
   return [
     // `before` ne peut contenir aucune correspondance : `best` était la plus
     // précoce.
-    ...(before ? [{ kind: "text", value: before } as Inline] : []),
-    best.rule.build(best.match, children),
+    ...(before ? [textNode(before)] : []),
+    node,
     ...parseInline(after),
   ];
 }
@@ -147,7 +228,7 @@ const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
 
 export function parseMarkup(source: string): Block[] {
   const blocks: Block[] = [];
-  const lines = source.replace(/\r\n/g, "\n").split("\n");
+  const lines = protect(source.replace(/\r\n/g, "\n")).split("\n");
 
   for (const line of lines) {
     const previous = blocks.at(-1);
@@ -349,8 +430,8 @@ export function markupToHtml(source: string): string {
 // tronqués et aux titres de modale, où `line-clamp` ne sait couper qu'un
 // bloc de texte simple.
 export function toPlainText(source: string): string {
-  return source
-    .replace(/\{c:[a-z]+\}([\s\S]*?)\{\/c\}/g, "$1")
+  const plain = protect(source)
+    .replace(/\{c:[a-z]+\}|\{\/c\}/g, "")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/~~([^~]+)~~/g, "$1")
@@ -359,4 +440,5 @@ export function toPlainText(source: string): string {
     .replace(/^\s*#{1,3}\s+/gm, "")
     .replace(/^\s*[-*]\s+/gm, "• ")
     .replace(/^\s*(\d+)[.)]\s+/gm, "$1. ");
+  return restore(plain);
 }

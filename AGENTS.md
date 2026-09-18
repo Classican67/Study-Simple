@@ -146,6 +146,15 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   l'autre de son image
 - `node selection-e2e.mjs` — choix des paquets à regrouper : rien de coché
   d'avance, compte par paquet, total qui suit la sélection
+- `node selection-multiple-e2e.mjs` — **sélectionner plusieurs paquets ou
+  notes** : toucher coche au lieu d'ouvrir, Ctrl/⌘-clic, Maj-clic, Échap,
+  « Sélectionner » dans le menu d'une note, déplacer / supprimer / marquer
+  maîtrisée vérifiés **en base** sur la sélection et elle seule, poignée qui
+  emporte toute la sélection, et barre mesurée (contraste, 44 px, rien dessus)
+  en clair et en sombre, sur téléphone et en desktop — `audit.mjs` ne la voit pas
+- `node mise-en-forme-e2e.mjs` — **gras, italique, couleur survivent à la
+  réouverture** : les vrais boutons de la barre dans le vrai navigateur, carte
+  enregistrée puis rechargée, aucun `**` ni `{c:…}` visible
 
 Puis **ouvrir les captures**. Une mesure qui passe ne dit pas que c'est joli.
 
@@ -645,6 +654,16 @@ du verrou npm.
   hors ligne relisent en boucle (`attendre`).
 - **`/notes` n'est plus un exemple de page indisponible hors ligne.** Un script
   qui veut la page « a besoin du serveur » vise `/admin`.
+- **Le balisage enrichi ne se transcrit pas balise par balise.** Le DOM d'un
+  `contenteditable` s'imbrique et se recouvre au gré du navigateur ; traduit
+  récursivement, il donnait `**mot **` (espace emporté au double-tap),
+  `**a *b***` (italique qui finit avec le gras), des couleurs imbriquées et des
+  gras à cheval sur deux lignes — autant de `**` et de `{c:…}` visibles à la
+  réouverture. `serializeEditor` aplatit donc le DOM en segments puis réécrit :
+  marqueurs par ligne, espaces hors des marqueurs, italique en `_`, couleur la
+  plus intérieure, texte tapé échappé. L'ancien test validait `**a *b***` : il
+  vérifiait l'écriture, jamais la **relecture**. Un test de balisage fait
+  l'aller-retour complet.
 - **Tri de texte en SQLite.** La comparaison est octet par octet : « Écrite »
   se range après « Note », parce que « É » s'encode sur deux octets dont le
   premier vaut plus que « N ». Aucune collation française sans extension — trier

@@ -26,6 +26,12 @@ export default async function FolderPage(props: PageProps<"/folders/[folderId]">
 
   // On retire la branche du dossier courant : il ne peut pas se ranger en
   // lui-même, ni dans l'un de ses descendants.
-  const options = await listFolderOptions(user.id, folderId);
-  return <FolderBrowser view={view} folderOptions={options} />;
+  // Le dossier ouvert est retiré des destinations du dossier lui-même, pas de
+  // celles des paquets qu'il contient : ils peuvent descendre dans un
+  // sous-dossier.
+  const [options, moveTargets] = await Promise.all([
+    listFolderOptions(user.id, folderId),
+    listFolderOptions(user.id),
+  ]);
+  return <FolderBrowser view={view} folderOptions={options} moveTargets={moveTargets} />;
 }

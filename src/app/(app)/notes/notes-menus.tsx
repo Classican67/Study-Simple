@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import {
   Circle,
   CircleCheck,
+  ListChecks,
   Copy,
   FilePlus2,
   FolderInput,
@@ -36,6 +37,7 @@ import { createNote, deleteNote, duplicateNote, renameNote, setNoteMastered } fr
 import { MoveNote } from "./[noteId]/move-note";
 import { NoteDragHandle } from "./note-drag-handle";
 import { useActionHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
+import { useSelection } from "@/components/selection";
 
 /**
  * Menus des notes et des dossiers de la liste : ouvrir, créer, renommer,
@@ -120,9 +122,15 @@ export function NoteMenu({
   }
 
   const horsLigne = useActionHorsLigne({ genre: "note", id: note.id, folderId: note.folderId });
+  const selection = useSelection();
 
   const actions: MenuAction[] = [
     { label: "Ouvrir", icon: SquareArrowOutUpRight, onSelect: () => router.push(`/notes/${note.id}`) },
+    // L'appui long est le geste qui ouvre ce menu au doigt : c'est aussi celui
+    // qui, partout sur iPad, fait entrer dans une sélection.
+    ...(selection && !selection.active
+      ? [{ label: "Sélectionner", icon: ListChecks, onSelect: () => selection.start(note.id) }]
+      : []),
     note.mastered
       ? { label: "Retirer la marque « maîtrisée »", icon: Circle, onSelect: () => void marquer() }
       : { label: "Marquer comme maîtrisée", icon: CircleCheck, onSelect: () => void marquer() },

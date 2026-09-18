@@ -25,6 +25,8 @@ import { NewFolderButton } from "./new-folder-button";
 import { FolderSettings } from "./folder-settings";
 import { DropZone } from "@/components/drag-move";
 import { DeckDragHandle } from "./deck-drag-handle";
+import { DeckSelectionBar } from "./deck-selection-bar";
+import { Selectable, SelectionButton, SelectionProvider } from "@/components/selection";
 import { BoutonHorsLigne, PastilleHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
 
 // Vue commune à la racine et à un dossier : la seule différence est le
@@ -32,10 +34,13 @@ import { BoutonHorsLigne, PastilleHorsLigne } from "@/components/hors-ligne/bout
 export function FolderBrowser({
   view,
   folderOptions,
+  moveTargets = folderOptions,
   lastStudied,
 }: {
   view: FolderView;
   folderOptions: FolderOption[];
+  /** Destinations des paquets sélectionnés : tous les dossiers, sans exclusion. */
+  moveTargets?: FolderOption[];
   /** Dernier paquet révisé. Absent hors de la racine, et tant qu'on n'a rien révisé. */
   lastStudied?: LastStudied | null;
 }) {
@@ -45,6 +50,9 @@ export function FolderBrowser({
   const empty = folders.length === 0 && decks.length === 0;
 
   return (
+    // Une sélection par dossier : changer de dossier repart de rien, sans
+    // emporter des paquets qu'on ne voit plus.
+    <SelectionProvider key={current?.id ?? "racine"} ids={decks.map((deck) => deck.id)}>
     <div className="space-y-8">
       {breadcrumb.length > 0 ? <Breadcrumb trail={breadcrumb} /> : null}
 
@@ -113,6 +121,7 @@ export function FolderBrowser({
           {/* À la racine seulement : l'export porte sur tout le compte, pas
               sur le dossier ouvert — le proposer ici induirait en erreur. */}
           {!current && !empty ? <ExportDialog /> : null}
+          <SelectionButton size="lg" className="flex-1 sm:flex-none" />
           {!empty ? (
             <>
               <NewFolderButton parentId={current?.id ?? null} className="flex-1 sm:flex-none" />
@@ -143,7 +152,10 @@ export function FolderBrowser({
               </h2>
               <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {folders.map((folder) => (
-                  <DropZone key={folder.id} folderId={folder.id}>
+                  // `min-w-0` : un élément de grille ne descend pas sous la
+                  // largeur de son contenu, et un long nom de dossier faisait
+                  // défiler toute la page de côté sur téléphone.
+                  <DropZone key={folder.id} folderId={folder.id} className="min-w-0">
                     <Link
                       href={`/folders/${folder.id}`}
                       className="group flex items-center gap-3 rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1 transition-all hover:-translate-y-0.5 hover:border-outline hover:elevation-2"
@@ -191,6 +203,7 @@ export function FolderBrowser({
 
                   return (
                     <li key={deck.id} className="relative">
+                      <Selectable id={deck.id} label={toPlainText(deck.title)}>
                       {/* La poignée est hors du lien : un lien ne peut pas
                           contenir de bouton, et le glissement ne doit pas
                           déclencher la navigation. */}
@@ -251,6 +264,7 @@ export function FolderBrowser({
                           </div>
                         </div>
                       </Link>
+                      </Selectable>
                     </li>
                   );
                 })}
@@ -260,6 +274,8 @@ export function FolderBrowser({
         </div>
       )}
     </div>
+    <DeckSelectionBar folderId={current?.id ?? null} options={moveTargets} />
+    </SelectionProvider>
   );
 }
 

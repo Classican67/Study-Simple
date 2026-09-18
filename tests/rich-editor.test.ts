@@ -25,8 +25,9 @@ describe("serializeEditor — traduction du DOM en balisage", () => {
   it("traduit les balises de mise en forme", () => {
     assert.equal(serialize("<div><strong>a</strong></div>"), "**a**");
     assert.equal(serialize("<div><b>a</b></div>"), "**a**");
-    assert.equal(serialize("<div><em>a</em></div>"), "*a*");
-    assert.equal(serialize("<div><i>a</i></div>"), "*a*");
+    // L'italique s'écrit `_` : l'étoile seule se confondait avec celle du gras.
+    assert.equal(serialize("<div><em>a</em></div>"), "_a_");
+    assert.equal(serialize("<div><i>a</i></div>"), "_a_");
     assert.equal(serialize("<div><s>a</s></div>"), "~~a~~");
     assert.equal(serialize("<div><code>a</code></div>"), "`a`");
   });
@@ -68,7 +69,7 @@ describe("serializeEditor — traduction du DOM en balisage", () => {
   });
 
   it("supporte l'imbrication", () => {
-    assert.equal(serialize("<div><strong>a <em>b</em></strong></div>"), "**a *b***");
+    assert.equal(serialize("<div><strong>a <em>b</em></strong></div>"), "**a _b_**");
     assert.equal(
       serialize('<div><span data-c="blue"><strong>x</strong></span></div>'),
       "{c:blue}**x**{/c}",
@@ -80,12 +81,78 @@ describe("serializeEditor — traduction du DOM en balisage", () => {
   });
 });
 
+/** Ce que l'éditeur rouvert affichera : le HTML relu depuis le balisage stocké. */
+const reopen = (html: string) => markupToHtml(serialize(html));
+
+describe("réouverture — aucun marqueur ne doit réapparaître", () => {
+  // Chaque cas a été livré : la mise en forme tenait à l'écran, puis la fiche
+  // rouverte montrait des `**` ou des `{c:…}` autour de la phrase.
+  const cas: [string, string, string][] = [
+    [
+      "un espace sélectionné avec le mot (double-tap sur iPad)",
+      "<div>un <b>mot </b>ici</div>",
+      "<div>un <strong>mot</strong> ici</div>",
+    ],
+    [
+      "un espace sélectionné devant le mot",
+      "<div>un<b> mot</b> ici</div>",
+      "<div>un <strong>mot</strong> ici</div>",
+    ],
+    [
+      "une italique qui finit avec le gras",
+      "<div><b>a <i>b</i></b> c</div>",
+      "<div><strong>a <em>b</em></strong> c</div>",
+    ],
+    [
+      "un gras qui finit avec l'italique",
+      "<div><i>a <b>b</b></i> c</div>",
+      "<div><em>a</em> <strong><em>b</em></strong> c</div>",
+    ],
+    [
+      "une couleur posée sur un texte déjà coloré",
+      '<div><span data-c="rose">a <span data-c="blue">b</span> c</span></div>',
+      '<div><span data-c="rose" class="text-c-rose">a</span> <span data-c="blue" class="text-c-blue">b</span> <span data-c="rose" class="text-c-rose">c</span></div>',
+    ],
+    [
+      "un gras qui enjambe un retour à la ligne",
+      "<div><b>un<br>deux</b></div>",
+      "<div><strong>un</strong></div><div><strong>deux</strong></div>",
+    ],
+    ["des étoiles tapées au clavier", "<div>5*3*2 et a_b_c</div>", "<div>5*3*2 et a_b_c</div>"],
+    ["des accolades tapées", "<div>{c:rose}x{/c}</div>", "<div>{c:rose}x{/c}</div>"],
+    [
+      "un gras défait par WebKit dans un <strong>",
+      '<div><strong>a <span style="font-weight: normal;">b</span> c</strong></div>',
+      "<div><strong>a</strong> b <strong>c</strong></div>",
+    ],
+    [
+      "une couleur retirée au milieu d'un texte coloré",
+      '<div><span data-c="rose">a <span data-c="none"><b>b</b></span> c</span></div>',
+      '<div><span data-c="rose" class="text-c-rose">a</span> <strong>b</strong> <span data-c="rose" class="text-c-rose">c</span></div>',
+    ],
+    [
+      "deux gras voisins",
+      "<div><b>a</b><b>b</b></div>",
+      "<div><strong>ab</strong></div>",
+    ],
+  ];
+
+  for (const [nom, html, attendu] of cas) {
+    it(nom, () => {
+      const rouvert = reopen(html);
+      assert.equal(rouvert, attendu);
+      // Et la deuxième réouverture ne dérive pas de la première.
+      assert.equal(reopen(rouvert), attendu);
+    });
+  }
+});
+
 describe("aller-retour balisage → HTML → balisage", () => {
   // La propriété qui compte vraiment : ce qui est stocké doit survivre à un
   // passage dans l'éditeur sans se déformer.
   const cas = [
     "**gras**",
-    "*italique*",
+    "_italique_",
     "~~barré~~",
     "`code`",
     "{c:rose}coloré{/c}",
@@ -95,6 +162,8 @@ describe("aller-retour balisage → HTML → balisage", () => {
     "- a\n- b",
     "1. a\n2. b",
     "Rapport **logarithmique** entre la pression et la {c:emerald}référence{/c}",
+    "**a _b_** c",
+    "5\\*3\\*2",
   ];
 
   for (const markup of cas) {

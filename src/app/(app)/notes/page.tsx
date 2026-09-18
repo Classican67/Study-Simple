@@ -12,6 +12,8 @@ import { NoteSearch } from "./note-search";
 import { NoteViewOptions } from "./note-view-options";
 import { FolderMenu, NoteMenu, NotesMenusProvider } from "./notes-menus";
 import { NotesTrail } from "./notes-trail";
+import { NoteSelectionBar } from "./note-selection-bar";
+import { Selectable, SelectionButton, SelectionProvider } from "@/components/selection";
 import { NoteThumbnail } from "@/components/note/note-thumbnail";
 import { BoutonHorsLigne, PastilleHorsLigne } from "@/components/hors-ligne/bouton-hors-ligne";
 import { requireUser } from "@/lib/auth";
@@ -69,6 +71,9 @@ export default async function NotesPage(props: PageProps<"/notes">) {
      */
     <DepotDocument folderId={folderId} nomDossier={view.current?.name}>
     <NotesMenusProvider tree={view.tree}>
+    {/* Une sélection par dossier : changer de dossier repart de rien, sans
+        emporter des notes qu'on ne voit plus. */}
+    <SelectionProvider key={folderId ?? "racine"} ids={view.notes.map((n) => n.id)}>
     <div className="space-y-6">
       {view.breadcrumb.length > 0 ? <NotesTrail trail={view.breadcrumb} href={dossier} /> : null}
 
@@ -99,6 +104,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
         <div className="flex flex-wrap items-center gap-2">
           {/* Les dossiers se créent aussi d'ici : ranger ses notes par thème
               ne doit pas obliger à passer par la section Paquets. */}
+          <SelectionButton />
           <NewNoteFolderButton parentId={folderId} />
           {view.total > 0 ? <NewNoteButton folderId={folderId} /> : null}
         </div>
@@ -125,7 +131,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
           <h2 className="m3-title-small text-on-surface-variant">Dossiers</h2>
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {view.folders.map((folder) => (
-              <DropZone key={folder.id} folderId={folder.id} className="relative">
+              <DropZone key={folder.id} folderId={folder.id} className="relative min-w-0">
                 {/* Clic droit, appui long ou bouton ⋮ : les options du dossier
                     sans avoir à l'ouvrir. */}
                 <FolderMenu
@@ -175,6 +181,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
         >
           {view.notes.map((note) => (
             <li key={note.id} className="relative">
+              <Selectable id={note.id} label={note.title.trim() || UNTITLED}>
               <NoteMenu
                 note={{ id: note.id, title: note.title, folderId: note.folderId, mastered: note.mastered }}
               >
@@ -228,11 +235,18 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                   </Link>
                 )}
               </NoteMenu>
+              </Selectable>
             </li>
           ))}
         </ul>
       ) : null}
     </div>
+    <NoteSelectionBar
+      folderId={folderId}
+      tree={view.tree}
+      mastered={view.notes.filter((n) => n.mastered).map((n) => n.id)}
+    />
+    </SelectionProvider>
     </NotesMenusProvider>
     </DepotDocument>
   );

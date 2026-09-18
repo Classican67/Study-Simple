@@ -65,6 +65,32 @@ describe("RichText — rendu", () => {
     assert.equal(react("****"), "<p>****</p>");
   });
 
+  it("relit ce que l'ancien éditeur a mal écrit", () => {
+    // Des fiches enregistrées avant la correction : elles doivent s'afficher
+    // mises en forme, pas entourées de marqueurs.
+    const gras = (t: string) => `<strong class="font-semibold">${t}</strong>`;
+    assert.equal(react("un **mot **ici"), `<p>un ${gras("mot ")}ici</p>`);
+    assert.equal(react("un** mot** ici"), `<p>un${gras(" mot")} ici</p>`);
+    assert.equal(react("**a *b*** c"), `<p>${gras("a <em>b</em>")} c</p>`);
+    assert.equal(react("*a **b*** c"), `<p><em>a ${gras("b")}</em> c</p>`);
+    assert.equal(react("*a***b**"), `<p><em>a</em>${gras("b")}</p>`);
+    assert.equal(react("**a****b**"), `<p>${gras("a")}${gras("b")}</p>`);
+    assert.equal(
+      react("{c:rose}a {c:blue}b{/c} c{/c}"),
+      '<p><span class="text-c-rose">a <span class="text-c-blue">b</span> c</span></p>',
+    );
+  });
+
+  it("ne rend pas gras ce qui est entouré d'espaces des deux côtés", () => {
+    assert.equal(react("x ** 2 + y ** 2"), "<p>x ** 2 + y ** 2</p>");
+  });
+
+  it("rend littéral un marqueur échappé", () => {
+    assert.equal(react("5\\*3\\*2"), "<p>5*3*2</p>");
+    assert.equal(react("\\{c:rose}x\\{/c}"), "<p>{c:rose}x{/c}</p>");
+    assert.equal(toPlainText("**a\\*b**"), "a*b");
+  });
+
   it("ne réinterprète pas le contenu du code littéral", () => {
     assert.ok(react("`**x**`").includes(">**x**</code>"));
   });

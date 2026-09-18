@@ -3,7 +3,13 @@
 import * as React from "react";
 import { Bold, Italic, List, ListOrdered, Palette, Strikethrough } from "lucide-react";
 
-import { TEXT_COLORS, isTextColor, markupToHtml, type TextColor } from "@/components/rich-text";
+import {
+  TEXT_COLORS,
+  escapeMarkup,
+  isTextColor,
+  markupToHtml,
+  type TextColor,
+} from "@/components/rich-text";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,8 +25,42 @@ import { cn } from "@/lib/utils";
 
 // --- DOM → balisage ---------------------------------------------------------
 
+/*
+ * Le DOM d'un contenteditable ne se transcrit pas balise par balise. Le
+ * navigateur imbrique, découpe et recouvre ses éléments à sa guise, et une
+ * traduction récursive écrivait des balisages que l'analyseur relisait de
+ * travers — des `**` et des `{c:…}` visibles à la réouverture :
+ *   - `**mot **` quand la sélection emportait l'espace (double-tap sur iPad) ;
+ *   - `**a *b***` quand l'italique finit avec le gras : trois étoiles, que
+ *     l'analyseur ferme au mauvais endroit ;
+ *   - `{c:rose}a {c:blue}b{/c} c{/c}` quand on recolore un texte coloré ;
+ *   - `**un\ndeux**` quand le gras enjambe un retour à la ligne, alors que
+ *     l'analyse se fait ligne par ligne ;
+ *   - `5*3*2` tapé au clavier, relu comme une italique.
+ * Le DOM est donc d'abord **aplati** en lignes de segments, chacun portant
+ * l'ensemble de ses mises en forme, puis réécrit : chaque ligne porte ses
+ * propres marqueurs, les espaces restent hors des marqueurs, l'italique
+ * s'écrit `_` pour ne jamais toucher l'étoile du gras, la couleur la plus
+ * intérieure l'emporte sans imbrication, et le texte tapé est échappé.
+ */
+
+type Format = {
+  strong: boolean;
+  em: boolean;
+  del: boolean;
+  code: boolean;
+  color: TextColor | null;
+};
+
+type Segment = { text: string; format: Format };
+type Line = { prefix: string; segments: Segment[] };
+
+const PLAIN: Format = { strong: false, em: false, del: false, code: false, color: null };
+
 /**
- * Couleur portée par un span, lue sur `data-c` uniquement.
+ * Couleur portée par un span, lue sur `data-c` uniquement. `none` est posé
+ * par « Retirer la couleur » à l'intérieur d'un texte coloré, et annule la
+ * couleur héritée.
  *
  * On ne tente pas de rattraper une couleur posée en style inline : les
  * navigateurs normalisent la valeur à la sérialisation (`oklch(55% …)` devient
@@ -28,85 +68,151 @@ import { cn } from "@/lib/utils";
  * présente d'ailleurs pas : la couleur est toujours posée par applyColor, qui
  * écrit `data-c`, et le collage est réduit en texte brut.
  */
-function colorOf(element: HTMLElement): TextColor | null {
+function colorOf(element: HTMLElement, inherited: TextColor | null): TextColor | null {
   const attribute = element.dataset.c;
-  return attribute && isTextColor(attribute) ? attribute : null;
+  if (attribute === "none") return null;
+  return attribute && isTextColor(attribute) ? attribute : inherited;
 }
 
-function serializeNode(node: Node): string {
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? "";
-  if (node.nodeType !== Node.ELEMENT_NODE) return "";
-
-  const element = node as HTMLElement;
+/**
+ * Mise en forme qu'un élément ajoute — ou retire — à celle qu'il hérite.
+ * WebKit ne défait pas toujours un gras en retirant la balise : dans un
+ * `<strong>`, il pose un `<span style="font-weight: normal">`. Sans lire ce
+ * style, le gras retiré revenait à la réouverture.
+ */
+function formatOf(element: HTMLElement, parent: Format): Format {
   const tag = element.tagName.toLowerCase();
-  const inner = serializeChildren(element);
+  const next = { ...parent };
 
-  // Un marqueur autour d'un contenu vide produirait du balisage bancal
-  // (« **** »), que l'analyseur laisserait tel quel à l'écran.
-  const wrap = (open: string, close = open) => (inner.trim() ? `${open}${inner}${close}` : inner);
+  if (tag === "b" || tag === "strong") next.strong = true;
+  if (tag === "i" || tag === "em") next.em = true;
+  if (tag === "s" || tag === "strike" || tag === "del") next.del = true;
+  if (tag === "code") next.code = true;
 
-  switch (tag) {
-    case "br":
-      return "\n";
-    case "b":
-    case "strong":
-      return wrap("**");
-    case "i":
-    case "em":
-      return wrap("*");
-    case "s":
-    case "strike":
-    case "del":
-      return wrap("~~");
-    case "code":
-      return wrap("`");
-    case "ul":
-    case "ol": {
-      const items = Array.from(element.children).filter((c) => c.tagName === "LI");
-      return items
-        .map((item, index) => {
-          const text = serializeChildren(item as HTMLElement).trim();
-          return text ? `${tag === "ul" ? "-" : `${index + 1}.`} ${text}` : "";
-        })
-        .filter(Boolean)
-        .join("\n");
-    }
-    case "li":
-      return serializeChildren(element);
-    case "div":
-    case "p":
-      // Le contenteditable crée un <div> par ligne : chacun devient une ligne.
-      return inner;
-    case "span": {
-      const color = colorOf(element);
-      return color && inner.trim() ? `{c:${color}}${inner}{/c}` : inner;
-    }
-    default:
-      // Balise non gérée (collage depuis une page web) : on garde le texte.
-      return inner;
+  const style = element.style;
+  if (style) {
+    const weight = style.fontWeight;
+    if (weight === "bold" || weight === "bolder" || Number(weight) >= 600) next.strong = true;
+    else if (weight === "normal" || (weight && Number(weight) < 600)) next.strong = false;
+    if (style.fontStyle === "italic") next.em = true;
+    else if (style.fontStyle === "normal") next.em = false;
   }
+
+  if (tag === "span") next.color = colorOf(element, parent.color);
+  return next;
 }
 
-function serializeChildren(element: HTMLElement): string {
-  return Array.from(element.childNodes).map(serializeNode).join("");
+const BLOCK_TAGS = new Set(["div", "p", "li", "h1", "h2", "h3", "h4", "blockquote", "pre"]);
+
+/** Aplatit l'éditeur en lignes de segments mis en forme. */
+function flatten(root: HTMLElement): Line[] {
+  const lines: Line[] = [];
+  let current: Line | null = null;
+
+  const open = (prefix = "") => {
+    // Un bloc ouvert juste après un autre, vide, le réutilise : sans cela
+    // `<div><div>x</div></div>` laisserait une ligne vide devant.
+    if (current && current.segments.length === 0 && !current.prefix) current.prefix = prefix;
+    else {
+      current = { prefix, segments: [] };
+      lines.push(current);
+    }
+  };
+
+  const walk = (node: Node, format: Format, listItem?: () => string) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent ?? "";
+      if (!text) return;
+      if (!current) open();
+      current!.segments.push({ text, format });
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+
+    const element = node as HTMLElement;
+    const tag = element.tagName.toLowerCase();
+
+    if (tag === "br") {
+      if (!current) open();
+      current = null;
+      return;
+    }
+
+    if (tag === "ul" || tag === "ol") {
+      let index = 0;
+      const prefix = () => (tag === "ul" ? "- " : `${++index}. `);
+      for (const child of Array.from(element.childNodes)) walk(child, format, prefix);
+      current = null;
+      return;
+    }
+
+    const next = formatOf(element, format);
+
+    if (BLOCK_TAGS.has(tag)) {
+      open(tag === "li" && listItem ? listItem() : "");
+      for (const child of Array.from(element.childNodes)) walk(child, next);
+      current = null;
+      return;
+    }
+
+    for (const child of Array.from(element.childNodes)) walk(child, next, listItem);
+  };
+
+  for (const child of Array.from(root.childNodes)) walk(child, PLAIN);
+  return lines;
+}
+
+// Ordre d'imbrication : la couleur à l'extérieur, le code au plus près du
+// texte. Un ordre fixe fait que deux segments voisins partagent leurs
+// marqueurs extérieurs au lieu de les fermer et rouvrir.
+const LAYERS: {
+  key: keyof Format;
+  wrap: (inner: string, format: Format) => string;
+}[] = [
+  { key: "color", wrap: (inner, f) => `{c:${f.color}}${inner}{/c}` },
+  { key: "strong", wrap: (inner) => `**${inner}**` },
+  { key: "del", wrap: (inner) => `~~${inner}~~` },
+  { key: "em", wrap: (inner) => `_${inner}_` },
+  { key: "code", wrap: (inner) => `\`${inner}\`` },
+];
+
+function emit(segments: Segment[], depth = 0): string {
+  if (depth === LAYERS.length) return segments.map((s) => escapeMarkup(s.text)).join("");
+
+  const layer = LAYERS[depth];
+  let out = "";
+  let start = 0;
+  while (start < segments.length) {
+    const value = segments[start].format[layer.key];
+    let end = start + 1;
+    while (end < segments.length && segments[end].format[layer.key] === value) end++;
+
+    const inner = emit(segments.slice(start, end), depth + 1);
+    if (!value) out += inner;
+    else {
+      // Les espaces restent hors des marqueurs : `**mot **` ne se relit pas.
+      // Les couches intérieures les ont déjà repoussés au bord.
+      const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(inner)!;
+      out += core ? lead + layer.wrap(core, segments[start].format) + trail : inner;
+    }
+    start = end;
+  }
+  return out;
 }
 
 /** Transcrit le contenu d'un contenteditable dans le balisage stocké. */
 export function serializeEditor(root: HTMLElement): string {
-  const parts: string[] = [];
-
-  for (const child of Array.from(root.childNodes)) {
-    const isBlock =
-      child.nodeType === Node.ELEMENT_NODE &&
-      ["DIV", "P", "UL", "OL"].includes((child as HTMLElement).tagName);
-    const text = serializeNode(child);
-    if (isBlock) parts.push(text);
-    else if (parts.length === 0) parts.push(text);
-    // Texte nu à la racine : il appartient à la ligne en cours.
-    else parts[parts.length - 1] += text;
-  }
-
-  return parts.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+  return flatten(root)
+    .map((line) => {
+      const text = emit(line.segments);
+      // Une puce vide ne vaut pas d'être gardée.
+      if (line.prefix) return text.trim() ? line.prefix + text.trim() : null;
+      return text;
+    })
+    .filter((line): line is string => line !== null)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 // --- Commandes --------------------------------------------------------------
@@ -190,20 +296,23 @@ export function RichEditor({
     const range = selection.getRangeAt(0);
     if (!node.contains(range.commonAncestorContainer)) return;
 
-    if (color === null) {
-      // Retirer la couleur : on remplace la sélection par son texte nu.
-      const text = range.toString();
-      range.deleteContents();
-      range.insertNode(document.createTextNode(text));
-    } else {
-      const span = document.createElement("span");
-      span.dataset.c = color;
-      span.className = `text-c-${color}`;
-      // extractContents plutôt que surroundContents : ce dernier échoue dès
-      // que la sélection traverse une frontière de balise.
-      span.appendChild(range.extractContents());
-      range.insertNode(span);
-    }
+    // extractContents plutôt que surroundContents : ce dernier échoue dès
+    // que la sélection traverse une frontière de balise.
+    const fragment = range.extractContents();
+    // Les couleurs intérieures sont retirées : sans cela un mot recoloré
+    // garderait l'ancienne teinte, la plus intérieure l'emportant.
+    fragment.querySelectorAll<HTMLElement>("span[data-c]").forEach((inner) => {
+      inner.replaceWith(...Array.from(inner.childNodes));
+    });
+
+    const span = document.createElement("span");
+    // Retirer la couleur garde le gras et l'italique. Au sein d'un texte
+    // coloré, il faut aussi annuler la teinte héritée : c'est `none`, que la
+    // transcription lit comme « pas de couleur ».
+    span.dataset.c = color ?? "none";
+    span.className = color ? `text-c-${color}` : "text-on-surface";
+    span.appendChild(fragment);
+    range.insertNode(span);
 
     selection.removeAllRanges();
     emit();
