@@ -155,6 +155,11 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node mise-en-forme-e2e.mjs` — **gras, italique, couleur survivent à la
   réouverture** : les vrais boutons de la barre dans le vrai navigateur, carte
   enregistrée puis rechargée, aucun `**` ni `{c:…}` visible
+- `node image-reponse-e2e.mjs` — **une réponse illustrée reste lisible** : un
+  schéma large passe **sous** le texte et garde sa taille, une petite image
+  reste **à côté** ; carte de révision et modale « Voir en entier », en clair et
+  en sombre, sur téléphone et en desktop. Les deux cas ensemble : corriger le
+  premier seul revient à tout empiler
 
 Puis **ouvrir les captures**. Une mesure qui passe ne dit pas que c'est joli.
 
@@ -194,6 +199,21 @@ du verrou npm.
   `@layer components`. Voir `tests/styles.test.ts`.
 - **Contrôles natifs.** `input[type="search"]` fait dessiner au navigateur sa
   propre croix, à côté de la nôtre. Neutraliser ce que l'on remplace.
+- **Un élément flex ne descend pas sous la largeur de son image.** Son
+  `min-width: auto` vaut la largeur intrinsèque du contenu — 586 px pour un
+  schéma de cours ramené à `max-h-56`. La colonne de texte d'à côté, elle,
+  porte `min-w-0` et se laisse réduire à **rien** : la réponse d'une carte
+  illustrée sortait à 2 px de large pour 3364 px de haut, une lettre par ligne,
+  le schéma par-dessus. Rien ne le signalait — aucun débordement, ni
+  horizontal ni vertical, et les classes attendues étaient bien dans le code.
+  Le remède tient en deux temps : `min-w-0` sur la vignette, qui lève le
+  plancher, et `flex-wrap` sur la rangée, qui fait passer l'image **sous** le
+  texte quand il ne reste plus de quoi lire une colonne à côté d'elle. La
+  rupture se décide ainsi sur la largeur réelle de l'image, pas sur une taille
+  d'écran — une petite illustration reste à côté du texte. Attention à
+  `flex-1` : sa forme courte remet la base à zéro, et c'est justement la base
+  du texte qui décide de la rupture. `image-reponse-e2e.mjs` mesure les deux
+  cas.
 - **Playwright.** La taille d'écran se passe en `viewport: { width, height }` ;
   des clés à plat sont ignorées sans erreur et tout est mesuré en 1280×720.
 - **Couleurs.** Chromium renvoie les couleurs calculées en `oklch()`. Les lire

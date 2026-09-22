@@ -26,11 +26,14 @@ function clamp(value: number, min: number, max: number) {
 export function ImageLightbox({
   src,
   alt,
+  className,
   thumbnailClassName,
   onOpenChange,
 }: {
   src: string;
   alt: string;
+  /** Classes du bouton-vignette : c'est lui qui occupe la place dans la mise en page. */
+  className?: string;
   thumbnailClassName?: string;
   onOpenChange?: (open: boolean) => void;
 }) {
@@ -104,6 +107,7 @@ export function ImageLightbox({
           className={cn(
             "group relative inline-block max-w-full cursor-zoom-in overflow-hidden rounded-xl",
             "border border-outline-variant transition-colors hover:border-primary focus-visible:border-primary",
+            className,
           )}
         >
           {/* La contrainte de taille porte sur l'image, pas sur le bouton : un

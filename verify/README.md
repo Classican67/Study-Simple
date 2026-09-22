@@ -49,6 +49,7 @@ DATABASE_URL="file:$PWD/verify/verif.db" UPLOAD_DIR="$PWD/verify/uploads" \
 | `node regard.mjs` | Captures ciblées du document empilé et du volet, en clair et en sombre |
 | `node selection-multiple-e2e.mjs` | Sélection de plusieurs paquets ou notes : déplacer, supprimer, marquer, glisser, barre en clair et en sombre |
 | `node mise-en-forme-e2e.mjs` | Gras, italique et couleur intacts à la réouverture, sans `**` ni `{c:…}` |
+| `node image-reponse-e2e.mjs` | Réponse illustrée : schéma large empilé sous le texte, petite image à côté, en clair et en sombre |
 | `node vignettes-e2e.mjs` | Liste des notes : vignettes, tailles d'affichage, tri, et poids de la liste |
 | `node ecriture-e2e.mjs` | Manuscrit : épaisseur du trait, continuité de la couche vive, reprise après `pointercancel`, contournement de Scribble, netteté au zoom, coût sur page dense, main posée sur la barre, appui maintenu, encre qui ne se redessine pas en défilant |
 | `node regard-ecriture.mjs` | Captures de l'écriture à 1× et agrandie, en clair et en sombre |
