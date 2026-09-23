@@ -1,6 +1,7 @@
 import { getStroke } from "perfect-freehand";
 
 import { INK_OPTIONS, INK_REF, hasRealPressure } from "@/lib/ink";
+import { inkSpine, LISSAGE } from "@/lib/ink-smooth";
 import { hexToRgb01 } from "@/lib/ink-color";
 import { PAPER_COLORS, PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
 
@@ -47,7 +48,11 @@ export function strokeOutline(stroke: Stroke, page: PageSize): number[][] {
   if (points.length === 0) return [];
 
   const tool = stroke.tool ?? "pen";
-  return getStroke(points, {
+  // Mêmes trous comblés de la même façon qu'à l'écran : un trait de souris
+  // sorti en ligne brisée au papier alors qu'il est courbe à l'écran serait la
+  // divergence qu'on passe son temps à empêcher. L'écart est donné dans les
+  // unités de la page, comme les points.
+  return getStroke(inkSpine(points, LISSAGE.ecart * (page.width / INK_REF)), {
     // L'épaisseur est en proportion de la largeur, comme les coordonnées.
     size: strokeWidth(stroke, page),
     ...INK_OPTIONS[tool],

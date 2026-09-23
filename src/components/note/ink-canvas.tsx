@@ -20,6 +20,7 @@ import {
   type Ruler,
   type Shape,
 } from "@/lib/ink";
+import { inkSpine, LisseurDeTrait, LISSAGE, type PointStylet } from "@/lib/ink-smooth";
 import {
   DEFAULT_RATIO,
   MAX_RATIO,
@@ -176,7 +177,11 @@ function outlineOf(stroke: Stroke): number[][] {
     points.push([stroke.points[i] * REF, stroke.points[i + 1] * REF, stroke.points[i + 2] ?? 0.5]);
   }
   if (points.length === 0) return [];
-  return getStroke(points, {
+  // Les trous sont comblés par une courbe avant d'en faire un contour : une
+  // souris n'échantillonne qu'à soixante hertz, et un geste rapide n'y laisse
+  // qu'une poignée de points. Sur un tracé au stylet, déjà serré, c'est un
+  // non-événement — une comparaison par point, et rien d'inséré.
+  return getStroke(inkSpine(points, LISSAGE.ecart), {
     size: strokeSize(stroke),
     ...INK_OPTIONS[(stroke.tool ?? "pen") as Tool],
     // La pression du stylet est **mesurée**, pas devinée : sans cela la largeur
@@ -238,9 +243,16 @@ function overlaps(a: Bounds, b: Bounds, marge: number): boolean {
   );
 }
 
-/** Trois décimales : au pixel près sur un écran large, et six fois plus léger. */
+/**
+ * Quatre décimales — et non trois, comme autrefois.
+ *
+ * Trois valaient « au pixel près sur un écran large ». C'était vrai à
+ * l'échelle 1 et faux dès qu'on zoome : à six fois, la page fait plusieurs
+ * milliers de pixels, et le millième de page devient un escalier de plusieurs
+ * pixels d'écran sur un trait lent. Le coût est d'un caractère par coordonnée.
+ */
 function round(value: number): number {
-  return Math.round(value * 1000) / 1000;
+  return Math.round(value * 10000) / 10000;
 }
 
 type Tuile = { col: number; row: number; canvas: HTMLCanvasElement; sale: boolean };
@@ -420,6 +432,26 @@ export function InkCanvas({
   // Couleur résolue au poser du stylet : `getComputedStyle` à chaque image du
   // tracé coûte une consultation du style calculé par point tracé.
   const encreVive = React.useRef("#000");
+
+  /*
+   * Le lissage du trait en cours.
+   *
+   * Il vit hors de React : il est touché deux cents fois par seconde, et un
+   * état qui redessine la page à chaque point serait exactement ce qu'on
+   * cherche à éviter. Cf. `lib/ink-smooth.ts` pour le filtre lui-même.
+   */
+  const lisseur = React.useRef<LisseurDeTrait | null>(null);
+
+  /*
+   * Les points **prédits**, qui ne sont jamais enregistrés.
+   *
+   * Tout lissage retarde la pointe peinte sur la pointe réelle. Le navigateur
+   * sait extrapoler la trajectoire (`getPredictedEvents`, Chrome et Safari 18.2)
+   * et ce sont ces points-là qui rendent le retard : on peint jusqu'où la main
+   * sera, pas jusqu'où elle était. Ils disparaissent au lever de la pointe —
+   * une prédiction n'est pas de l'encre.
+   */
+  const predits = React.useRef<number[]>([]);
 
   /*
    * Trait interrompu par le navigateur, en attente d'être repris.
@@ -806,7 +838,15 @@ export function InkCanvas({
 
     context.save();
     placerFenetre(context, 1 / REF);
-    const path = pathOf(outlineOf(trait));
+    // Le trait peint va jusqu'où la main *sera*, pas jusqu'où elle était : les
+    // points prédits comblent le retard du lissage. Ils ne sont pas dans
+    // `drawing.current`, donc ils ne seront jamais enregistrés.
+    const avance = predits.current;
+    const path = pathOf(
+      outlineOf(
+        avance.length > 0 ? { ...trait, points: [...trait.points, ...avance] } : trait,
+      ),
+    );
     if (path) {
       context.globalAlpha = strokeAlpha(trait);
       context.fillStyle = encreVive.current;
@@ -1177,6 +1217,49 @@ export function InkCanvas({
     return [round(x), round(y), Math.round(pressure * 100) / 100];
   }
 
+  /**
+   * Le même point, **non arrondi** et daté : ce que le lisseur veut.
+   *
+   * Arrondir avant de filtrer reviendrait à filtrer du bruit qu'on a soi-même
+   * ajouté ; et sans l'horodatage, un filtre en temps réel n'a pas de temps.
+   */
+  function brutOf(event: PointerEvent | React.PointerEvent): PointStylet | null {
+    const rect = pageRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return null;
+    const pression = event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0.5;
+    return {
+      x: (event.clientX - rect.left) / rect.width,
+      y: (event.clientY - rect.top) / rect.width,
+      pression,
+      temps: event.timeStamp,
+    };
+  }
+
+  /**
+   * Là où le navigateur pense que la main va.
+   *
+   * L'avance est bornée : l'extrapolation se trompe d'autant plus que le geste
+   * change de direction, et un trait qui s'arrête net partirait sinon en coup
+   * de fouet avant de revenir. Bornée, l'erreur reste sous l'épaisseur du trait.
+   */
+  function avanceDe(event: React.PointerEvent): number[] {
+    const natif = event.nativeEvent as PointerEvent & {
+      getPredictedEvents?: () => PointerEvent[];
+    };
+    if (typeof natif.getPredictedEvents !== "function") return [];
+    let depart: number[] | null = null;
+    const sortie: number[] = [];
+    let parcouru = 0;
+    for (const e of natif.getPredictedEvents()) {
+      const point = pointOf(e);
+      depart ??= pointOf(natif);
+      parcouru = Math.hypot(point[0] - depart[0], point[1] - depart[1]) * INK_REF;
+      if (parcouru > LISSAGE.predictionMax) break;
+      sortie.push(...point);
+    }
+    return sortie;
+  }
+
   /** Centre et écartement des doigts posés. */
   function pinch() {
     const points = [...touches.current.values()];
@@ -1206,6 +1289,8 @@ export function InkCanvas({
         // commencé par mégarde est abandonné plutôt que laissé à moitié.
         if (drawing.current) {
           drawing.current = null;
+          lisseur.current = null;
+          predits.current = [];
           viderVive();
         }
         // Chaque doigt garde sa position de départ : c'est d'elle que se mesure
@@ -1312,13 +1397,18 @@ export function InkCanvas({
     // Le navigateur vient peut-être de nous couper la parole : si la pointe
     // redescend au même endroit dans la foulée, c'est le même trait.
     if (!reprendre(point)) {
+      // Un trait neuf, un lisseur neuf : le filtre part de la pointe posée, et
+      // non de la fin du trait précédent.
+      const depart = brutOf(event);
+      lisseur.current = new LisseurDeTrait();
       drawing.current = {
         color,
         size,
         tool: tool === "shape" ? "pen" : tool,
-        points: point,
+        points: depart ? lisseur.current.poser(depart) : point,
       };
     }
+    predits.current = [];
     const styles = getComputedStyle(event.currentTarget);
     encreVive.current = resolveInk(styles, color);
     demander("vive");
@@ -1428,9 +1518,21 @@ export function InkCanvas({
       typeof event.nativeEvent.getCoalescedEvents === "function"
         ? event.nativeEvent.getCoalescedEvents()
         : [];
+    const filtre = lisseur.current;
     for (const e of bruts.length > 0 ? bruts : [event.nativeEvent]) {
-      drawing.current.points.push(...pointOf(e));
+      if (!filtre) {
+        drawing.current.points.push(...pointOf(e));
+        continue;
+      }
+      const brut = brutOf(e);
+      if (!brut) continue;
+      // Le filtre voit **tous** les points — c'est de là qu'il tire sa
+      // précision — mais il ne rend que ceux qui avancent assez pour valoir
+      // d'être gardés.
+      const lisse = filtre.suivre(brut);
+      if (lisse) drawing.current.points.push(...lisse);
     }
+    predits.current = avanceDe(event);
     demander("vive");
   }
 
@@ -1504,11 +1606,18 @@ export function InkCanvas({
     const trait = drawing.current;
     drawing.current = null;
     if (!trait) return;
+    // Le lissage traîne, par construction : on ramène le trait là où la pointe
+    // s'est réellement levée, sans quoi chaque lettre finirait un peu avant sa
+    // fin. Cf. `LisseurDeTrait.finir`.
+    trait.points.push(...(lisseur.current?.finir() ?? []));
+    lisseur.current = null;
     poserTrait(trait);
   }
 
   /** Range un trait terminé sur la page, et enregistre. */
   function poserTrait(trait: Stroke) {
+    // Une prédiction n'est pas de l'encre : elle s'arrête avec le geste.
+    predits.current = [];
     // Un simple appui ne laisse rien : une pointe posée par mégarde ne doit pas
     // marquer la page.
     if (trait.points.length < 6) {
@@ -1570,6 +1679,11 @@ export function InkCanvas({
     }
 
     drawing.current = null;
+    predits.current = [];
+    // Le trait est ramené sur la dernière position réelle avant l'attente : le
+    // lisseur, lui, est gardé — si la pointe redescend, c'est le même geste et
+    // il doit repartir de son état, pas de zéro.
+    trait.points.push(...(lisseur.current?.finir() ?? []));
     // Le trait attend sa reprise, qui désignera son propre auteur : garder
     // celui-ci ferait ignorer le lever du prochain pointeur si l'attente expire.
     auteur.current = null;

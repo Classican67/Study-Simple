@@ -157,8 +157,16 @@ export function unionBounds(strokes: number[][]): Bounds | null {
   return union;
 }
 
+/**
+ * Quatre décimales, comme à la capture.
+ *
+ * Arrondir plus grossièrement ici reviendrait à dégrader un trait en le
+ * déplaçant : le millième de page fait plusieurs pixels d'écran dès qu'on
+ * zoome, et un trait lent y prendrait un escalier qu'il n'avait pas avant
+ * d'être bougé.
+ */
 function round(value: number): number {
-  return Math.round(value * 1000) / 1000;
+  return Math.round(value * 10000) / 10000;
 }
 
 /**
@@ -370,11 +378,26 @@ export function hasRealPressure(flat: number[]): boolean {
   return false;
 }
 
+/**
+ * `streamline` est plus bas qu'avant, et c'est volontaire.
+ *
+ * C'est un lissage exponentiel à coefficient **fixe** appliqué par la
+ * bibliothèque : il retarde la pointe d'autant plus qu'il lisse, et il lisse
+ * autant dans un geste lent que dans un geste rapide, alors que ce sont deux
+ * problèmes opposés. Le tremblement est désormais traité en amont, à la
+ * capture, par un filtre dont la coupure suit la vitesse (`lib/ink-smooth.ts`).
+ * En garder 0,42 par-dessus reviendrait à lisser deux fois, donc à traîner deux
+ * fois. Il n'est pas ramené à zéro pour autant : les traits **déjà
+ * enregistrés** n'ont jamais vu le filtre, et c'est lui qui les tient.
+ *
+ * `smoothing` ne coûte rien, lui : il adoucit le **contour**, pas la
+ * trajectoire, et n'introduit aucun retard.
+ */
 export const INK_OPTIONS = {
-  pen: { thinning: 0.62, smoothing: 0.5, streamline: 0.42 },
+  pen: { thinning: 0.62, smoothing: 0.62, streamline: 0.3 },
   // Un surligneur ne varie pas d'épaisseur et ne s'effile pas : c'est un feutre
   // à pointe biseautée, pas une plume.
-  highlighter: { thinning: 0, smoothing: 0.62, streamline: 0.5 },
+  highlighter: { thinning: 0, smoothing: 0.7, streamline: 0.38 },
 } as const;
 
 /**

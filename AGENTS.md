@@ -84,6 +84,12 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   qui ne se redessine pas quand on défile. Les mesures passent par un espion
   posé sur `CanvasRenderingContext2D` et par la lecture des pixels des couches :
   rien n'est ajouté à l'app pour se laisser observer
+- `node souplesse-e2e.mjs` — **la souplesse du tracé**, c'est-à-dire ce que la
+  netteté ne dit pas : un trait qui tremble doit ressortir droit, un « v » tracé
+  vite doit garder son sommet, l'encre doit atteindre l'endroit où la pointe
+  s'est levée, et un geste de souris doit rester une courbe. Les gestes sont
+  joués **à cadence maîtrisée** (200 Hz, la cadence d'un Apple Pencil) : un
+  filtre en temps réel n'a pas de sens sans de vrais horodatages
 - `node regard-ecriture.mjs` — captures de l'écriture à 1× et agrandie, en
   clair et en sombre. À **ouvrir** : la mesure dit que le trait fait la bonne
   épaisseur, pas qu'il a l'air d'une encre
@@ -155,6 +161,13 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
 - `node mise-en-forme-e2e.mjs` — **gras, italique, couleur survivent à la
   réouverture** : les vrais boutons de la barre dans le vrai navigateur, carte
   enregistrée puis rechargée, aucun `**` ni `{c:…}` visible
+- `node maths-e2e.mjs` — **les caractères mathématiques d'une carte** : le
+  symbole se pose au curseur et non au début, il hérite du gras, la recherche
+  par nom le trouve sans accent, Échap et le bouton referment la palette, les
+  récents reviennent en tête, et tout survit à la réouverture **sans barre
+  oblique ni marqueur**. Le panneau y est aussi mesuré — contraste, cibles de
+  44 px, débordement — en clair et en sombre, sur téléphone et en desktop :
+  `audit.mjs` ne le voit pas, il n'existe qu'ouvert
 - `node image-reponse-e2e.mjs` — **une réponse illustrée reste lisible** : un
   schéma large passe **sous** le texte et garde sa taille, une petite image
   reste **à côté** ; carte de révision et modale « Voir en entier », en clair et
@@ -331,6 +344,58 @@ du verrou npm.
      que le premier `pointerdown` ne parvienne à la page. `passive: false` est
      indispensable, et c'est précisément ce que React ne fait pas : d'où
      l'écouteur natif.
+- **Un lissage à coefficient fixe ne peut pas être bon deux fois.** Le
+  `streamline` de `perfect-freehand` est un lissage exponentiel à coefficient
+  constant : assez fort pour tuer le tremblement d'une main lente, il fait
+  traîner la pointe dans les gestes rapides ; assez faible pour suivre la main,
+  il laisse l'ondulation. Ce ne sont pas les mêmes gestes, et un seul réglage ne
+  peut pas répondre aux deux. La capture passe donc par un **filtre 1 €**
+  (Casiez, Roussel & Vogel, CHI 2012) dont la fréquence de coupure **monte avec
+  la vitesse** — `lib/ink-smooth.ts`. On voit le tremblement quand on va
+  lentement et le retard quand on va vite, jamais les deux à la fois.
+- **β se lit comme un retard, et le retard comme un angle arrondi.** Dans le
+  filtre 1 €, la pointe peinte traîne d'au plus `1 / (2π·β)` unités de page,
+  quelle que soit la vitesse — et ce retard **est** le rayon dont le filtre
+  arrondit un angle. Une minuscule fait vingt-cinq unités de haut : à β = 0,012
+  le retard plafonne à treize unités, soit la moitié d'une lettre, et l'écriture
+  sort en bouillie. À β = 0,07 il plafonne à deux unités et demie. Mesuré sur un
+  « v » tracé à 2 600 unités par seconde : 5 px manqués au sommet contre 15.
+  Réglage à ne jamais changer sans relancer `souplesse-e2e.mjs`.
+- **Un filtre en temps réel se moque de ce qu'on croit lui donner.** Deux
+  choses l'ont fait mentir. D'abord un `dt` non borné : des événements qui
+  partagent leur horodatage — ceux qu'un script fabrique, et certains événements
+  fusionnés — donnent une division par zéro, donc un `NaN`, donc un trait qui
+  disparaît sans un mot. Ensuite une sonde qui expédie ses points dans une
+  boucle serrée les date tous à la même milliseconde : le filtre y voit une main
+  lancée à des vitesses folles et ne lisse rien, et l'on mesure alors le
+  contraire de ce qu'on croit. `souplesse-e2e.mjs` attend donc **activement**
+  entre deux points, à 200 Hz.
+- **Le lissage se fait à la capture, pas au rendu.** C'est ce qui permet à
+  l'écran, à la relecture et à l'export de voir exactement les mêmes points —
+  un filtre qui dépend du temps ne peut pas se rejouer sur des points
+  enregistrés, l'horodatage n'étant pas gardé. Conséquence assumée : les traits
+  déjà en base n'ont jamais vu le filtre, et c'est pour eux seuls que
+  `streamline` garde une valeur non nulle.
+- **Une prédiction n'est pas de l'encre.** Le retard du lissage se rend à
+  l'écran en peignant jusqu'où la main *sera* (`getPredictedEvents`, Chrome et
+  Safari 18.2), et au papier en ramenant le trait sur le dernier point réel au
+  lever de la pointe. Les points prédits vivent donc hors de `drawing.current`
+  et sont effacés à la fin du geste : laissés dans le trait, ils donneraient à
+  chaque lettre une queue qui dépasse. La prédiction ne se mesure pas dans la
+  sonde — un événement fabriqué par un script n'en a pas — ce qui est une raison
+  de plus pour que le trait enregistré n'en dépende pas.
+- **Trois décimales, c'était « au pixel près » à l'échelle 1 seulement.** Le
+  millième de page vaut plusieurs pixels d'écran dès qu'on zoome à six fois, et
+  un trait lent y prenait un escalier. Les points sont enregistrés à quatre
+  décimales, et `translateStroke` arrondit pareil : arrondir plus grossièrement
+  au déplacement dégraderait un trait rien qu'en le bougeant.
+- **Une bande de mesure qui en recouvre une autre accuse l'application.** Les
+  sondes de `souplesse-e2e.mjs` lisent l'encre par bandes horizontales, une par
+  geste. Un trait droit posé à mi-hauteur tombait dans la bande où se mesure un
+  arc : quatre-vingt-huit pixels d'écart au cercle annoncés, pour un arc
+  parfait. Et posé trop bas il sortait de la fenêtre — les tuiles ne couvrent
+  que ce qui est à l'écran — et la sonde ne trouvait plus rien. Chaque geste a
+  sa bande, les bandes ne se recouvrent pas, et toutes tiennent dans la fenêtre.
 - **La pression du stylet était ignorée.** `perfect-freehand` *simule* la
   pression par défaut, à partir de la vitesse du geste, et cette simulation
   **remplace** celle que le stylet a mesurée : le trait sortait trois fois trop
@@ -674,6 +739,44 @@ du verrou npm.
   hors ligne relisent en boucle (`attendre`).
 - **`/notes` n'est plus un exemple de page indisponible hors ligne.** Un script
   qui veut la page « a besoin du serveur » vise `/admin`.
+- **Un caractère Unicode traverse tout ; une syntaxe, non.** Les symboles
+  mathématiques des cartes (`lib/maths.ts`) sont des caractères, insérés comme
+  des lettres : ils survivent au balisage, à la relecture, à la recherche, à la
+  comparaison des réponses et à l'export **sans qu'une ligne ait été touchée
+  ailleurs**. Une syntaxe de formule aurait demandé un analyseur et un rendu
+  dans chacun de ces endroits. La preuve n'est pas gratuite pour autant :
+  `tests/maths.test.ts` fait faire l'aller-retour à **chaque** symbole, parce
+  que le balisage échappe `* _ ~ \` { }` et qu'un symbole qui tomberait dessus
+  ressortirait avec une barre oblique sous les yeux de la personne.
+- **Un `contenteditable` qui perd le focus perd sa sélection.** Le champ de
+  recherche de la palette la lui prend, et le symbole choisi atterrissait au
+  **début** du texte — « λonde » au lieu de « onde λ ». Le curseur est donc
+  mémorisé (`Range` cloné, remis avant l'insertion). Les boutons, eux, ne le
+  perdent pas, parce qu'ils coupent le `mousedown` ; mais un seul chemin pour
+  les deux vaut mieux que deux dont un seul est éprouvé. Et l'insertion passe
+  par `execCommand("insertText")`, qui place le caractère dans la mise en forme
+  courante — un π tapé dans du gras reste en gras — et garde la pile
+  d'annulation du navigateur.
+- **Un panneau qui se ferme au clic extérieur se rouvre par son propre
+  bouton.** Le `pointerdown` de la fermeture part avant le `mousedown` de la
+  bascule : le premier ferme, le second rouvre, et il devient impossible de
+  refermer par où l'on a ouvert. Le bouton d'ouverture est donc exclu du
+  « dehors » (`[data-maths-toggle]`).
+- **Un panneau se déplie vers le haut quand il n'y a pas la place en bas.** La
+  barre d'outils d'une carte peut être n'importe où dans une longue liste, et
+  le bas de l'écran est déjà pris par la barre de navigation et le bouton
+  « Réviser ». Déplié vers le bas, le panneau y disparaissait : une seule
+  rangée de symboles visible. **Aucune mesure ne le disait** — il ne débordait
+  ni en largeur ni la page, et sa hauteur était conforme. C'est la capture qui
+  l'a montré. Le placement se pose sur l'élément dans un effet de mise en page,
+  et non par un état React, qui rendrait le panneau deux fois et le ferait
+  sauter.
+- **Deux glyphes de quatorze pixels qui se ressemblent ne se distinguent
+  pas.** « ² » et « ₂ » côte à côte dans une grille donnaient deux rangées de
+  chiffres identiques sous un titre « Puissances et indices ». Le nom du bouton
+  le disait, mais on ne survole pas cent boutons pour lire leurs infobulles :
+  ce sont deux familles, « Exposants » et « Indices », et c'est la place dans
+  le panneau qui répond.
 - **Le balisage enrichi ne se transcrit pas balise par balise.** Le DOM d'un
   `contenteditable` s'imbrique et se recouvre au gré du navigateur ; traduit
   récursivement, il donnait `**mot **` (espace emporté au double-tap),

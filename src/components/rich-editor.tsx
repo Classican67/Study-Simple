@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Bold, Italic, List, ListOrdered, Palette, Strikethrough } from "lucide-react";
+import { Bold, Italic, List, ListOrdered, Palette, Sigma, Strikethrough } from "lucide-react";
 
 import {
   TEXT_COLORS,
@@ -10,6 +10,13 @@ import {
   markupToHtml,
   type TextColor,
 } from "@/components/rich-text";
+import {
+  GROUPES_MATHS,
+  chercherSymboles,
+  lireRecents,
+  retenirRecent,
+  type Symbole,
+} from "@/lib/maths";
 import { cn } from "@/lib/utils";
 
 /**
@@ -219,13 +226,15 @@ export function serializeEditor(root: HTMLElement): string {
 
 type Tool =
   | { kind: "command"; command: string; icon: React.ElementType; label: string; shortcut?: string }
-  | { kind: "color"; icon: React.ElementType; label: string };
+  | { kind: "color"; icon: React.ElementType; label: string }
+  | { kind: "maths"; icon: React.ElementType; label: string };
 
 const TOOLS: Tool[] = [
   { kind: "command", command: "bold", icon: Bold, label: "Gras", shortcut: "Ctrl+B" },
   { kind: "command", command: "italic", icon: Italic, label: "Italique", shortcut: "Ctrl+I" },
   { kind: "command", command: "strikeThrough", icon: Strikethrough, label: "Barré" },
   { kind: "color", icon: Palette, label: "Couleur" },
+  { kind: "maths", icon: Sigma, label: "Caractères mathématiques" },
   { kind: "command", command: "insertUnorderedList", icon: List, label: "Liste à puces" },
   { kind: "command", command: "insertOrderedList", icon: ListOrdered, label: "Liste numérotée" },
 ];
@@ -253,6 +262,7 @@ export function RichEditor({
   const ref = React.useRef<HTMLDivElement>(null);
   const [empty, setEmpty] = React.useState(!value.trim());
   const [colorOpen, setColorOpen] = React.useState(false);
+  const [mathsOpen, setMathsOpen] = React.useState(false);
 
   // Le contenu initial n'est posé qu'au montage. Le réécrire à chaque rendu
   // replacerait le curseur au début à chaque frappe.
@@ -318,6 +328,55 @@ export function RichEditor({
     emit();
   }
 
+  /*
+   * Où en était le curseur.
+   *
+   * Le champ de recherche de la palette prend le focus, et le
+   * `contenteditable` perd alors sa sélection : le symbole choisi atterrirait
+   * au début du texte, ou nulle part. Les boutons, eux, ne la perdent pas
+   * (`onMouseDown` + `preventDefault`), mais un seul chemin pour les deux vaut
+   * mieux que deux chemins dont un seul est éprouvé.
+   */
+  const memoire = React.useRef<Range | null>(null);
+
+  const memoriser = React.useCallback(() => {
+    const node = ref.current;
+    const selection = window.getSelection();
+    if (!node || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (node.contains(range.commonAncestorContainer)) memoire.current = range.cloneRange();
+  }, []);
+
+  function restaurer() {
+    const node = ref.current;
+    if (!node) return;
+    node.focus();
+    const range = memoire.current;
+    if (!range || !node.contains(range.commonAncestorContainer)) return;
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  /**
+   * Pose un caractère mathématique là où est le curseur.
+   *
+   * `insertText` et non une manipulation du DOM : c'est ce qui place le
+   * caractère dans la mise en forme courante — un « π » tapé au milieu d'un mot
+   * en gras reste en gras — et ce qui garde la pile d'annulation du navigateur.
+   * Le symbole n'est **rien d'autre que du texte** : la transcription
+   * l'échappera comme le reste s'il le faut, et il n'y a pas une ligne à
+   * changer ailleurs pour qu'il survive à l'enregistrement.
+   */
+  function insertSymbol(symbole: Symbole) {
+    const node = ref.current;
+    if (!node) return;
+    restaurer();
+    document.execCommand("insertText", false, symbole.c);
+    memoriser();
+    emit();
+  }
+
   function onKeyDown(event: React.KeyboardEvent) {
     if (!event.metaKey && !event.ctrlKey) return;
     const key = event.key.toLowerCase();
@@ -360,7 +419,10 @@ export function RichEditor({
                 <ToolButton
                   icon={tool.icon}
                   label={tool.label}
-                  onRun={() => setColorOpen((open) => !open)}
+                  onRun={() => {
+                    setMathsOpen(false);
+                    setColorOpen((open) => !open);
+                  }}
                   pressed={colorOpen}
                 />
                 {colorOpen ? (
@@ -403,6 +465,22 @@ export function RichEditor({
             );
           }
 
+          if (tool.kind === "maths") {
+            return (
+              <span key={tool.label} data-maths-toggle>
+                <ToolButton
+                  icon={tool.icon}
+                  label={tool.label}
+                  pressed={mathsOpen}
+                  onRun={() => {
+                    setColorOpen(false);
+                    setMathsOpen((open) => !open);
+                  }}
+                />
+              </span>
+            );
+          }
+
           return (
             <ToolButton
               key={tool.label}
@@ -412,6 +490,15 @@ export function RichEditor({
             />
           );
         })}
+
+        {/*
+          La palette se pose sur **toute la largeur de la barre**, et non sous
+          son bouton : sur un téléphone, ce bouton est au milieu de la rangée,
+          et un panneau ancré là déborderait l'écran par la droite.
+        */}
+        {mathsOpen ? (
+          <PaletteMaths onChoisir={insertSymbol} onFermer={() => setMathsOpen(false)} />
+        ) : null}
       </div>
 
       <div className="relative">
@@ -427,9 +514,15 @@ export function RichEditor({
           aria-label={ariaLabel}
           contentEditable
           suppressContentEditableWarning
-          onInput={emit}
+          onInput={() => {
+            emit();
+            memoriser();
+          }}
           onBlur={onBlur}
           onKeyDown={onKeyDown}
+          onKeyUp={memoriser}
+          onMouseUp={memoriser}
+          onTouchEnd={memoriser}
           onPaste={onPaste}
           style={{ minHeight }}
           className={cn(
@@ -440,6 +533,169 @@ export function RichEditor({
           )}
         />
       </div>
+    </div>
+  );
+}
+
+/**
+ * La palette de caractères mathématiques.
+ *
+ * Six familles et une recherche. La recherche n'est pas un ornement : personne
+ * ne parcourt trente lettres grecques pour trouver λ, et personne ne sait dire
+ * « U+03BB » — on tape « lambda ». Les accents ne comptent pas, « beta »
+ * trouve « bêta ».
+ *
+ * Le panneau prend la largeur de la barre et défile : sur un téléphone, une
+ * grille ancrée sous son bouton sortirait de l'écran par la droite, et une
+ * liste de cent symboles sortirait par le bas.
+ */
+function PaletteMaths({
+  onChoisir,
+  onFermer,
+}: {
+  onChoisir: (symbole: Symbole) => void;
+  onFermer: () => void;
+}) {
+  const [requete, setRequete] = React.useState("");
+  /*
+   * Les récents sont lus **une fois**, à l'ouverture.
+   *
+   * Les rafraîchir à chaque symbole posé ferait bouger la première rangée sous
+   * le doigt entre deux appuis, ce qui est exactement ce qu'on ne veut pas
+   * d'une palette. La liste se met à jour à la prochaine ouverture. Ce composant
+   * ne paraît qu'après un clic, donc jamais au rendu serveur : lire le stockage
+   * dès l'initialisation de l'état est ici sans danger.
+   */
+  const [recents] = React.useState<string[]>(lireRecents);
+  const panneau = React.useRef<HTMLDivElement>(null);
+
+  /*
+   * Le panneau se retourne quand il n'y a pas la place dessous.
+   *
+   * La barre d'outils d'une carte peut se trouver n'importe où dans une longue
+   * liste, et en bas de l'écran l'attendent encore la barre de navigation du
+   * téléphone et le bouton « Réviser ». Déplié vers le bas, le panneau y
+   * disparaissait : la capture ne montrait qu'une rangée de symboles, le reste
+   * sous la barre. Aucune mesure ne le disait — il ne débordait ni en largeur,
+   * ni la page.
+   *
+   * Le placement est posé **sur l'élément**, dans un effet de mise en page : un
+   * état React rendrait le panneau deux fois, et on le verrait sauter.
+   */
+  React.useLayoutEffect(() => {
+    const el = panneau.current;
+    if (!el) return;
+    const marge = 16;
+    const r = el.getBoundingClientRect();
+    const placeDessous = window.innerHeight - r.top - marge;
+    const placeDessus = r.top - r.height - marge;
+    if (r.bottom > window.innerHeight - marge && placeDessus > 0) {
+      el.style.top = "auto";
+      el.style.bottom = "100%";
+      el.style.marginTop = "0";
+      el.style.marginBottom = "0.25rem";
+      el.style.maxHeight = `${Math.max(160, Math.min(r.height, r.top - marge))}px`;
+    } else {
+      el.style.maxHeight = `${Math.max(160, Math.min(r.height, placeDessous))}px`;
+    }
+    el.scrollIntoView({ block: "nearest" });
+  }, []);
+
+  // Échap ferme, comme tout panneau qui se superpose. Et un clic à côté aussi :
+  // un panneau qu'on ne sait fermer qu'en retrouvant son bouton est un piège.
+  React.useEffect(() => {
+    const clavier = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onFermer();
+      }
+    };
+    const dehors = (event: PointerEvent) => {
+      const cible = event.target;
+      if (!(cible instanceof Element)) return;
+      // Le bouton qui ouvre n'est pas « dehors » : fermer ici puis laisser son
+      // bascule s'exécuter rouvrirait le panneau, et il deviendrait impossible
+      // de le refermer par où on l'a ouvert.
+      if (cible.closest("[data-maths-toggle]")) return;
+      if (!panneau.current?.contains(cible)) onFermer();
+    };
+    document.addEventListener("keydown", clavier);
+    // En phase de capture : le `preventDefault` des boutons de la barre
+    // empêcherait sinon l'événement de nous parvenir.
+    document.addEventListener("pointerdown", dehors, true);
+    return () => {
+      document.removeEventListener("keydown", clavier);
+      document.removeEventListener("pointerdown", dehors, true);
+    };
+  }, [onFermer]);
+
+  const trouves = requete.trim() ? chercherSymboles(requete) : null;
+  const connus = new Map(
+    GROUPES_MATHS.flatMap((g) => g.symboles).map((s) => [s.c, s] as const),
+  );
+  const groupes: { titre: string; symboles: Symbole[] }[] = trouves
+    ? [{ titre: trouves.length > 0 ? "Résultats" : "Aucun symbole de ce nom", symboles: trouves }]
+    : [
+        ...(recents.length > 0
+          ? [
+              {
+                titre: "Récents",
+                symboles: recents
+                  .map((c) => connus.get(c))
+                  .filter((s): s is Symbole => s !== undefined),
+              },
+            ]
+          : []),
+        ...GROUPES_MATHS,
+      ];
+
+  return (
+    <div
+      ref={panneau}
+      data-testid="palette-maths"
+      className="absolute left-1.5 right-1.5 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-outline-variant bg-surface-container p-2 elevation-2"
+    >
+      <input
+        type="text"
+        value={requete}
+        /*
+         * Pas de `autoFocus` : sur un téléphone, prendre le focus fait monter
+         * le clavier logiciel, qui recouvre précisément la grille qu'on vient
+         * d'ouvrir. La recherche se touche quand on en veut ; au clavier, elle
+         * vient juste après le bouton dans l'ordre de tabulation.
+         */
+        onChange={(event) => setRequete(event.target.value)}
+        placeholder="Chercher : racine, lambda…"
+        aria-label="Chercher un caractère mathématique"
+        className="mb-2 w-full rounded-lg border border-outline-variant bg-surface px-3 py-2 m3-body-small text-on-surface outline-none placeholder:text-on-surface-variant focus:border-primary"
+      />
+      {groupes.map((groupe) => (
+        <div key={groupe.titre} className="mb-1 last:mb-0">
+          <p className="px-1 pb-0.5 m3-label-medium text-on-surface-variant">{groupe.titre}</p>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(2.75rem,1fr))]">
+            {groupe.symboles.map((symbole) => (
+              <button
+                key={symbole.c}
+                type="button"
+                title={symbole.nom}
+                aria-label={symbole.nom}
+                // Comme les boutons de la barre : sans `preventDefault`, le
+                // champ perd le focus avant l'insertion, et le curseur avec.
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  onChoisir(symbole);
+                  retenirRecent(symbole.c);
+                }}
+                className="group/sym grid size-11 place-items-center rounded-lg"
+              >
+                <span className="grid size-9 place-items-center rounded-lg text-lg leading-none text-on-surface transition-colors group-hover/sym:bg-outline-variant/60">
+                  {symbole.c}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
