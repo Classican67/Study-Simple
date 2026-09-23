@@ -349,10 +349,17 @@ export function NoteEditor({
           panne quand il y en a une — « hors ligne », « session expirée » ne
           demandent pas la même chose — et s'ouvre sur la porte de sortie :
           réessayer, se reconnecter, ou emporter son travail dans un fichier. */}
+      {/* Elle monte au-dessus de la barre d'outils quand celle-ci est en bas de
+          l'écran, comme le repère de page — et redescend dès que la barre est
+          ailleurs ou repliée. Sans cela la pastille se posait **sur** la barre :
+          elles sont toutes deux en z-50, et la dernière du document gagne. */}
       <EtatSauvegarde
         noteId={noteId}
         outils={sauvegarde}
-        className="fixed bottom-24 right-4 z-50 md:bottom-6"
+        className={cn(
+          "fixed right-4 z-50 transition-[bottom]",
+          canvasFull ? "bottom-[calc(var(--ink-palette-h,0px)+0.75rem)]" : "bottom-24 md:bottom-6",
+        )}
       />
     </div>
   );

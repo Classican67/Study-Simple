@@ -90,6 +90,18 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   s'est levée, et un geste de souris doit rester une courbe. Les gestes sont
   joués **à cadence maîtrisée** (200 Hz, la cadence d'un Apple Pencil) : un
   filtre en temps réel n'a pas de sens sans de vrais horodatages
+- `node barre-e2e.mjs` — **la barre d'outils, et les instruments** : les cinq
+  instruments posent-ils vraiment des traits différents (épaisseur, opacité,
+  grain du bord, effilement du bout, lus sur les pixels des tuiles), chacun
+  garde-t-il ses réglages, la barre se déplace-t-elle aux quatre bords sans
+  sortir de l'écran, se replie-t-elle en bulle, et retrouve-t-elle sa place au
+  rechargement. Le panneau y est aussi mesuré — contraste, 44 px, débordement,
+  et **rien qui se pose dessus** — en clair et en sombre, en rangée et en
+  colonne : `audit.mjs` ne voit la barre flottante dans aucun de ces états
+- `node regard-barre.mjs` — captures de la barre : en ligne, flottante, collée
+  à gauche en colonne, et repliée en bulle, en clair et en sombre. À
+  **ouvrir** : la mesure dit qu'un bouton fait 44 px, pas que le crayon se
+  distingue du stylo
 - `node regard-ecriture.mjs` — captures de l'écriture à 1× et agrandie, en
   clair et en sombre. À **ouvrir** : la mesure dit que le trait fait la bonne
   épaisseur, pas qu'il a l'air d'une encre
@@ -344,6 +356,72 @@ du verrou npm.
      que le premier `pointerdown` ne parvienne à la page. `passive: false` est
      indispensable, et c'est précisément ce que React ne fait pas : d'où
      l'écouteur natif.
+- **Un instrument n'est pas une icône, c'est une table.** Plume, stylo, crayon,
+  feutre, surligneur : tout ce qui les distingue — pression, effilement, bout
+  rond ou carré, facteur d'épaisseur, opacité, grain, passage sous l'encre,
+  épaisseurs proposées — tient dans `INSTRUMENTS` (`lib/ink.ts`), et nulle part
+  ailleurs. Dessiner cinq silhouettes dans la barre ne coûte rien et ne vaut
+  rien si les cinq posent le même trait : `barre-e2e.mjs` mesure les quatre
+  grandeurs sur les pixels, instrument par instrument.
+- **Un seul appel à `getStroke`, dans tout le dépôt.** Rassembler les réglages
+  n'avait pas suffi : il restait deux appels — l'écran et l'export — chacun
+  composant ses options, comblant ses trous et échelonnant son épaisseur à sa
+  façon. Ils n'en font plus qu'un (`lib/ink-stroke.ts`), et `tests/ink.test.ts`
+  refuse que quiconque rappelle la bibliothèque.
+- **Une distance écrite en dur sort deux fois trop courte du PDF.** La page y
+  fait 595 points de large là où l'écran en compte mille. Trois grandeurs sont
+  des distances — l'épaisseur, l'effilement d'une plume, le grain d'un crayon —
+  et elles sont donc exprimées **en multiples de l'épaisseur**, jamais en
+  unités. Le cadre englobant ne suffit pas à l'attraper : un effilement absolu
+  ronge le bout du trait sans toucher au cadre, dont la hauteur se prend au
+  milieu. C'est l'**aire** du contour qui le voit, et qui doit aller comme le
+  carré de l'échelle.
+- **Le grain d'un crayon est géométrique, pas une texture.** Une texture peinte
+  sur le canevas n'existerait pas à l'export, et l'on retrouverait un crayon
+  parfaitement lisse dans le PDF d'une page qui ne l'était pas. Le contour
+  lui-même est perturbé le long de sa normale (`roughenOutline`), avec une
+  graine tirée des **points enregistrés** — les seuls à ne pas changer de
+  repère. Même trait, même graine, même contour : le crayon ne frémit pas au
+  redessin, et le papier montre ce que l'écran montrait.
+- **C'est le doigt qui désigne le bord, pas le centre de la barre.** Une barre
+  large de huit cents pixels tirée contre le bord gauche garde son centre à
+  quatre cents pixels de là : le bord le plus proche de ce centre est le bas, et
+  la barre y retournait sous les yeux de la personne qui venait de la pousser à
+  gauche. On tire la barre **vers** un bord ; c'est la main qui décide.
+- **Une fente qui ne passe pas à la ligne déborde en silence.** Collée à un bord
+  vertical, la barre fait deux boutons de large ; les six instruments y tenaient
+  sur une rangée de deux cent soixante pixels, et le stylo se retrouvait à
+  vingt-deux pixels **à gauche** du bord de la barre — hors d'elle, invisible,
+  intouchable, sans le moindre débordement de page pour le signaler. Le passage
+  à la ligne est sur la fente, `shrink-0` sur les **boutons** : mis sur la
+  fente, il produit exactement le défaut.
+- **Une sonde qui compte les boutons recouverts a deux faux positifs.** Un
+  bouton **désactivé** ne reçoit pas les pointeurs — c'est voulu, Annuler grisé
+  ne doit rien faire — et un bouton **sorti de la partie visible** d'une colonne
+  défilante est derrière son propre conteneur, ce qui est le propre d'un
+  défilement. Sans ces deux exceptions, la sonde accuse l'application de cacher
+  ses commandes.
+- **Un état qui vit dans le stockage de l'appareil n'est pas un état React.**
+  La place de la barre y est gardée, elle est partagée par toutes les pages
+  manuscrites d'une note, et elle n'existe pas au rendu serveur. La lire dans un
+  effet pour la poser dans un état fait un rendu de plus et **fait sauter la
+  barre** de sa place par défaut à sa vraie place sous les yeux de la personne —
+  et la règle `react-hooks/set-state-in-effect` le refuse. `useSyncExternalStore`
+  est fait pour cela : un instantané serveur, un instantané client, un
+  abonnement.
+- **Une barre qui flotte rend sa place à la feuille.** Elle vivait dans la
+  colonne du plein écran et lui prenait sa hauteur ; posée par-dessus, la
+  feuille va jusqu'en bas de l'écran. C'est ce qui sépare « une page avec une
+  barre dessous » de « une page, avec les outils posés dessus ». Deux
+  conséquences : `orientation-e2e.mjs` ne vérifie plus que la feuille s'arrête à
+  la palette mais qu'elle **remplit l'écran**, et ce que la barre laisse en bas
+  (`--ink-palette-h`) ne vaut sa hauteur que si elle est **effectivement en
+  bas** — ailleurs, ou repliée, le repère de page et la pastille
+  d'enregistrement doivent redescendre.
+- **La pastille d'enregistrement et la barre d'outils étaient toutes deux en
+  z-50.** La dernière du document gagne, et c'était la pastille : elle se posait
+  sur les commandes. Elle monte maintenant au-dessus de la barre quand celle-ci
+  est en bas, comme le repère de page.
 - **Un lissage à coefficient fixe ne peut pas être bon deux fois.** Le
   `streamline` de `perfect-freehand` est un lissage exponentiel à coefficient
   constant : assez fort pour tuer le tremblement d'une main lente, il fait

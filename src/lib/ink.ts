@@ -337,6 +337,213 @@ function segmentInCircle(
 }
 
 /**
+ * Les instruments.
+ *
+ * Un instrument n'est pas une icône : c'est une façon d'écrire. Une plume
+ * s'effile aux deux bouts et répond fort à la pression ; un crayon est mat,
+ * un peu translucide, et son trait a le grain du papier ; un feutre a une
+ * largeur constante et le bout carré ; un surligneur passe **sous** l'encre.
+ * Tout ce qui les distingue tient dans ce tableau — un seul endroit, pour que
+ * l'écran, la relecture et l'export ne puissent pas en donner trois versions.
+ *
+ * `TOOLS` vit ici, et non dans `lib/notes.ts` qui le réexporte : c'est la
+ * liste des instruments, et elle appartient aux instruments. La dépendance ne
+ * va que dans un sens — `notes.ts` lit `ink.ts`, jamais l'inverse.
+ */
+export const TOOLS = ["pen", "fountain", "pencil", "marker", "highlighter"] as const;
+export type Tool = (typeof TOOLS)[number];
+
+export type Instrument = {
+  /** Nom affiché, et nom accessible du bouton. */
+  label: string;
+  /** Effet de la pression sur l'épaisseur, de 0 (aucun) à 1. */
+  thinning: number;
+  /** Adoucissement du **contour**. Sans effet sur la trajectoire. */
+  smoothing: number;
+  /**
+   * Lissage propre à `perfect-freehand`, à coefficient fixe.
+   *
+   * Le tremblement est traité en amont, à la capture (`lib/ink-smooth.ts`) ;
+   * ce qui reste ici ne sert plus qu'aux traits **déjà enregistrés**, qui n'ont
+   * jamais vu le filtre. Cf. la note de `LISSAGE.beta`.
+   */
+  streamline: number;
+  /**
+   * Effilement des bouts, en multiples de l'épaisseur.
+   *
+   * Exprimé ainsi, et non en unités de page : `getStroke` attend une
+   * **distance**, qui n'a pas la même valeur à l'écran (repère de mille) et
+   * dans le PDF (points typographiques). Un effilement écrit en dur y sortirait
+   * deux fois trop long sur le papier.
+   */
+  taper: number;
+  /** Bout arrondi. Un feutre a le bout carré, une plume non. */
+  cap: boolean;
+  /** Épaisseur réelle, en multiples de la taille choisie. */
+  facteur: number;
+  /** Opacité du trait. */
+  alpha: number;
+  /** Passe sous l'encre, comme un surligneur sur du papier. */
+  dessous: boolean;
+  /**
+   * Grain du contour, en multiples de l'épaisseur.
+   *
+   * C'est ce qui donne au crayon sa mine. Le grain est **géométrique** — le
+   * contour lui-même est perturbé — et non une texture peinte : une texture
+   * n'existerait pas à l'export, et l'on retrouverait un crayon parfaitement
+   * lisse dans le PDF d'une page qui ne l'était pas à l'écran.
+   */
+  grain: number;
+  /** Les trois épaisseurs proposées par la barre d'outils. */
+  tailles: readonly [number, number, number];
+};
+
+export const INSTRUMENTS: Record<Tool, Instrument> = {
+  /** Le stylo à bille : opaque, régulier, la pression pour seul relief. */
+  pen: {
+    label: "Stylo",
+    thinning: 0.62,
+    smoothing: 0.62,
+    streamline: 0.3,
+    taper: 0,
+    cap: true,
+    facteur: 1,
+    alpha: 1,
+    dessous: false,
+    grain: 0,
+    tailles: [1.2, 2.5, 5],
+  },
+  /**
+   * La plume : elle attaque fin, gonfle sous la main, et se relève fin.
+   *
+   * L'effilement vaut six fois l'épaisseur — assez pour qu'une jambe de lettre
+   * se termine en pointe, pas assez pour qu'un trait court disparaisse.
+   */
+  fountain: {
+    label: "Plume",
+    thinning: 0.86,
+    smoothing: 0.6,
+    streamline: 0.28,
+    taper: 6,
+    cap: true,
+    facteur: 1.15,
+    alpha: 1,
+    dessous: false,
+    grain: 0,
+    tailles: [1.4, 3, 6],
+  },
+  /** Le crayon : mat, légèrement transparent, et le grain de la mine. */
+  pencil: {
+    label: "Crayon",
+    thinning: 0.35,
+    smoothing: 0.5,
+    streamline: 0.32,
+    taper: 0,
+    cap: true,
+    facteur: 1.05,
+    alpha: 0.78,
+    dessous: false,
+    grain: 0.34,
+    tailles: [1.2, 2.4, 4.5],
+  },
+  /** Le feutre : largeur constante, bout carré, couleur franche. */
+  marker: {
+    label: "Feutre",
+    thinning: 0,
+    smoothing: 0.45,
+    streamline: 0.3,
+    taper: 0,
+    cap: false,
+    facteur: 2.2,
+    alpha: 0.95,
+    dessous: false,
+    grain: 0,
+    tailles: [1.6, 3, 5],
+  },
+  /**
+   * Le surligneur : un feutre biseauté, translucide, qui passe **sous**
+   * l'écriture — comme sur le papier, où l'encre a séché avant.
+   */
+  highlighter: {
+    label: "Surligneur",
+    thinning: 0,
+    smoothing: 0.7,
+    streamline: 0.38,
+    taper: 0,
+    cap: false,
+    facteur: 4,
+    alpha: 0.32,
+    dessous: true,
+    grain: 0,
+    tailles: [2, 4, 6],
+  },
+};
+
+/** L'instrument d'un trait. Les traits d'avant le surligneur n'en portent pas. */
+export function instrumentOf(tool: string | undefined): Instrument {
+  return INSTRUMENTS[(tool ?? "pen") as Tool] ?? INSTRUMENTS.pen;
+}
+
+/**
+ * Épaisseur d'un trait, dans le repère demandé.
+ *
+ * `echelle` vaut 1 dans le repère de mille unités — celui de l'écran — et
+ * `page.width / INK_REF` dans un PDF. Une seule fonction pour les deux : deux
+ * multiplications écrites à deux endroits finissent toujours par différer.
+ */
+export function strokeWeight(stroke: { size: number; tool?: string }, echelle = 1): number {
+  return stroke.size * instrumentOf(stroke.tool).facteur * echelle;
+}
+
+/**
+ * Graine d'un trait, tirée de ses points.
+ *
+ * Le grain du crayon doit être **le même** à l'écran et sur le papier, sinon
+ * le PDF ne montrerait pas le trait qu'on a tracé. Il se tire donc des points
+ * enregistrés, qui sont les seuls à ne pas changer de repère.
+ */
+export function inkSeed(flat: number[]): number {
+  let h = 2166136261;
+  for (let i = 0; i < flat.length && i < 60; i++) {
+    h ^= Math.round(flat[i] * 10000);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+/**
+ * Perturbe un contour le long de sa normale : le grain de la mine.
+ *
+ * Deux fréquences superposées — une lente, qui fait onduler le bord, et une
+ * rapide, qui l'écaille. Une seule donnerait soit une vague, soit un bruit
+ * régulier, et ni l'une ni l'autre ne ressemble à du graphite.
+ *
+ * Tout est déterministe : même trait, même graine, même contour. C'est ce qui
+ * permet au PDF de montrer exactement ce que l'écran montrait, et au trait de
+ * ne pas frémir à chaque redessin.
+ */
+export function roughenOutline(outline: number[][], amplitude: number, graine: number): number[][] {
+  if (amplitude <= 0 || outline.length < 3) return outline;
+  const sortie: number[][] = [];
+  for (let i = 0; i < outline.length; i++) {
+    const [x, y] = outline[i];
+    const [px, py] = outline[i === 0 ? outline.length - 1 : i - 1];
+    const dx = x - px;
+    const dy = y - py;
+    const l = Math.hypot(dx, dy) || 1;
+    // La normale au bord : c'est le long d'elle qu'une mine s'écaille, jamais
+    // dans le sens du trait — l'allonger ou le raccourcir se verrait.
+    const nx = -dy / l;
+    const ny = dx / l;
+    const bruit = Math.sin(i * 0.9 + graine * 0.0011) * 0.6 + Math.sin(i * 2.7 + graine * 0.0007) * 0.4;
+    sortie.push([x + nx * bruit * amplitude, y + ny * bruit * amplitude, outline[i][2] ?? 0.5]);
+  }
+  return sortie;
+}
+
+/**
+ * Réglages de `perfect-freehand`, partagés par l'écran et le papier.
+/**
  * Réglages de `perfect-freehand`, partagés par l'écran et le papier.
  *
  * Ils vivaient en double — une copie dans le canevas, une autre dans
@@ -377,28 +584,6 @@ export function hasRealPressure(flat: number[]): boolean {
   }
   return false;
 }
-
-/**
- * `streamline` est plus bas qu'avant, et c'est volontaire.
- *
- * C'est un lissage exponentiel à coefficient **fixe** appliqué par la
- * bibliothèque : il retarde la pointe d'autant plus qu'il lisse, et il lisse
- * autant dans un geste lent que dans un geste rapide, alors que ce sont deux
- * problèmes opposés. Le tremblement est désormais traité en amont, à la
- * capture, par un filtre dont la coupure suit la vitesse (`lib/ink-smooth.ts`).
- * En garder 0,42 par-dessus reviendrait à lisser deux fois, donc à traîner deux
- * fois. Il n'est pas ramené à zéro pour autant : les traits **déjà
- * enregistrés** n'ont jamais vu le filtre, et c'est lui qui les tient.
- *
- * `smoothing` ne coûte rien, lui : il adoucit le **contour**, pas la
- * trajectoire, et n'introduit aucun retard.
- */
-export const INK_OPTIONS = {
-  pen: { thinning: 0.62, smoothing: 0.62, streamline: 0.3 },
-  // Un surligneur ne varie pas d'épaisseur et ne s'effile pas : c'est un feutre
-  // à pointe biseautée, pas une plume.
-  highlighter: { thinning: 0, smoothing: 0.7, streamline: 0.38 },
-} as const;
 
 /**
  * Repère de calcul des contours : une page large de mille unités.

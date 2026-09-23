@@ -290,36 +290,53 @@ describe("eraseStroke — la gomme précise", () => {
 });
 
 /**
- * Les réglages du trait n'existent qu'en un seul endroit.
+ * Le contour d'un trait n'est calculé qu'en un seul endroit.
  *
- * Ils vivaient en double — une copie dans le canevas, une autre dans
+ * Les réglages vivaient en double — une copie dans le canevas, une autre dans
  * l'export PDF — sous un commentaire affirmant que « l'écran et le papier ne
  * peuvent pas diverger ». Deux copies divergent toujours : il suffit d'en
- * régler une, et le trait exporté cesse de ressembler au trait tracé, sans que
- * rien ne le signale.
+ * régler une, et le trait exporté cesse de ressembler au trait tracé.
+ *
+ * Les rassembler dans `INSTRUMENTS` n'a pas suffi : il restait **deux appels**
+ * à `getStroke`, chacun composant ses options à sa façon, comblant les trous à
+ * sa façon, et échelonnant l'épaisseur à sa façon. Trois grandeurs dépendent du
+ * repère — l'épaisseur, l'effilement d'une plume, le grain d'un crayon — et le
+ * PDF ne fait que 595 points de large là où l'écran en compte mille.
+ *
+ * La règle est donc plus forte qu'avant : **personne** n'appelle la
+ * bibliothèque en dehors de `lib/ink-stroke.ts`.
  */
-describe("réglages du trait", () => {
-  const sources = ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"];
+describe("le contour du trait", () => {
+  const rendus = ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"];
+  const lire = (fichier: string) => readFileSync(path.join(process.cwd(), fichier), "utf8");
 
-  it("ne sont déclarés que dans lib/ink.ts", () => {
-    for (const fichier of sources) {
-      const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
+  it("n'est calculé que par lib/ink-stroke.ts", () => {
+    for (const fichier of rendus) {
+      const code = lire(fichier);
       assert.ok(
-        /INK_OPTIONS/.test(code),
-        `${fichier} doit prendre ses réglages dans lib/ink.ts`,
+        !/\bgetStroke\s*\(/.test(code),
+        `${fichier} appelle getStroke : le calcul doit passer par inkOutline`,
       );
+      assert.ok(/inkOutline\(/.test(code), `${fichier} doit passer par inkOutline`);
+    }
+    assert.ok(/getStroke\(/.test(lire("src/lib/ink-stroke.ts")));
+  });
+
+  it("et les réglages ne sont déclarés que dans lib/ink.ts", () => {
+    for (const fichier of [...rendus, "src/lib/ink-stroke.ts"]) {
+      const code = lire(fichier);
       assert.ok(
-        !/thinning:\s*0\.62/.test(code),
-        `${fichier} redéclare les réglages au lieu de les importer`,
+        !/thinning:\s*0?\.\d/.test(code),
+        `${fichier} redéclare les réglages au lieu de les lire dans INSTRUMENTS`,
       );
     }
+    assert.ok(/thinning:\s*0\.62/.test(lire("src/lib/ink.ts")));
   });
 
   it("et l'épaisseur se rapporte partout à la même page de référence", () => {
     assert.equal(INK_REF, 1000);
-    for (const fichier of sources) {
-      const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
-      assert.ok(/INK_REF/.test(code), `${fichier} doit se rapporter à INK_REF`);
+    for (const fichier of rendus) {
+      assert.ok(/INK_REF/.test(lire(fichier)), `${fichier} doit se rapporter à INK_REF`);
     }
   });
 });
@@ -360,14 +377,16 @@ describe("hasRealPressure", () => {
 });
 
 describe("les deux rendus décident de la pression de la même façon", () => {
-  const sources = ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"];
-
-  it("l'écran et le papier appellent tous deux hasRealPressure", () => {
-    for (const fichier of sources) {
-      const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
+  it("parce qu'un seul code le décide", () => {
+    // La règle se tire des données, et elle se tire **une fois** : c'est
+    // `inkOutline` qui la lit, pour l'écran comme pour le papier.
+    const code = readFileSync(path.join(process.cwd(), "src/lib/ink-stroke.ts"), "utf8");
+    assert.ok(/simulatePressure:\s*!hasRealPressure/.test(code));
+    for (const fichier of ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"]) {
+      const rendu = readFileSync(path.join(process.cwd(), fichier), "utf8");
       assert.ok(
-        /simulatePressure:\s*!hasRealPressure/.test(code),
-        `${fichier} doit décider de la simulation à partir des données`,
+        !/simulatePressure/.test(rendu),
+        `${fichier} ne doit plus en décider lui-même`,
       );
     }
   });

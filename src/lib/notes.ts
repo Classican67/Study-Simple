@@ -10,7 +10,7 @@
 
 // `lib/ink.ts` ne connaît que de la géométrie — points, cadres, polygones — et
 // n'importe rien d'ici : la dépendance ne va que dans ce sens.
-import { boundsOf, translateStroke } from "@/lib/ink";
+import { boundsOf, translateStroke, TOOLS, type Tool } from "@/lib/ink";
 
 export const BLOCK_KINDS = ["text", "table", "drawing"] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
@@ -94,8 +94,13 @@ export function emptyTable(): TableContent {
  * Les coordonnées sont **relatives** à la largeur du bloc (0 à 1) : le même
  * croquis se relit sur un téléphone comme sur un iPad, sans être tronqué.
  */
-export const TOOLS = ["pen", "highlighter"] as const;
-export type Tool = (typeof TOOLS)[number];
+/*
+ * Les instruments vivent dans `lib/ink.ts`, avec ce qui les distingue —
+ * épaisseur, opacité, effilement, grain. On les réexporte ici parce que c'est
+ * `Stroke` qui les porte, et que la moitié de l'application les lit depuis ce
+ * module.
+ */
+export { TOOLS, type Tool };
 
 export type Stroke = {
   color: string;

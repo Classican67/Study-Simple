@@ -1,7 +1,6 @@
-import { getStroke } from "perfect-freehand";
 
-import { INK_OPTIONS, INK_REF, hasRealPressure } from "@/lib/ink";
-import { inkSpine, LISSAGE } from "@/lib/ink-smooth";
+import { INK_REF, instrumentOf, strokeWeight } from "@/lib/ink";
+import { inkOutline } from "@/lib/ink-stroke";
 import { hexToRgb01 } from "@/lib/ink-color";
 import { PAPER_COLORS, PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
 
@@ -47,25 +46,20 @@ export function strokeOutline(stroke: Stroke, page: PageSize): number[][] {
   }
   if (points.length === 0) return [];
 
-  const tool = stroke.tool ?? "pen";
-  // Mêmes trous comblés de la même façon qu'à l'écran : un trait de souris
-  // sorti en ligne brisée au papier alors qu'il est courbe à l'écran serait la
-  // divergence qu'on passe son temps à empêcher. L'écart est donné dans les
-  // unités de la page, comme les points.
-  return getStroke(inkSpine(points, LISSAGE.ecart * (page.width / INK_REF)), {
-    // L'épaisseur est en proportion de la largeur, comme les coordonnées.
-    size: strokeWidth(stroke, page),
-    ...INK_OPTIONS[tool],
-    // Même règle qu'à l'écran, et pour la même raison : la pression mesurée
-    // l'emporte sur celle que la bibliothèque déduirait de la vitesse.
-    simulatePressure: !hasRealPressure(stroke.points),
-    last: true,
-  });
+  /*
+   * Le même calcul qu'à l'écran, au repère près.
+   *
+   * C'est `inkOutline` qui compose les réglages de l'instrument, comble les
+   * trous et pose le grain ; on ne lui donne que les points placés dans le
+   * repère du PDF et l'échelle qui y traduit une unité de la page de mille.
+   * Tant que les deux rendus passent par elle, ils ne peuvent plus diverger.
+   */
+  return inkOutline(points, stroke.points, stroke.tool, stroke.size, page.width / INK_REF);
 }
 
 /** Épaisseur du trait, en points PDF. */
 export function strokeWidth(stroke: Stroke, page: PageSize): number {
-  return stroke.size * (stroke.tool === "highlighter" ? 4 : 1) * (page.width / INK_REF);
+  return strokeWeight(stroke, page.width / INK_REF);
 }
 
 export function strokeToSvgPath(stroke: Stroke, page: PageSize): string | null {
@@ -139,11 +133,13 @@ export function inkRgb(name: string): [number, number, number] {
 
 /**
  * Opacité d'un trait à l'export.
- * Un surligneur doit laisser lire le texte qu'il recouvre, sur le papier
- * comme à l'écran.
+ *
+ * Elle appartient à l'instrument, comme le reste : un surligneur doit laisser
+ * lire le texte qu'il recouvre, et un crayon être un peu plus pâle qu'un
+ * stylo — sur le papier comme à l'écran.
  */
 export function strokeOpacity(stroke: Stroke): number {
-  return stroke.tool === "highlighter" ? 0.32 : 1;
+  return instrumentOf(stroke.tool).alpha;
 }
 
 function round(value: number): number {

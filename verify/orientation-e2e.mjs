@@ -91,6 +91,9 @@ async function mesurerPlein(page) {
       bas: Math.round(s.bottom),
       palette: Math.round(pal.top),
       pile: Math.round(scroller.firstElementChild.getBoundingClientRect().height),
+      // La barre flotte **au-dessus** de la feuille : elle ne lui prend plus de
+      // place. Ce qu'on vérifie, c'est qu'elle reste dans l'écran.
+      barreBas: Math.round(pal.bottom),
     };
   });
 }
@@ -102,10 +105,29 @@ function jugerEnLigne(nom, m) {
   check(m.horsSurface >= 120, `${nom} : il reste de quoi faire défiler la note au doigt`, `${m.horsSurface} px`);
 }
 
+/*
+ * La feuille remplit l'écran, et la barre flotte dessus.
+ *
+ * Elle s'arrêtait autrefois au bord supérieur de la palette, qui lui prenait sa
+ * place dans la colonne. Depuis que la barre se déplace, elle n'est plus dans
+ * la colonne : elle est posée par-dessus, comme dans Freeform, et la feuille va
+ * donc jusqu'en bas. Ce qu'on vérifie a changé avec elle — la feuille doit
+ * occuper **tout** l'écran, et la barre y tenir entièrement, dans les deux
+ * orientations.
+ */
 function jugerPlein(nom, m) {
   console.log(`   ${nom}`, JSON.stringify(m));
-  const attendu = Math.min(m.palette, m.pile);
-  check(Math.abs(m.bas - attendu) <= 2 && m.haut === 0, `${nom} : la feuille va jusqu'à la palette`, `bas ${m.bas}, palette ${m.palette}`);
+  const attendu = Math.min(m.ecran[1], m.pile);
+  check(
+    Math.abs(m.bas - attendu) <= 2 && m.haut === 0,
+    `${nom} : la feuille remplit l'écran`,
+    `bas ${m.bas} pour ${attendu}`,
+  );
+  check(
+    m.palette >= -1 && m.barreBas <= m.ecran[1] + 1,
+    `${nom} : la barre d'outils tient dans l'écran`,
+    `barre de ${m.palette} à ${m.barreBas} pour ${m.ecran[1]} px`,
+  );
 }
 
 for (const [nom, w, h] of appareils) {

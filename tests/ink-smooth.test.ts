@@ -288,10 +288,11 @@ describe("inkSpine", () => {
  * l'écran et brisé dans le PDF serait exactement cette divergence-là.
  */
 describe("l'écran et le papier comblent les trous de la même façon", () => {
-  for (const fichier of ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"]) {
-    it(`${fichier} passe par inkSpine`, () => {
-      const code = readFileSync(path.join(process.cwd(), fichier), "utf8");
-      assert.ok(/getStroke\(\s*inkSpine\(/.test(code), `${fichier} doit appeler inkSpine`);
-    });
-  }
+  it("parce que c'est le même code qui les comble", () => {
+    const code = readFileSync(path.join(process.cwd(), "src/lib/ink-stroke.ts"), "utf8");
+    assert.ok(/getStroke\(inkSpine\(/.test(code), "inkOutline doit combler avant de contourer");
+    // Et l'écart est mis à l'échelle du repère : dans un PDF, une unité de la
+    // page de mille ne vaut pas un point typographique.
+    assert.ok(/LISSAGE\.ecart \* echelle/.test(code), "l'écart doit suivre l'échelle du repère");
+  });
 });

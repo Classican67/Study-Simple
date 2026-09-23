@@ -2,14 +2,13 @@
 
 import { resolveInk } from "@/lib/ink-color";
 import * as React from "react";
-import { getStroke } from "perfect-freehand";
 
 import {
   boundsOf,
   eraseStroke,
-  hasRealPressure,
-  INK_OPTIONS,
   INK_REF,
+  instrumentOf,
+  strokeWeight,
   snapShape,
   snapStrokeToRuler,
   strokeInLasso,
@@ -20,7 +19,8 @@ import {
   type Ruler,
   type Shape,
 } from "@/lib/ink";
-import { inkSpine, LisseurDeTrait, LISSAGE, type PointStylet } from "@/lib/ink-smooth";
+import { LisseurDeTrait, LISSAGE, type PointStylet } from "@/lib/ink-smooth";
+import { inkOutline } from "@/lib/ink-stroke";
 import {
   DEFAULT_RATIO,
   MAX_RATIO,
@@ -146,23 +146,18 @@ function nearRuler(point: number[], ruler: Ruler): boolean {
  */
 const REF = INK_REF;
 
-/** Épaisseur du trait, dans le repère de mille unités. */
-function strokeSize(stroke: Stroke): number {
-  return stroke.size * ((stroke.tool ?? "pen") === "highlighter" ? 4 : 1);
-}
-
 /** La même épaisseur, en proportion de la page : pour écarter le hors-champ. */
 function strokeMargin(stroke: Stroke): number {
-  return strokeSize(stroke) / REF;
+  return strokeWeight(stroke) / REF;
 }
 
 /** Le surligneur passe sous l'encre, comme sur le papier. */
 function rank(stroke: Stroke): number {
-  return (stroke.tool ?? "pen") === "highlighter" ? 0 : 1;
+  return instrumentOf(stroke.tool).dessous ? 0 : 1;
 }
 
 function strokeAlpha(stroke: Stroke): number {
-  return (stroke.tool ?? "pen") === "highlighter" ? 0.32 : 1;
+  return instrumentOf(stroke.tool).alpha;
 }
 
 /**
@@ -176,21 +171,10 @@ function outlineOf(stroke: Stroke): number[][] {
   for (let i = 0; i + 2 < stroke.points.length; i += 3) {
     points.push([stroke.points[i] * REF, stroke.points[i + 1] * REF, stroke.points[i + 2] ?? 0.5]);
   }
-  if (points.length === 0) return [];
-  // Les trous sont comblés par une courbe avant d'en faire un contour : une
-  // souris n'échantillonne qu'à soixante hertz, et un geste rapide n'y laisse
-  // qu'une poignée de points. Sur un tracé au stylet, déjà serré, c'est un
-  // non-événement — une comparaison par point, et rien d'inséré.
-  return getStroke(inkSpine(points, LISSAGE.ecart), {
-    size: strokeSize(stroke),
-    ...INK_OPTIONS[(stroke.tool ?? "pen") as Tool],
-    // La pression du stylet est **mesurée**, pas devinée : sans cela la largeur
-    // suit la vitesse de la main et le trait grésille. Cf. `hasRealPressure`.
-    simulatePressure: !hasRealPressure(stroke.points),
-    // Un trait terminé : les extrémités sont fermées, sinon l'enveloppe reste
-    // ouverte et le remplissage fuit.
-    last: true,
-  });
+  // Le calcul vit dans `lib/ink-stroke.ts`, avec celui de l'export : c'est la
+  // seule façon de garantir qu'un trait sorte du PDF tel qu'on l'a vu. Ici
+  // l'échelle vaut 1 — on est déjà dans le repère de mille unités.
+  return inkOutline(points, stroke.points, stroke.tool, stroke.size, 1);
 }
 
 /** Chemin fermé d'un contour. Des courbes, pour ne pas voir les facettes. */

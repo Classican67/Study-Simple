@@ -3,7 +3,10 @@
 import * as React from "react";
 import { AlignJustify, Camera, Circle, Crosshair, Eraser, FileMinus2, FilePlus2, Grid3x3, Grip, Highlighter, Lasso, Loader2, Maximize2, Minus as LineIcon, Pen, PenOff, RectangleVertical, Redo2, Ruler as RulerIcon, Scissors, Shapes, Square as RectIcon, Trash2, Undo2, X } from "lucide-react";
 
-import { rulerDegrees, SHAPES, type Ruler, type Shape } from "@/lib/ink";
+import { INSTRUMENTS, rulerDegrees, SHAPES, TOOLS, type Ruler, type Shape, type Tool } from "@/lib/ink";
+import { INSTRUMENT_ORDER } from "@/lib/ink-stroke";
+import { GommeDessinee, InstrumentBulle, InstrumentDessine } from "@/components/note/ink-instrument";
+import { estVertical, InkDock, type PositionBarre } from "@/components/note/ink-dock";
 import { inkCss, isCustomInk } from "@/lib/ink-color";
 import { InkWheel } from "@/components/note/ink-wheel";
 import { PAPERS, type Paper } from "@/lib/notes";
@@ -34,17 +37,15 @@ export const INKS = [
   { name: "violet", label: "Violet" },
 ] as const;
 
-const SIZES = [
-  { size: 1.2, label: "Fin" },
-  { size: 2.5, label: "Moyen" },
-  { size: 5, label: "Épais" },
-];
-
-const HIGHLIGHTER_SIZES = [
-  { size: 2, label: "Fin" },
-  { size: 4, label: "Moyen" },
-  { size: 6, label: "Épais" },
-];
+/*
+ * Les trois épaisseurs viennent de l'instrument.
+ *
+ * Elles vivaient ici, en deux tableaux — un pour le stylo, un pour le
+ * surligneur — et un troisième instrument en aurait demandé un troisième. Un
+ * crayon ne s'épaissit pas comme un feutre : c'est une propriété de
+ * l'instrument, et elle est rangée avec les autres dans `INSTRUMENTS`.
+ */
+const NOMS_TAILLE = ["Fin", "Moyen", "Épais"] as const;
 
 /*
  * Les fonds ont leurs propres icônes.
@@ -72,10 +73,18 @@ export type InkSettings = { color: string; size: number };
 
 export type PaletteProps = {
   tool: InkTool;
-  /** Réglages du stylo et du surligneur, retenus séparément. */
-  pen: InkSettings;
-  highlighter: InkSettings;
+  /**
+   * Les réglages, **un jeu par instrument**.
+   *
+   * Un crayon vert fin et un feutre rouge épais coexistent : changer d'outil
+   * ne doit pas emporter les réglages du précédent. C'était déjà vrai du stylo
+   * et du surligneur ; ça l'est maintenant des cinq.
+   */
+  settings: Record<Tool, InkSettings>;
   shape: Shape;
+  /** Où la barre est posée, et si elle est repliée en bulle. */
+  position: PositionBarre;
+  onPosition: (next: PositionBarre) => void;
   paper: Paper;
   /** La gomme ne retire-t-elle que les surlignages ? */
   eraseHighlightsOnly: boolean;
@@ -132,9 +141,9 @@ export type PaletteProps = {
 export function InkPalette(props: PaletteProps) {
   const {
     tool,
-    pen,
-    highlighter,
+    settings,
     shape,
+    position,
     paper,
     eraseHighlightsOnly,
     erasePrecise,
@@ -151,9 +160,19 @@ export function InkPalette(props: PaletteProps) {
     ruler,
   } = props;
 
-  const ecrit = tool === "pen" || tool === "highlighter" || tool === "shape";
-  const reglages = tool === "highlighter" ? highlighter : pen;
-  const tailles = tool === "highlighter" ? HIGHLIGHTER_SIZES : SIZES;
+  /**
+   * L'instrument dont on règle la couleur et l'épaisseur.
+   *
+   * Les formes se tracent au stylo : elles n'ont pas d'instrument à elles, et
+   * leur en inventer un ferait un sixième jeu de réglages pour rien.
+   */
+  const instrument: Tool = (TOOLS as readonly string[]).includes(tool)
+    ? (tool as Tool)
+    : "pen";
+  const ecrit = tool !== "eraser" && tool !== "lasso";
+  const reglages = settings[instrument];
+  const tailles = INSTRUMENTS[instrument].tailles;
+  const vertical = props.full && estVertical(position.bord) && !position.reduit;
 
   /*
    * La barre est posée là où la main se pose.
@@ -168,30 +187,75 @@ export function InkPalette(props: PaletteProps) {
   const [roue, setRoue] = React.useState(false);
   const libre = isCustomInk(reglages.color);
 
+  /*
+   * En plein écran, la barre **flotte** et se déplace ; en ligne, elle reste
+   * posée au-dessus de la page.
+   *
+   * La différence n'est pas un caprice : en ligne, la page manuscrite est une
+   * fenêtre au milieu d'une note, et une barre qui flotterait par-dessus
+   * couvrirait ce qu'on écrit sans rien gagner. En plein écran, la feuille
+   * occupe l'écran : c'est là que la place de la barre devient un problème, et
+   * là qu'on veut pouvoir la pousser de côté ou la replier.
+   */
   return (
-    <div
-      ref={garde}
-      role="toolbar"
-      aria-label="Outils d'écriture"
-      className={cn(
-        "flex flex-col gap-1",
-        // En plein écran, la barre flotte au-dessus de la feuille, à portée du
-        // pouce, avec la zone sûre des encoches.
-        full &&
-          "pb-safe shrink-0 border-t border-outline-variant bg-surface-container px-2 py-1.5 elevation-3",
-      )}
+    <InkDock
+      flottante={full}
+      position={position}
+      onPosition={props.onPosition}
+      toolbarRef={garde}
+      // Repliée, la barre ne montre plus que l'instrument en cours : c'est la
+      // seule chose qu'on a besoin de savoir pour décider de la rouvrir.
+      bulle={<InstrumentBulle tool={tool === "eraser" ? "eraser" : instrument} color={reglages.color} />}
     >
       {/* --- Ce qu'on fait ---------------------------------------------- */}
-      <div className="flex flex-wrap items-center gap-0.5">
-        <Group label="Outil">
-          <Tool active={tool === "pen"} onClick={() => props.onTool("pen")} icon={Pen} label="Stylo" />
-          <Tool
-            active={tool === "highlighter"}
-            onClick={() => props.onTool("highlighter")}
-            icon={Highlighter}
-            label="Surligneur"
+      <div className={cn("flex flex-wrap items-center gap-0.5", vertical && "justify-center")}>
+        {/*
+          * La fente des instruments.
+          *
+          * Ils sont dessinés, pointe en bas, et l'instrument en cours **monte**
+          * de quelques pixels. C'est la convention d'Apple, et elle dit sans
+          * légende deux choses à la fois : lequel est choisi, et avec quelle
+          * encre il écrit — la pointe porte la couleur.
+          */}
+        <div
+          role="group"
+          aria-label="Instrument"
+          data-testid="instruments"
+          /*
+           * La fente passe à la ligne, et ne se rétrécit **jamais**.
+           *
+           * Ce sont deux choses différentes, et il faut les deux. Sans le
+           * passage à la ligne, les six instruments tenaient sur une rangée de
+           * deux cent soixante pixels dans une colonne qui en fait cent : le
+           * stylo se retrouvait à vingt-deux pixels **à gauche** du bord de la
+           * barre, hors d'elle, invisible et intouchable. Et `shrink-0` sur la
+           * fente elle-même produisait exactement cela — c'est sur les
+           * **boutons** qu'il doit être, pour qu'ils gardent leurs 44 px.
+           *
+           * `overflow-hidden` fait la fente : les instruments sont décalés vers
+           * le bas et le bord les coupe, ce qui les fait paraître enfoncés.
+           */
+          className="flex flex-wrap items-end justify-center gap-0.5 overflow-hidden rounded-2xl bg-surface-container-high px-1 pt-1.5"
+
+        >
+          {INSTRUMENT_ORDER.map((name) => (
+            <BoutonInstrument
+              key={name}
+              active={tool === name}
+              onClick={() => props.onTool(name)}
+              label={INSTRUMENTS[name].label}
+              color={settings[name].color}
+              tool={name}
+            />
+          ))}
+          <BoutonInstrument
+            active={tool === "eraser"}
+            onClick={() => props.onTool("eraser")}
+            label="Gomme"
           />
-          <Tool active={tool === "eraser"} onClick={() => props.onTool("eraser")} icon={Eraser} label="Gomme" />
+        </div>
+
+        <Group label="Sélection et tracés">
           <Tool active={tool === "lasso"} onClick={() => props.onTool("lasso")} icon={Lasso} label="Lasso" />
           <Tool active={tool === "shape"} onClick={() => props.onTool("shape")} icon={Shapes} label="Formes" />
           <Tool
@@ -228,7 +292,7 @@ export function InkPalette(props: PaletteProps) {
           </span>
         ) : null}
 
-        <div className="ml-auto flex items-center gap-0.5">
+        <div className={cn("flex flex-wrap items-center justify-center gap-0.5", vertical ? "w-full" : "ml-auto")}>
           {Math.abs(zoom - 1) > 0.01 ? (
             <button
               type="button"
@@ -306,7 +370,12 @@ export function InkPalette(props: PaletteProps) {
       </div>
 
       {/* --- Avec quoi ---------------------------------------------------- */}
-      <div className="flex flex-wrap items-center gap-0.5 border-t border-outline-variant/60 pt-1">
+      <div
+        className={cn(
+          "flex flex-wrap items-center gap-0.5 border-t border-outline-variant/60 pt-1",
+          vertical && "justify-center",
+        )}
+      >
         {ecrit ? (
           <>
             <Group label="Couleur">
@@ -367,7 +436,7 @@ export function InkPalette(props: PaletteProps) {
               {roue ? (
                 <InkWheel
                   value={reglages.color}
-                  highlighter={tool === "highlighter"}
+                  highlighter={INSTRUMENTS[instrument].dessous}
                   onClose={() => setRoue(false)}
                   onPick={(hex) => {
                     props.onSettings({ ...reglages, color: hex });
@@ -378,20 +447,20 @@ export function InkPalette(props: PaletteProps) {
             </Group>
 
             <Group label="Épaisseur">
-              {tailles.map((entry) => (
+              {tailles.map((taille, rang) => (
                 <button
-                  key={entry.size}
+                  key={taille}
                   type="button"
-                  onClick={() => props.onSettings({ ...reglages, size: entry.size })}
-                  aria-label={entry.label}
-                  aria-pressed={reglages.size === entry.size}
-                  title={entry.label}
+                  onClick={() => props.onSettings({ ...reglages, size: taille })}
+                  aria-label={NOMS_TAILLE[rang]}
+                  aria-pressed={reglages.size === taille}
+                  title={NOMS_TAILLE[rang]}
                   // Un anneau, pas un fond : posé sur le violet de sélection, le
                   // surligneur translucide virait au mauve et l'on ne voyait
                   // plus la couleur qu'on allait obtenir.
                   className={cn(
                     "grid size-11 place-items-center rounded-full transition-colors",
-                    reglages.size === entry.size && "ring-2 ring-inset ring-primary",
+                    reglages.size === taille && "ring-2 ring-inset ring-primary",
                   )}
                 >
                   {/*
@@ -401,12 +470,18 @@ export function InkPalette(props: PaletteProps) {
                    * une pastille en double de la rangée d'à côté. Le surligneur
                    * garde sa transparence, comme sur la page.
                    */}
+                  {/* L'épaisseur montrée est celle qu'on obtiendra : la même
+                      taille écrit trois fois plus large au surligneur qu'au
+                      stylo, et l'échantillon doit le dire. */}
                   <span
                     className="block w-6 rounded-full"
                     style={{
-                      height: Math.min(14, Math.max(2, entry.size * (tool === "highlighter" ? 2.2 : 1.6))),
+                      height: Math.min(
+                        14,
+                        Math.max(2, taille * INSTRUMENTS[instrument].facteur * 1.5),
+                      ),
                       backgroundColor: inkCss(reglages.color),
-                      opacity: tool === "highlighter" ? 0.45 : 1,
+                      opacity: Math.max(0.42, INSTRUMENTS[instrument].alpha),
                     }}
                   />
                 </button>
@@ -508,7 +583,7 @@ export function InkPalette(props: PaletteProps) {
         {/* Le fond de la page courante. Sur une page du document importé il n'y
             a rien à choisir : son image est son fond. */}
         {paperEditable ? (
-          <Group label="Fond de page" className="ml-auto">
+          <Group label="Fond de page" className={vertical ? "w-full" : "ml-auto"}>
             {PAPERS.map((name) => {
               const entry = PAPER_LABELS[name];
               return (
@@ -529,7 +604,7 @@ export function InkPalette(props: PaletteProps) {
             sa voisine — c'est presque toujours ce qu'on veut, et les quatre
             boutons juste à gauche servent à en changer. */}
         {canAddPage ? (
-          <Group label="Page" className={cn(!paperEditable && "ml-auto")}>
+          <Group label="Page" className={cn(!paperEditable && !vertical && "ml-auto")}>
             <Tool
               onClick={props.onAddPage}
               icon={FilePlus2}
@@ -546,10 +621,74 @@ export function InkPalette(props: PaletteProps) {
           </Group>
         ) : null}
       </div>
-    </div>
+    </InkDock>
   );
 }
 
+/**
+ * Un instrument dans sa fente.
+ *
+ * Trois choses à la fois, et c'est tout l'intérêt : il dit **quel** outil
+ * c'est par sa silhouette, **avec quelle encre** par sa pointe teintée, et
+ * qu'il est choisi en **montant** de quelques pixels. Un aplat de couleur
+ * derrière une icône n'en dirait qu'une.
+ *
+ * La cible tactile fait 44 px de haut malgré la fente : le bouton l'occupe
+ * entièrement, c'est le dessin qui dépasse par le bas.
+ */
+function BoutonInstrument({
+  active,
+  onClick,
+  label,
+  tool,
+  color,
+}: {
+  active?: boolean;
+  onClick: () => void;
+  label: string;
+  /** Absent pour la gomme, qui ne pose pas d'encre. */
+  tool?: Tool;
+  color?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      aria-label={label}
+      title={label}
+      data-instrument={tool ?? "eraser"}
+      className={cn(
+        // 44 px de large, pas 32 : le dessin en fait 32, mais c'est la **zone
+        // qui active** qui doit atteindre la cible tactile, et un instrument
+        // qu'on rate une fois sur trois n'est pas un instrument. Mesuré à
+        // 41 px sur un téléphone avant que la fente ne sache passer à la ligne.
+        "grid h-11 w-11 shrink-0 place-items-end justify-items-center rounded-t-lg transition-transform duration-150",
+        // L'outil en cours sort de la fente ; les autres y restent enfoncés,
+        // mais **pointe visible** : c'est elle qui porte l'encre, et la couper
+        // reviendrait à cacher la seule chose qu'on cherche du regard.
+        active
+          ? "-translate-y-2 drop-shadow-[0_2px_3px_rgba(0,0,0,0.25)]"
+          : "translate-y-1 opacity-70 hover:-translate-y-0.5 hover:opacity-100",
+      )}
+    >
+      {tool && color ? (
+        <InstrumentDessine tool={tool} color={color} />
+      ) : (
+        <GommeDessinee />
+      )}
+    </button>
+  );
+}
+
+/**
+ * Un groupe de commandes.
+ *
+ * `flex-wrap` n'est pas décoratif : collée à un bord vertical, la barre ne fait
+ * que deux boutons de large, et un groupe qui ne passe pas à la ligne y déborde
+ * **sans rien signaler** — la première pastille de couleur et le bouton de
+ * sortie du plein écran sortaient de la barre par la gauche, coupés en deux.
+ */
 function Group({
   label,
   children,
@@ -560,7 +699,11 @@ function Group({
   className?: string;
 }) {
   return (
-    <div role="group" aria-label={label} className={cn("flex items-center gap-0.5", className)}>
+    <div
+      role="group"
+      aria-label={label}
+      className={cn("flex flex-wrap items-center justify-center gap-0.5", className)}
+    >
       {children}
     </div>
   );

@@ -16,7 +16,8 @@ import {
   estDocument,
   type EnvoiDocument,
 } from "@/lib/document-upload";
-import type { Ruler, Shape } from "@/lib/ink";
+import { INSTRUMENTS, TOOLS, type Ruler, type Shape, type Tool } from "@/lib/ink";
+import { usePositionBarre } from "@/components/note/ink-dock";
 import {
   MAX_DOCUMENT_PAGES,
   MAX_RATIO,
@@ -141,9 +142,34 @@ export function DrawingBlock({
    * surligne en jaune épais, on reprend le stylo, et il écrit en jaune épais.
    * C'est ce que font les applications de référence, et c'est ce qui rend
    * l'aller-retour entre les deux supportable.
+   *
+   * Deux états séparés suffisaient pour deux instruments ; à cinq, il faut un
+   * tableau.
+   *
+   * Deux états séparés suffisaient pour deux instruments ; à cinq, il faut un
+   * tableau — et surtout il faut que changer d'outil n'emporte pas les
+   * réglages de celui qu'on quitte. On garde un crayon vert fin à côté d'un
+   * feutre rouge épais, et l'on retrouve chacun comme on l'a laissé.
+   *
+   * Les couleurs de départ ne sont pas les mêmes : un surligneur jaune et une
+   * plume noire, c'est ce qu'on attend en ouvrant la trousse.
    */
-  const [pen, setPen] = React.useState<InkSettings>({ color: "default", size: 2.5 });
-  const [highlighter, setHighlighter] = React.useState<InkSettings>({ color: "amber", size: 4 });
+  const [settings, setSettings] = React.useState<Record<Tool, InkSettings>>(() => ({
+    pen: { color: "default", size: INSTRUMENTS.pen.tailles[1] },
+    fountain: { color: "default", size: INSTRUMENTS.fountain.tailles[1] },
+    pencil: { color: "default", size: INSTRUMENTS.pencil.tailles[1] },
+    marker: { color: "blue", size: INSTRUMENTS.marker.tailles[1] },
+    highlighter: { color: "amber", size: INSTRUMENTS.highlighter.tailles[1] },
+  }));
+
+  /*
+   * La place de la barre vit hors de React : cf. `usePositionBarre`.
+   *
+   * Deux pages manuscrites dans la même note partagent donc la même barre —
+   * ce qui est le cas de deux barres qui sont la même barre.
+   */
+  const [position, placerBarre] = usePositionBarre();
+
   // La gomme peut ne retirer que les surlignages : on surligne beaucoup, on se
   // trompe souvent, et effacer l'écriture par la même occasion est rageant.
   const [eraseHighlightsOnly, setEraseHighlightsOnly] = React.useState(false);
@@ -151,6 +177,7 @@ export function DrawingBlock({
   // Verrou : le doigt n'écrit pas, même avant qu'un stylet ait servi. Utile
   // quand on pose la main sur l'écran avant d'approcher le stylet.
   const [penOnly, setPenOnly] = React.useState(false);
+
   const [full, setFull] = React.useState(false);
   // Le rejet de la paume est invisible : le doigt cesse d'écrire sans rien dire.
   // On l'annonce, sinon on croit à une panne.
@@ -481,29 +508,39 @@ export function DrawingBlock({
   }, [full]);
 
   /*
-   * Hauteur de la palette en plein écran, publiée pour le repère de page.
+   * Ce que la barre laisse en bas de l'écran, publié pour le repère de page.
    *
-   * Elle ne se devine pas : sur téléphone la barre passe sur quatre rangées
-   * (196 px), sur iPad sur deux. Un décalage fixe posait le repère sur les
-   * couleurs.
+   * Cela ne se devine pas : la barre passe sur quatre rangées sur téléphone et
+   * sur deux sur iPad, un décalage fixe posait le repère sur les couleurs. Et
+   * depuis qu'elle se déplace, elle n'est pas toujours en bas : collée à
+   * gauche, en haut, ou repliée en bulle, elle ne prend plus rien au repère —
+   * qui doit alors redescendre, sans quoi il flotterait au milieu de l'écran
+   * pour rien.
    */
   React.useEffect(() => {
     if (!full) return;
-    const palette = surfaceRef.current?.querySelector('[role="toolbar"]');
-    if (!palette) return;
     const racine = document.documentElement;
+    const barre = surfaceRef.current?.querySelector('[data-testid="barre-flottante"]');
+    if (!barre || position.bord !== "bottom" || position.reduit) {
+      racine.style.setProperty("--ink-palette-h", "0px");
+      return () => racine.style.removeProperty("--ink-palette-h");
+    }
     const publier = () =>
-      racine.style.setProperty("--ink-palette-h", `${Math.round(palette.getBoundingClientRect().height)}px`);
+      racine.style.setProperty("--ink-palette-h", `${Math.round(barre.getBoundingClientRect().height)}px`);
     const observer = new ResizeObserver(publier);
-    observer.observe(palette);
+    observer.observe(barre);
     publier();
     return () => {
       observer.disconnect();
       racine.style.removeProperty("--ink-palette-h");
     };
-  }, [full]);
+  }, [full, position.bord, position.reduit, tool]);
 
-  const reglages = tool === "highlighter" ? highlighter : pen;
+  /** Les formes se tracent au stylo : elles n'ont pas de réglages à elles. */
+  const instrumentCourant: Tool = (TOOLS as readonly string[]).includes(tool)
+    ? (tool as Tool)
+    : "pen";
+  const reglages = settings[instrumentCourant];
 
   /*
    * Le reste de la page a besoin de savoir qu'on écrit en plein écran.
@@ -518,9 +555,10 @@ export function DrawingBlock({
   const palette = (
     <InkPalette
       tool={tool}
-      pen={pen}
-      highlighter={highlighter}
+      settings={settings}
       shape={shape}
+      position={position}
+      onPosition={placerBarre}
       paper={fond}
       eraseHighlightsOnly={eraseHighlightsOnly}
       erasePrecise={erasePrecise}
@@ -538,7 +576,9 @@ export function DrawingBlock({
       addingImage={envoiImage}
       ruler={ruler}
       onTool={setTool}
-      onSettings={tool === "highlighter" ? setHighlighter : setPen}
+      onSettings={(next) =>
+        setSettings((avant) => ({ ...avant, [instrumentCourant]: next }))
+      }
       onShape={setShape}
       onPaper={choisirFond}
       onAddPage={ajouterPage}
@@ -698,7 +738,11 @@ export function DrawingBlock({
             {canvas}
           </div>
           {alerteImage}
-      {suiviDocument}
+          {suiviDocument}
+          {/* La barre est en position fixe : elle ne prend pas de place dans la
+              colonne, et la feuille occupe donc tout l'écran — c'est ce qui
+              fait la différence entre « une page avec une barre en dessous » et
+              « une page, avec les outils posés dessus ». */}
           {palette}
           {selecteurImage}
         </div>
