@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
 
 import { requireUser } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
 import { toPlainText } from "@/components/rich-text";
 import {
   EXPORT_MIME,
@@ -11,8 +10,8 @@ import {
   toTsv,
   UTF8_BOM,
   type Backup,
-  type ExportDeck,
 } from "@/lib/export";
+import { paquetsDuCompte } from "@/lib/export-server";
 
 /**
  * Export de toutes les cartes du compte connecté.
@@ -32,49 +31,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Format inconnu." }, { status: 400 });
   }
 
-  const decks = await prisma.deck.findMany({
-    where: { ownerId: user.id },
-    orderBy: [{ folderId: "asc" }, { title: "asc" }],
-    select: {
-      title: true,
-      description: true,
-      color: true,
-      folderId: true,
-      cards: {
-        orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-        select: { term: true, definition: true, imagePath: true },
-      },
-    },
-  });
-
-  // Chemin complet de chaque dossier, « Sciences / Biologie » : sans lui, un
-  // export de deux dossiers homonymes serait ambigu à la relecture.
-  const folders = await prisma.folder.findMany({
-    // L'export porte sur les paquets : seuls leurs dossiers ont un chemin à
-    // reconstituer.
-    where: { ownerId: user.id, kind: "deck" },
-    select: { id: true, name: true, parentId: true },
-  });
-  const byId = new Map(folders.map((f) => [f.id, f]));
-  const pathOf = (id: string | null): string => {
-    const parts: string[] = [];
-    // Une boucle bornée : un cycle dans l'arbre ne doit pas figer la requête.
-    for (let cur = id, depth = 0; cur && depth < 64; depth++) {
-      const folder = byId.get(cur);
-      if (!folder) break;
-      parts.unshift(folder.name);
-      cur = folder.parentId;
-    }
-    return parts.join(" / ");
-  };
-
-  const data: ExportDeck[] = decks.map((deck) => ({
-    title: deck.title,
-    description: deck.description,
-    color: deck.color,
-    folder: pathOf(deck.folderId),
-    cards: deck.cards,
-  }));
+  const data = await paquetsDuCompte(user.id);
 
   const filename = exportFilename(asked);
   let body: string;

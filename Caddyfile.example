@@ -36,10 +36,11 @@ fiches.local {
 # ---------------------------------------------------------------------------
 # Dans les deux cas
 # ---------------------------------------------------------------------------
-# Les images des cartes peuvent atteindre 8 Mo : sans cette limite relevée,
-# Caddy tronque les envois volumineux.
+# Les images des cartes peuvent atteindre 8 Mo, un document importé 40 Mo, et
+# une page manuscrite d'un long polycopié se renvoie parfois en entier : sans
+# cette limite relevée, Caddy tronque les envois volumineux.
 (fiches_commun) {
     request_body {
-        max_size 12MB
+        max_size 130MB
     }
 }

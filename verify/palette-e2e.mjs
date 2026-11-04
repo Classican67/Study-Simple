@@ -78,40 +78,40 @@ check(
 );
 
 // --- Verrou du stylet ---------------------------------------------------------
+// Posé d'office : la main se pose avant la pointe, et elle marquait la page
+// tant qu'il fallait penser à le poser.
 section("verrou du stylet");
-const verrou = page.getByRole("button", { name: "Empêcher le doigt d'écrire" });
-check((await verrou.count()) === 1, "le verrou est proposé");
-await verrou.click();
-await page.waitForTimeout(300);
 check(
   (await page.getByRole("button", { name: /le doigt n'écrit pas/i }).count()) === 1,
-  "et il s'annonce une fois posé",
+  "le verrou est posé dès l'ouverture d'une note",
 );
 check(
   (await page.getByText("Stylet", { exact: true }).count()) === 1,
-  "avec une mention lisible, sans survol",
+  "et il s'annonce par une mention lisible, sans survol",
 );
 
-// Le doigt ne doit plus rien tracer.
 const toile = page.locator('[data-testid="drawing-canvas"]').last();
+const auDoigt = () =>
+  page.evaluate(() => {
+    const tous = document.querySelectorAll('[data-testid="drawing-canvas"]');
+    const el = tous[tous.length - 1];
+    const r = el.getBoundingClientRect();
+    const fire = (type, x, y, buttons) =>
+      el.dispatchEvent(
+        new PointerEvent(type, {
+          bubbles: true, cancelable: true, pointerId: 1, pointerType: "touch",
+          isPrimary: true, pressure: 0.5, buttons,
+          clientX: r.left + r.width * x, clientY: r.top + r.height * y,
+        }),
+      );
+    fire("pointerdown", 0.2, 0.3, 1);
+    fire("pointermove", 0.5, 0.4, 1);
+    fire("pointermove", 0.7, 0.3, 1);
+    fire("pointerup", 0.7, 0.3, 0);
+  });
+
 const avant = await toile.getAttribute("aria-label");
-await page.evaluate(() => {
-  const tous = document.querySelectorAll('[data-testid="drawing-canvas"]');
-  const el = tous[tous.length - 1];
-  const r = el.getBoundingClientRect();
-  const fire = (type, x, y, buttons) =>
-    el.dispatchEvent(
-      new PointerEvent(type, {
-        bubbles: true, cancelable: true, pointerId: 1, pointerType: "touch",
-        isPrimary: true, pressure: 0.5, buttons,
-        clientX: r.left + r.width * x, clientY: r.top + r.height * y,
-      }),
-    );
-  fire("pointerdown", 0.2, 0.3, 1);
-  fire("pointermove", 0.5, 0.4, 1);
-  fire("pointermove", 0.7, 0.3, 1);
-  fire("pointerup", 0.7, 0.3, 0);
-});
+await auDoigt();
 await page.waitForTimeout(400);
 check(
   (await toile.getAttribute("aria-label")) === avant,
@@ -119,10 +119,37 @@ check(
   `${avant} → ${await toile.getAttribute("aria-label")}`,
 );
 
+// On le lève d'un toucher, et l'appareil s'en souvient.
+await page.getByRole("button", { name: /le doigt n'écrit pas/i }).click();
+await page.waitForTimeout(300);
+check(
+  (await page.getByRole("button", { name: "Empêcher le doigt d'écrire" }).count()) === 1,
+  "levé, le verrou se propose à nouveau",
+);
+await auDoigt();
+await page.waitForTimeout(400);
+check(
+  (await toile.getAttribute("aria-label")) !== avant,
+  "et le doigt écrit",
+  `${avant} → ${await toile.getAttribute("aria-label")}`,
+);
+await page.getByRole("button", { name: "Annuler", exact: true }).click();
+await page.waitForTimeout(900);
+await page.reload({ waitUntil: "networkidle" });
+await page.waitForSelector('[data-testid="drawing-canvas"]');
+await page.waitForTimeout(600);
+check(
+  (await page.getByRole("button", { name: "Empêcher le doigt d'écrire" }).count()) === 1,
+  "le verrou levé le reste au rechargement",
+);
+check(
+  (await toile.getAttribute("aria-label")) === avant,
+  "et Annuler a bien retiré le trait du doigt",
+  `${avant} → ${await toile.getAttribute("aria-label")}`,
+);
+
 // --- Gomme sélective -----------------------------------------------------------
 section("gomme sélective");
-await page.getByRole("button", { name: /le doigt n'écrit pas/i }).click();
-await page.waitForTimeout(200);
 
 async function tracer(points, outil) {
   await page.getByRole("button", { name: outil, exact: true }).click();

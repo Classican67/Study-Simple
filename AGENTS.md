@@ -42,6 +42,23 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   l'encre doit être là ; la file repart seule au retour du réseau ; un 401 et
   une redirection vers `/login` se disent au lieu de passer pour un succès ; et
   la sauvegarde de secours se télécharge
+- `node long-document-e2e.mjs` — **un long document s'annote sans limite** :
+  trente pages et cinq mille traits (vingt mégaoctets) posés en base, un trait
+  de plus ne fait voyager que lui (un morceau de quelques centaines d'octets),
+  tout est relu au rechargement, et si la base a bougé derrière l'onglet le
+  morceau est refusé (409) puis le document entier renvoyé — plus de dix
+  mégaoctets, que le proxy laisse passer entiers
+- `node drive-e2e.mjs` — **la sauvegarde Google Drive, de bout en bout**,
+  contre un faux Google (`faux-google.mjs`) strict là où le vrai l'est —
+  PKCE, `state`, adresse de retour identique, code à usage unique, jeton
+  révoqué. Le script lance **son propre serveur** (port 3101) configuré pour
+  le faux : liaison, premier dépôt rangé comme dans l'app, passe sans
+  changement qui n'envoie rien, note modifiée remplacée sur place, déplacée,
+  supprimée vers la corbeille, trois 503 absorbés, table de correspondance
+  perdue sans doublon, dossier « Fiches » jeté puis refait, accès retiré qui
+  se dit, délier qui révoque. La page y est mesurée reliée et « à relier », en
+  clair et en sombre, sur téléphone et en desktop : `audit.mjs` ne la voit que
+  sans Google configuré
 - `node regard-sauvegarde.mjs` — la pastille d'enregistrement dans ses cinq
   états, mesurée et photographiée en clair et en sombre, sur téléphone et en
   desktop. `audit.mjs` ne la voit pas : il saute les éléments qui ont des
@@ -90,14 +107,25 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   s'est levée, et un geste de souris doit rester une courbe. Les gestes sont
   joués **à cadence maîtrisée** (200 Hz, la cadence d'un Apple Pencil) : un
   filtre en temps réel n'a pas de sens sans de vrais horodatages
-- `node barre-e2e.mjs` — **la barre d'outils, et les instruments** : les cinq
-  instruments posent-ils vraiment des traits différents (épaisseur, opacité,
-  grain du bord, effilement du bout, lus sur les pixels des tuiles), chacun
-  garde-t-il ses réglages, la barre se déplace-t-elle aux quatre bords sans
-  sortir de l'écran, se replie-t-elle en bulle, et retrouve-t-elle sa place au
+- `node barre-e2e.mjs` — **la barre d'outils, et les neuf instruments** :
+  posent-ils vraiment des traits différents — épaisseur, opacité, grain du
+  bord, effilement du bout, **part d'encre à opacité intermédiaire** (la
+  signature des mèches d'un crayon) et **largeur selon la direction** (la
+  tranche d'un feutre), tout lu sur les pixels des tuiles ; chacun garde-t-il
+  ses réglages ; la barre se déplace-t-elle aux quatre bords sans sortir de
+  l'écran, se replie-t-elle en bulle, et retrouve-t-elle sa place au
   rechargement. Le panneau y est aussi mesuré — contraste, 44 px, débordement,
   et **rien qui se pose dessus** — en clair et en sombre, en rangée et en
   colonne : `audit.mjs` ne voit la barre flottante dans aucun de ces états
+- `node regard-instruments.mjs` — la même ondulation écrite avec les neuf
+  instruments, en clair et en sombre. À **ouvrir** : une mesure dit qu'un
+  crayon est plus pâle qu'un stylo et que son bord tremble, elle ne dit pas
+  qu'il a l'air d'un crayon. C'est cette capture qui a montré que le grain
+  sinusoïdal faisait des **bosses**
+- `node regard-regle.mjs` — la règle posée sur de l'écriture, en clair et en
+  sombre. Trois choses qu'aucune mesure ne donne : voit-on la page au travers,
+  les graduations ressemblent-elles à des millimètres, devine-t-on qu'on peut
+  la tourner
 - `node regard-barre.mjs` — captures de la barre : en ligne, flottante, collée
   à gauche en colonne, et repliée en bulle, en clair et en sombre. À
   **ouvrir** : la mesure dit qu'un bouton fait 44 px, pas que le crayon se
@@ -356,6 +384,59 @@ du verrou npm.
      que le premier `pointerdown` ne parvienne à la page. `passive: false` est
      indispensable, et c'est précisément ce que React ne fait pas : d'où
      l'écouteur natif.
+- **Deux sinusoïdes ne font pas du bruit : elles ont une période, et la
+  période se voit.** Le grain du crayon était `sin(i·0,9) + sin(i·2,7)` : le
+  bord enflait et se pinçait tous les sept points, régulièrement, et le trait
+  sortait en chenille. Un hachage (`bruitHache`) n'a pas de période et reste
+  aussi déterministe. Et l'amplitude était trois fois trop grande — un grain se
+  voit, il ne se remarque pas.
+- **Une couleur n'est pas une matière.** Un crayon n'est pas un trait gris : ce
+  sont plusieurs traînées de graphite qui se croisent, denses au milieu,
+  clairsemées au bord. On le rend en **mèches** (`INSTRUMENTS[t].meches`) :
+  plusieurs passes plus fines, décalées en travers, chacune à
+  `alphaParPasse(alpha, n)` pour que leur recouvrement complet retrouve
+  l'opacité voulue. Deux pièges : les trous se comblent **une fois**, avant les
+  passes — deux mèches calculées sur des échantillonnages différents ne se
+  suivraient pas ; et chaque passe doit être **remplie séparément**, à l'écran
+  comme dans le PDF. Réunies en un seul chemin, leurs recouvrements ne
+  comptent qu'une fois — un remplissage ne peint chaque pixel qu'une fois — et
+  l'on retrouve l'aplat qu'on cherchait à éviter.
+- **Un feutre n'a pas une pointe, il a une tranche.** Large en travers d'elle,
+  mince dans son sens : sans cela il pose une bande d'épaisseur rigoureusement
+  constante, ce qui n'est l'écriture d'aucun objet réel. On le rend en
+  **remplaçant** la pression par le facteur de la tranche
+  (`biseauFacteurs`) et en forçant `thinning` à un — la largeur vaut alors
+  exactement `size × pression`. Le demi qui traîne dans le calcul n'est pas
+  décoratif : sans lui la largeur maximale **double**, parce que `thinning` à
+  un fait du rayon `size × p` là où `thinning` à zéro en faisait `size / 2`.
+  Le facteur est lissé sur les points voisins, sinon un changement de direction
+  brusque fait une marche.
+- **Placer un élément fixe par `left` fait dépendre sa largeur de sa
+  position.** Une barre posée à `left: 1027px` n'a plus que 167 pixels devant
+  elle : son contenu s'y replie en colonne, elle devient haute de 941 pixels, et
+  sa nouvelle taille change la position calculée, qui change la largeur
+  disponible, qui change la taille. La boucle s'arrête où elle veut — ici sur
+  une barre étroite dont le haut sortait de l'écran alors qu'on venait de la
+  poser en bas. Le décalage passe donc par une **translation** : la mise en page
+  se fait toujours à `left: 0`, sur la largeur entière, et la boucle n'existe
+  pas.
+- **Le verre, c'est un fond translucide *plus deux lumières*.** Le reflet du
+  haut, là où la tranche capte le jour, et l'ombre du bas, là où elle le perd
+  (`.verre`, `@layer components`). Sans eux, la barre ressemble à une vitre
+  sale. Le reflet est fort en clair et faible en sombre : une tranche
+  brillante sur fond noir ferait un liseré blanc, ce que ne fait aucun verre.
+  Et le repli n'est pas facultatif : sans `backdrop-filter`, un fond à 82 %
+  laisse passer l'écriture de la page et la barre devient illisible — on
+  repasse alors à l'opaque.
+- **Une règle se juge à trois choses qu'aucune mesure ne donne** : voit-on la
+  page au travers, les graduations ressemblent-elles à des millimètres, et
+  devine-t-on qu'on peut la tourner. L'ancienne était un rectangle teinté à
+  12 % — un voile coloré sur l'écriture — avec vingt traits régulièrement
+  espacés qui ne mesuraient rien. Elle est maintenant en verre dépoli, graduée
+  en **millimètres réels** (une page A4 fait 210 mm pour mille unités) sur ses
+  deux bords, avec une poignée de rotation à chaque bout et une accroche aux
+  multiples de quinze degrés (`snapRulerAngle`) : sans elle, obtenir un zéro
+  franc au doigt demande une patience que personne n'a.
 - **Un instrument n'est pas une icône, c'est une table.** Plume, stylo, crayon,
   feutre, surligneur : tout ce qui les distingue — pression, effilement, bout
   rond ou carré, facteur d'épaisseur, opacité, grain, passage sous l'encre,
@@ -422,6 +503,73 @@ du verrou npm.
   z-50.** La dernière du document gagne, et c'était la pastille : elle se posait
   sur les commandes. Elle monte maintenant au-dessus de la barre quand celle-ci
   est en bas, comme le repère de page.
+- **Le bord de la barre est un réglage du plein écran, pas de la note.** Il
+  est gardé par l'appareil et lu partout ; `InkDock` en tirait la colonne sans
+  regarder si la barre flottait. Laissée à gauche en plein écran, elle revenait
+  dans la note en colonne de six cents pixels, la page repoussée dessous. La
+  palette, elle, vérifiait `full` : deux règles pour la même chose, et une
+  seule juste.
+- **Une translation animée ne change pas d'axe proprement.** D'un bord à
+  l'autre, on passe de `translateY` à `translateX` pendant que `top` et
+  `bottom` changent d'un coup : la barre partait de cent trente pixels sous
+  l'écran et remontait en glissant, et la mesure prise **après** l'affichage
+  la plaçait d'abord avec la largeur de la colonne. La taille se mesure dans un
+  effet de mise en page, et l'animation n'a lieu que le long d'un même bord.
+  `barre-e2e.mjs` relit la position à chaque image.
+- **Le verrou du stylet est posé d'office** (`useStyletSeul`, gardé par
+  l'appareil) : le doigt fait défiler, la souris écrit toujours. Un script qui
+  veut écrire au doigt doit d'abord le lever — « Le doigt n'écrit pas —
+  rétablir » — ou passer `pointerType: "pen"`.
+- **Un document importé est *un* bloc, et ses plafonds étaient ceux d'une
+  page.** `MAX_BLOCK_BYTES` valait deux mégaoctets — quatre cents traits d'une
+  seconde au Pencil, une à deux pages d'écriture — et `parseDrawing` taillait à
+  quatre mille traits. Au-delà, le serveur répondait 413, la file classait le
+  refus comme définitif et cessait de réessayer : on annotait un polycopié
+  sans que rien ne parte, et ce qui était parti disparaissait au rechargement.
+  Il n'y a plus de plafond de traits ; le plafond d'octets est un garde-fou
+  (128 Mo), tenable parce que l'enregistrement n'envoie plus que **ce qui a
+  changé** (`lib/bloc-delta.ts`, empreinte SHA-256 de la version de départ,
+  409 et renvoi complet si elle a bougé).
+- **Le proxy tronque les corps au-delà de dix mégaoctets.** Avec un
+  `src/proxy.ts`, Next garde chaque corps de requête en mémoire et n'en garde
+  par défaut que dix mégaoctets — la route reçoit un JSON coupé.
+  `proxyClientMaxBodySize` est relevé dans `next.config.ts`, et la limite de
+  Caddy (`Caddyfile.example`) avec lui.
+- **Ce qui pèse le poids du document se paie à chaque trait.** Trois endroits
+  le faisaient : le cache des dessins gardait vingt-quatre versions du texte —
+  sept cents mégaoctets pour un polycopié de trente, de quoi faire fermer
+  l'onglet par Safari —, `JSON.stringify` refaisait toutes les coordonnées
+  (`serialiserDessin` garde le texte de chaque trait, immuable), et le serveur
+  relisait trois fois le document (`deltaTouche`, aperçu espacé). Il en reste
+  un : le journal local écrit encore le bloc entier — à mesurer sur iPad.
+- **Un document posé en base par un script doit l'être sous la forme que
+  l'app réécrit.** Un `ratio` calculé autrement que par `surfaceRatio` est
+  réécrit au premier enregistrement : le morceau va alors du début du texte au
+  trait neuf, et le transport envoie tout — à raison. Et `readfile()` de
+  sqlite3 écrit un BLOB, que Prisma refuse pour un champ texte : `cast(… as
+  text)`.
+- **La pression d'un Pencil n'est pas une consigne de largeur.** Dans
+  Safari, une écriture ordinaire rend environ 0,3, et la force du premier
+  contact est une estimation qu'Apple corrige plus tard — correction qu'une
+  page web ne reçoit jamais. Prise telle quelle, elle donnait un stylo plus
+  fin que demandé (1,93 pour 2,50) et dont le bord suivait le bruit du capteur
+  (4,4 % de variation). La pression mesurée passe par `pressionPercue`, une
+  courbe de réponse qui met l'écriture ordinaire au milieu, le stylo ne lui
+  laisse plus que 0,3 de `thinning`, et le lisseur repart de la première
+  pression mesurée en mouvement. Mesuré : 2,53 et 1,7 %.
+- **Une sauvegarde qui ne se retrouve pas se double.** La correspondance
+  entre l'app et le Drive vit dans `DriveItem` ; une base restaurée depuis le
+  NAS, ou un Drive délié puis relié, la perd. Chaque fichier déposé porte donc
+  ses étiquettes (`appProperties` : compte, clé, version), et une table vide
+  se reconstitue d'après elles. Retirer cette reconstitution fait passer le
+  Drive d'essai de 22 à 44 éléments : `drive-e2e.mjs` l'a vu.
+- **Les sondes d'`audit.mjs` vivent dans `sondes.mjs`.** Un scénario qui
+  mesure un état qu'audit ne visite pas les importe au lieu de les recopier.
+- **Un projet Google en statut « Test » coupe la sauvegarde au bout de sept
+  jours** : ses jetons de rafraîchissement expirent. Le README demande de le
+  publier ; avec la seule portée `drive.file`, non sensible, cela ne demande
+  pas l'audit de sécurité. Et changer `SESSION_SECRET` rend le jeton illisible
+  (il est chiffré avec une clé qui en dérive) : la page le dit, « à relier ».
 - **Un lissage à coefficient fixe ne peut pas être bon deux fois.** Le
   `streamline` de `perfect-freehand` est un lissage exponentiel à coefficient
   constant : assez fort pour tuer le tremblement d'une main lente, il fait
@@ -763,6 +911,12 @@ du verrou npm.
   ne l'a vu — elles tournent sur le build de production, qui ne remonte rien.
   Un défaut signalé depuis `localhost:3000` se reproduit **sur le serveur de
   dev**, pas sur celui du port 3100.
+- **« La première page manuscrite » n'est plus la bonne.** Une note neuve
+  s'ouvre sur une page vierge : un script qui lit
+  `document.querySelector("[data-ink-scroll]")` tombe dessus et non sur le
+  document importé qui la suit. `regard-export.mjs` relisait ainsi « 0 page »
+  d'un PDF qui en a quatre, et annonçait une capture qu'il n'avait pas prise.
+  Prendre la **dernière**, comme pour les canevas.
 - **Un nom de bouton se compare par sous-chaîne.** `getByRole("button", { name:
   "Document" })` trouve aussi « Ajouter une photo, une image ou un document » :
   renommer un bouton a fait échouer deux scripts en mode strict. Un nom court se

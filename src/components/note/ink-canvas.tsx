@@ -4,11 +4,13 @@ import { resolveInk } from "@/lib/ink-color";
 import * as React from "react";
 
 import {
+  alphaParPasse,
   boundsOf,
   eraseStroke,
   INK_REF,
   instrumentOf,
   strokeWeight,
+  snapRulerAngle,
   snapShape,
   snapStrokeToRuler,
   strokeInLasso,
@@ -20,7 +22,7 @@ import {
   type Shape,
 } from "@/lib/ink";
 import { LisseurDeTrait, LISSAGE, type PointStylet } from "@/lib/ink-smooth";
-import { inkOutline } from "@/lib/ink-stroke";
+import { inkOutlines } from "@/lib/ink-stroke";
 import {
   DEFAULT_RATIO,
   MAX_RATIO,
@@ -166,7 +168,7 @@ function strokeAlpha(stroke: Stroke): number {
  * Ne dépendant ni du zoom ni de la taille de l'écran, il est calculé une fois
  * et gardé en cache — c'est ce qui rend le redessin quasiment gratuit.
  */
-function outlineOf(stroke: Stroke): number[][] {
+function outlinesOf(stroke: Stroke): number[][][] {
   const points: number[][] = [];
   for (let i = 0; i + 2 < stroke.points.length; i += 3) {
     points.push([stroke.points[i] * REF, stroke.points[i + 1] * REF, stroke.points[i + 2] ?? 0.5]);
@@ -174,7 +176,7 @@ function outlineOf(stroke: Stroke): number[][] {
   // Le calcul vit dans `lib/ink-stroke.ts`, avec celui de l'export : c'est la
   // seule façon de garantir qu'un trait sorte du PDF tel qu'on l'a vu. Ici
   // l'échelle vaut 1 — on est déjà dans le repère de mille unités.
-  return inkOutline(points, stroke.points, stroke.tool, stroke.size, 1);
+  return inkOutlines(points, stroke.points, stroke.tool, stroke.size, 1);
 }
 
 /** Chemin fermé d'un contour. Des courbes, pour ne pas voir les facettes. */
@@ -192,19 +194,36 @@ function pathOf(outline: number[][]): Path2D | null {
 }
 
 /**
+ * Les chemins d'un trait — un par mèche.
+ *
+ * Ils sont remplis **séparément**, et c'est tout l'intérêt : réunis dans un
+ * seul chemin, les recouvrements ne compteraient qu'une fois et l'on
+ * retrouverait un aplat uni. Ce sont eux qui font la densité d'un crayon.
+ */
+function pathsOf(stroke: Stroke): Path2D[] {
+  const chemins: Path2D[] = [];
+  for (const contour of outlinesOf(stroke)) {
+    const path = pathOf(contour);
+    if (path) chemins.push(path);
+  }
+  return chemins;
+}
+
+/**
  * Contours gardés en cache, par trait.
  *
  * C'est ce qui rend le redessin gratuit : repeindre une tuile ne recalcule
  * aucune géométrie, elle ne fait que rejouer des chemins déjà construits.
  * `WeakMap` — le cache s'efface avec les traits, sans avoir à le vider.
  */
-const chemins = new WeakMap<Stroke, Path2D | null>();
+const chemins = new WeakMap<Stroke, Path2D[]>();
 
-function cachedPath(stroke: Stroke): Path2D | null {
-  if (chemins.has(stroke)) return chemins.get(stroke) ?? null;
-  const path = pathOf(outlineOf(stroke));
-  chemins.set(stroke, path);
-  return path;
+function cachedPaths(stroke: Stroke): Path2D[] {
+  const connu = chemins.get(stroke);
+  if (connu) return connu;
+  const liste = pathsOf(stroke);
+  chemins.set(stroke, liste);
+  return liste;
 }
 
 /** Cadres englobants gardés en cache, pour écarter vite ce qui est hors champ. */
@@ -614,11 +633,14 @@ export function InkCanvas({
     for (const stroke of ordonnes()) {
       const b = cachedBounds(stroke);
       if (b && !overlaps(b, zone, strokeMargin(stroke))) continue;
-      const path = cachedPath(stroke);
-      if (!path) continue;
-      context.globalAlpha = strokeAlpha(stroke);
+      const chemins = cachedPaths(stroke);
+      if (chemins.length === 0) continue;
+      // Une passe par mèche, remplie séparément : c'est le recouvrement
+      // inégal des mèches qui fait la densité d'un crayon. Un seul
+      // remplissage rendrait un aplat.
+      context.globalAlpha = alphaParPasse(strokeAlpha(stroke), chemins.length);
       context.fillStyle = encre(stroke.color);
-      context.fill(path);
+      for (const path of chemins) context.fill(path);
     }
     context.globalAlpha = 1;
     t.sale = false;
@@ -826,15 +848,13 @@ export function InkCanvas({
     // points prédits comblent le retard du lissage. Ils ne sont pas dans
     // `drawing.current`, donc ils ne seront jamais enregistrés.
     const avance = predits.current;
-    const path = pathOf(
-      outlineOf(
-        avance.length > 0 ? { ...trait, points: [...trait.points, ...avance] } : trait,
-      ),
+    const chemins = pathsOf(
+      avance.length > 0 ? { ...trait, points: [...trait.points, ...avance] } : trait,
     );
-    if (path) {
-      context.globalAlpha = strokeAlpha(trait);
+    if (chemins.length > 0) {
+      context.globalAlpha = alphaParPasse(strokeAlpha(trait), chemins.length);
       context.fillStyle = encreVive.current;
-      context.fill(path);
+      for (const path of chemins) context.fill(path);
     }
     context.restore();
   }, [cadrer, placerFenetre]);
@@ -860,20 +880,90 @@ export function InkCanvas({
     const trait = 1.5 / largeur;
 
     if (ruler) {
-      const demi = 1;
+      /*
+       * La règle.
+       *
+       * Une bande translucide graduée, pas un rectangle teinté. Trois choses
+       * la rendent crédible, et la première décide des deux autres :
+       *
+       * 1. **Les graduations sont en millimètres réels.** La page fait 210 mm
+       *    de large, soit mille unités : un millimètre en vaut 4,762. Une
+       *    règle dont les traits ne mesurent rien est un décor ; celle-ci
+       *    permet de reporter une longueur.
+       * 2. **Elles sont sur les deux bords**, comme sur une vraie règle
+       *    d'écolier — on trace le long de celui qu'on a sous la main.
+       * 3. **Le verre, pas la teinte.** Un aplat violet à 12 % recouvre
+       *    l'écriture d'un voile coloré. Une règle est en plastique dépoli :
+       *    du blanc très transparent, deux arêtes fines, et l'on voit ce
+       *    qu'il y a dessous.
+       *
+       * Elle déborde largement de la page (trois largeurs) : tournée à
+       * quarante-cinq degrés, une règle qui s'arrête aux bords laisse deux
+       * coins vides et l'on n'a plus de quoi s'appuyer.
+       */
+      const demi = 1.5;
       const epaisseur = RULER_THICKNESS;
+      /** Un millimètre, en fraction de la largeur de page (A4 : 210 mm). */
+      const mm = 1 / 210;
       context.save();
       context.translate(0.5, ruler.y);
       context.rotate(ruler.angle);
-      context.fillStyle = primaire;
-      context.globalAlpha = 0.12;
+
+      // Le corps, en verre dépoli. Deux passes : un blanc qui éclaircit ce
+      // qu'il couvre, puis une pointe de la couleur d'accent qui le rattache à
+      // l'application sans le teindre.
+      context.fillStyle = "#ffffff";
+      context.globalAlpha = 0.62;
       context.fillRect(-demi, 0, demi * 2, epaisseur);
-      context.globalAlpha = 0.85;
+      context.fillStyle = primaire;
+      context.globalAlpha = 0.06;
+      context.fillRect(-demi, 0, demi * 2, epaisseur);
+
+      // Les deux arêtes. Celle du haut est le **bord d'appui** : c'est le long
+      // d'elle que le trait se colle, et elle est donc plus marquée.
+      context.globalAlpha = 0.9;
+      context.fillStyle = primaire;
       context.fillRect(-demi, 0, demi * 2, trait);
-      context.globalAlpha = 0.5;
-      for (let x = -demi; x <= demi; x += 1 / 20) {
-        const haut = Math.round(x * 20) % 5 === 0 ? epaisseur * 0.5 : epaisseur * 0.28;
-        context.fillRect(x, trait, trait * 0.7, haut);
+      context.globalAlpha = 0.28;
+      context.fillStyle = "#1f2329";
+      context.fillRect(-demi, epaisseur - trait * 0.7, demi * 2, trait * 0.7);
+
+      // Les graduations, sur les deux bords, comptées depuis le milieu de la
+      // page pour qu'elles ne glissent pas quand on fait tourner la règle.
+      context.fillStyle = "#1f2329";
+      const premier = Math.ceil(-demi / mm);
+      const dernier = Math.floor(demi / mm);
+      for (let n = premier; n <= dernier; n++) {
+        const x = n * mm;
+        const centimetre = n % 10 === 0;
+        const demiCentimetre = n % 5 === 0;
+        const haut = centimetre ? epaisseur * 0.42 : demiCentimetre ? epaisseur * 0.26 : epaisseur * 0.14;
+        context.globalAlpha = centimetre ? 0.6 : demiCentimetre ? 0.45 : 0.3;
+        const large = centimetre ? trait * 0.9 : trait * 0.6;
+        context.fillRect(x, trait, large, haut);
+        context.fillRect(x, epaisseur - trait * 0.7 - haut, large, haut);
+      }
+
+      /*
+       * Les deux poignées de rotation.
+       *
+       * Sans elles, rien ne dit qu'on peut orienter la règle : on la déplace du
+       * doigt au milieu, on la tourne en la saisissant par un bout, et c'est
+       * exactement ce que personne ne devine. Deux pastilles aux extrémités de
+       * la partie visible le disent.
+       */
+      const bout = 0.42;
+      for (const cote of [-1, 1]) {
+        context.globalAlpha = 0.75;
+        context.fillStyle = primaire;
+        context.beginPath();
+        context.arc(cote * bout, epaisseur / 2, epaisseur * 0.26, 0, Math.PI * 2);
+        context.fill();
+        context.globalAlpha = 0.9;
+        context.fillStyle = "#ffffff";
+        context.beginPath();
+        context.arc(cote * bout, epaisseur / 2, epaisseur * 0.1, 0, Math.PI * 2);
+        context.fill();
       }
       context.restore();
     }
@@ -1349,7 +1439,9 @@ export function InkCanvas({
       const long = Math.abs(
         (point[0] - 0.5) * Math.cos(ruler.angle) + (point[1] - ruler.y) * Math.sin(ruler.angle),
       );
-      rulerDrag.current = long > 0.22 ? "rotate" : "move";
+      // Les poignées sont dessinées à 0,42 de part et d'autre du milieu : la
+      // zone qui tourne commence avant elles, pour qu'on les attrape sans viser.
+      rulerDrag.current = long > 0.3 ? "rotate" : "move";
       return;
     }
 
@@ -1454,7 +1546,10 @@ export function InkCanvas({
       if (rulerDrag.current === "move") {
         onRuler({ ...ruler, y: Math.max(0, Math.min(vue.current.ratio, point[1])) });
       } else {
-        onRuler({ ...ruler, angle: Math.atan2(point[1] - ruler.y, point[0] - 0.5) });
+        onRuler({
+          ...ruler,
+          angle: snapRulerAngle(Math.atan2(point[1] - ruler.y, point[0] - 0.5)),
+        });
       }
       return;
     }
@@ -1612,7 +1707,10 @@ export function InkCanvas({
     // Une forme est redressée au lâcher : l'outil est choisi avant de tracer,
     // on ne devine pas ce que le gribouillis voulait dire.
     const redresse =
-      ruler && (tool === "pen" || tool === "highlighter")
+      // Tous les instruments s'appuient sur la règle, pas seulement le stylo et
+      // le surligneur : un crayon qui traverse une règle sans la suivre n'a pas
+      // de sens. Les formes sont redressées autrement, juste après.
+      ruler && tool !== "shape"
         ? { ...trait, points: snapStrokeToRuler(trait.points, ruler) }
         : trait;
     const final =

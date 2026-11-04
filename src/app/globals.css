@@ -160,10 +160,28 @@
      `tests/pages.test.ts` vérifie qu'elles ne se séparent pas. */
   --paper-fond: #fcf8ee;
   --paper-trait: #d7d0c0;
+
+  /* --- Liquid Glass -------------------------------------------------------
+     Un verre n'est pas un aplat translucide : c'est un aplat translucide **plus
+     deux lumières**. Le reflet du haut, là où la tranche capte le jour, et
+     l'ombre du bas, là où elle le perd. Sans eux, la barre ressemble à une
+     vitre sale ; avec eux, à un objet posé sur la page.
+
+     Le reflet est fort en clair et faible en sombre : une tranche brillante
+     sur fond noir ferait un liseré blanc, ce que ne fait aucun verre. */
+  --verre-reflet: rgb(255 255 255 / 0.8);
+  --verre-bord: rgb(255 255 255 / 0.55);
+  --verre-creux-ombre: rgb(0 0 0 / 0.07);
+  --verre-creux-fond: rgb(0 0 0 / 0.035);
 }
 
 .dark {
   color-scheme: dark;
+
+  --verre-reflet: rgb(255 255 255 / 0.13);
+  --verre-bord: rgb(255 255 255 / 0.1);
+  --verre-creux-ombre: rgb(0 0 0 / 0.3);
+  --verre-creux-fond: rgb(0 0 0 / 0.22);
 
   /* --- Schéma sombre -----------------------------------------------------
      Les rôles basculent : primary = ton 80, on-primary = 20, container = 30.
@@ -335,6 +353,49 @@
    dans l'app native.
    ========================================================================== */
 @layer components {
+
+  /* --- Liquid Glass -------------------------------------------------------
+     La barre d'outils est posée **sur** la page, pas à côté : on doit voir la
+     feuille au travers, sinon elle vaut une bande opaque qui ampute l'écran.
+     Trois couches font le verre — le fond translucide, le flou qui reprend la
+     couleur de ce qu'il y a dessous (`saturate` compense le lavage du flou), et
+     les deux lumières de la tranche.
+
+     Dans `@layer components` et non `utilities` : une ombre doit pouvoir être
+     écrasée par un utilitaire, et c'est justement ce que la couche `utilities`
+     de Tailwind ne peut pas faire si on se met devant elle.
+
+     Le repli n'est pas facultatif. Sans `backdrop-filter` — Firefox sans le
+     drapeau, et tout navigateur en économie d'énergie — un fond à 82 % laisse
+     passer l'écriture de la page et la barre devient illisible. On repasse
+     alors à l'opaque : moins joli, lisible. */
+  .verre {
+    background-color: color-mix(in srgb, var(--color-surface-container) 82%, transparent);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+    border: 1px solid var(--verre-bord);
+    box-shadow:
+      inset 0 1px 0 0 var(--verre-reflet),
+      inset 0 -1px 0 0 rgb(0 0 0 / 0.05),
+      0 14px 34px -12px rgb(0 0 0 / 0.3),
+      0 2px 8px -3px rgb(0 0 0 / 0.16);
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .verre {
+      background-color: var(--color-surface-container);
+    }
+  }
+
+  /* Le creux : la fente où sont rangés les instruments. Une ombre portée
+     **vers l'intérieur** et aucun reflet — c'est ce qui sépare un renfoncement
+     d'un relief, et c'est la seule différence entre les deux. */
+  .verre-creux {
+    background-color: var(--verre-creux-fond);
+    box-shadow:
+      inset 0 2px 4px -1px var(--verre-creux-ombre),
+      inset 0 -1px 0 0 var(--verre-reflet);
+  }
 
   /* --- Page hors ligne ----------------------------------------------------
      Le message d'échec du repli n'apparaît qu'après deux secondes : les

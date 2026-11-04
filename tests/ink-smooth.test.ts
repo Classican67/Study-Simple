@@ -290,7 +290,13 @@ describe("inkSpine", () => {
 describe("l'écran et le papier comblent les trous de la même façon", () => {
   it("parce que c'est le même code qui les comble", () => {
     const code = readFileSync(path.join(process.cwd(), "src/lib/ink-stroke.ts"), "utf8");
-    assert.ok(/getStroke\(inkSpine\(/.test(code), "inkOutline doit combler avant de contourer");
+    // Comblés **une fois**, avant les mèches : deux passes calculées sur des
+    // échantillonnages différents ne se suivraient pas.
+    assert.ok(
+      /const dense = inkSpine\(points, LISSAGE\.ecart \* echelle\)/.test(code),
+      "inkOutlines doit combler une fois, avant les passes",
+    );
+    assert.ok(!/getStroke\([^)]*inkSpine/.test(code), "et non à chaque passe");
     // Et l'écart est mis à l'échelle du repère : dans un PDF, une unité de la
     // page de mille ne vaut pas un point typographique.
     assert.ok(/LISSAGE\.ecart \* echelle/.test(code), "l'écart doit suivre l'échelle du repère");

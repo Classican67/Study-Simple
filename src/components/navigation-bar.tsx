@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, Layers, NotebookPen, ShieldUser } from "lucide-react";
+import { CalendarClock, HardDriveUpload, Layers, NotebookPen, ShieldUser } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,8 @@ const DESTINATIONS: Destination[] = [
   { href: "/", label: "Paquets", icon: Layers },
   { href: "/study", label: "Réviser", icon: CalendarClock },
   { href: "/notes", label: "Notes", icon: NotebookPen },
+  // Chaque compte a la sienne : ce n'est pas un réglage de l'installation.
+  { href: "/sauvegarde", label: "Sauvegarde", icon: HardDriveUpload },
 ];
 
 const ADMIN: Destination = { href: "/admin", label: "Comptes", icon: ShieldUser };

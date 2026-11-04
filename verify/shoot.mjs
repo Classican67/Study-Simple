@@ -25,6 +25,7 @@ const pages = [
   ["ecrire", `/decks/${deckId}/study?all=1&mode=write`],
   ["jour", "/study"],
   ["notes", "/notes"],
+  ["sauvegarde", "/sauvegarde"],
   ["dossier", folderId ? `/folders/${folderId}` : "/"],
   // Les deux classements sont séparés : le dossier de notes a sa propre page.
   ["dossier-notes", noteFolderId ? `/notes?folder=${noteFolderId}` : "/notes"],

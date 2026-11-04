@@ -29,9 +29,12 @@ await page.waitForSelector('[data-testid="drawing-canvas"]');
 await page.getByRole("button", { name: "Document", exact: true }).waitFor({ timeout: 60000 });
 await page.waitForTimeout(2000);
 
-await page.getByRole("button", { name: "Ajouter une page après celle-ci" }).click();
+// `.last()` : la note neuve s'ouvre déjà sur une page manuscrite, et le
+// document importé en ajoute une seconde — deux palettes, deux boutons, et le
+// mode strict de Playwright refuse de choisir. C'est la dernière qu'on veut.
+await page.getByRole("button", { name: "Ajouter une page après celle-ci" }).last().click();
 await page.waitForTimeout(1200);
-await page.getByRole("button", { name: "Lignes", exact: true }).click();
+await page.getByRole("button", { name: "Lignes", exact: true }).last().click();
 await page.waitForTimeout(800);
 
 // Deux lignes d'écriture sur la page ajoutée, pour juger le rapport entre
@@ -99,7 +102,10 @@ await page.getByRole("button", { name: "Document", exact: true }).waitFor({ time
 await page.waitForTimeout(3000);
 
 const pages = await page.evaluate(() => {
-  const feuille = document.querySelector("[data-ink-scroll]").firstElementChild;
+  // La **dernière** : la note neuve s'ouvre sur une page manuscrite vierge, et
+  // le document réimporté vient après elle. La première ne porte aucune page,
+  // et l'on relisait « 0 page » d'un PDF qui en a trois.
+  const feuille = [...document.querySelectorAll("[data-ink-scroll]")].at(-1).firstElementChild;
   const r = feuille.getBoundingClientRect();
   return [...feuille.children]
     .filter((c) => c.matches("div[aria-hidden]") && !c.hasAttribute("data-ink-tiles"))

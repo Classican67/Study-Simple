@@ -1,5 +1,6 @@
 import { apiError, getApiUser } from "@/lib/api-auth";
 import { enregistrerBloc } from "@/lib/note-save";
+import type { Delta } from "@/lib/bloc-delta";
 import { MAX_BLOCK_BYTES } from "@/lib/notes";
 
 /**
@@ -52,17 +53,40 @@ export async function PUT(
     return apiError("Envoi interrompu.", 503);
   }
 
-  const { content, seq } =
-    (corps ?? {}) as { content?: unknown; seq?: unknown };
-  if (typeof content !== "string") return apiError("Contenu manquant.", 400);
+  const { content, delta, seq } =
+    (corps ?? {}) as { content?: unknown; delta?: unknown; seq?: unknown };
 
-  const resultat = await enregistrerBloc(user.id, blockId, content, noteId);
+  // Soit le contenu entier, soit le morceau qui a changé (cf. `lib/bloc-delta`).
+  let envoi: string | Delta;
+  if (typeof content === "string") {
+    envoi = content;
+  } else if (estDelta(delta)) {
+    envoi = delta;
+  } else {
+    return apiError("Contenu manquant.", 400);
+  }
+
+  const resultat = await enregistrerBloc(user.id, blockId, envoi, noteId);
   if (!resultat.ok) {
-    return apiError(resultat.error, resultat.code === "trop-gros" ? 413 : 404);
+    // 409 n'est pas un refus : le client renvoie le bloc entier, tout de suite.
+    const statut = { "trop-gros": 413, introuvable: 404, base: 409 }[resultat.code];
+    return apiError(resultat.error, statut);
   }
 
   return Response.json(
-    { ok: true, seq: typeof seq === "number" ? seq : null },
+    { ok: true, seq: typeof seq === "number" ? seq : null, empreinte: resultat.empreinte },
     { headers: { "Cache-Control": "no-store" } },
+  );
+}
+
+function estDelta(valeur: unknown): valeur is Delta {
+  const d = valeur as Partial<Delta> | null;
+  return (
+    !!d &&
+    typeof d.base === "string" &&
+    /^[0-9a-f]{64}$/.test(d.base) &&
+    typeof d.debut === "number" &&
+    typeof d.fin === "number" &&
+    typeof d.inserer === "string"
   );
 }

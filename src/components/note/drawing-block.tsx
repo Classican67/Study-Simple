@@ -18,6 +18,7 @@ import {
 } from "@/lib/document-upload";
 import { INSTRUMENTS, TOOLS, type Ruler, type Shape, type Tool } from "@/lib/ink";
 import { usePositionBarre } from "@/components/note/ink-dock";
+import { useStyletSeul } from "@/components/note/stylet-seul";
 import {
   MAX_DOCUMENT_PAGES,
   MAX_RATIO,
@@ -154,13 +155,27 @@ export function DrawingBlock({
    * Les couleurs de départ ne sont pas les mêmes : un surligneur jaune et une
    * plume noire, c'est ce qu'on attend en ouvrant la trousse.
    */
-  const [settings, setSettings] = React.useState<Record<Tool, InkSettings>>(() => ({
-    pen: { color: "default", size: INSTRUMENTS.pen.tailles[1] },
-    fountain: { color: "default", size: INSTRUMENTS.fountain.tailles[1] },
-    pencil: { color: "default", size: INSTRUMENTS.pencil.tailles[1] },
-    marker: { color: "blue", size: INSTRUMENTS.marker.tailles[1] },
-    highlighter: { color: "amber", size: INSTRUMENTS.highlighter.tailles[1] },
-  }));
+  /*
+   * Les couleurs de départ, quand « encre » ne convient pas.
+   *
+   * Un surligneur noir, un crayon de cire noir et une aquarelle noire, ce sont
+   * trois outils qu'on n'essaie jamais : ils ne montrent pas ce qu'ils savent
+   * faire. Les autres partent en encre, qui est la couleur du texte.
+   */
+  const [settings, setSettings] = React.useState<Record<Tool, InkSettings>>(() => {
+    const depart: Partial<Record<Tool, string>> = {
+      marker: "blue",
+      highlighter: "amber",
+      crayon: "rose",
+      watercolor: "blue",
+    };
+    // Construit depuis `TOOLS` : ajouter un instrument ne demande pas de
+    // penser à venir lui ouvrir une ligne ici, et le typage ne pardonnerait
+    // pas qu'on l'oublie.
+    return Object.fromEntries(
+      TOOLS.map((t) => [t, { color: depart[t] ?? "default", size: INSTRUMENTS[t].tailles[1] }]),
+    ) as Record<Tool, InkSettings>;
+  });
 
   /*
    * La place de la barre vit hors de React : cf. `usePositionBarre`.
@@ -174,9 +189,9 @@ export function DrawingBlock({
   // trompe souvent, et effacer l'écriture par la même occasion est rageant.
   const [eraseHighlightsOnly, setEraseHighlightsOnly] = React.useState(false);
   const [erasePrecise, setErasePrecise] = React.useState(false);
-  // Verrou : le doigt n'écrit pas, même avant qu'un stylet ait servi. Utile
-  // quand on pose la main sur l'écran avant d'approcher le stylet.
-  const [penOnly, setPenOnly] = React.useState(false);
+  // Verrou : le doigt n'écrit pas, même avant qu'un stylet ait servi. Posé
+  // d'office, et gardé par l'appareil : cf. `useStyletSeul`.
+  const [penOnly, setPenOnly] = useStyletSeul();
 
   const [full, setFull] = React.useState(false);
   // Le rejet de la paume est invisible : le doigt cesse d'écrire sans rien dire.

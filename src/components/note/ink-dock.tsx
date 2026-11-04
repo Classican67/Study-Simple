@@ -126,6 +126,20 @@ const MARGE = 10;
  * La taille est **mesurée**, jamais supposée : la barre change de hauteur avec
  * l'outil courant — la rangée des réglages disparaît pour le lasso — et une
  * position calculée sur une hauteur devinée la ferait sortir de l'écran.
+ *
+ * Le décalage passe par une **translation**, jamais par `left` ou `top`.
+ *
+ * C'est le piège de tout ce fichier, et il s'est refermé : une barre posée à
+ * `left: 1027px` n'a plus que 167 pixels devant elle, son contenu s'y replie
+ * en colonne, elle devient haute de 941 pixels — et sa nouvelle taille change
+ * la position calculée, qui change la largeur disponible, qui change la
+ * taille. La boucle s'arrête où elle veut ; ici, sur une barre étroite haute
+ * d'un écran et demi, dont le haut sortait de l'écran par le haut alors qu'on
+ * venait de la poser en bas.
+ *
+ * Avec une translation, la mise en page se fait toujours à `left: 0`, sur la
+ * largeur entière de l'écran : la taille ne dépend plus de la position, et la
+ * boucle n'existe pas.
  */
 function placer(
   position: PositionBarre,
@@ -136,14 +150,21 @@ function placer(
   const libreY = Math.max(0, ecran.h - taille.h - MARGE * 2);
   if (estVertical(position.bord)) {
     return {
-      top: MARGE + libreY * position.offset,
+      top: 0,
       [position.bord === "left" ? "left" : "right"]: MARGE,
+      transform: `translateY(${Math.round(MARGE + libreY * position.offset)}px)`,
     };
   }
   return {
-    left: MARGE + libreX * position.offset,
+    left: 0,
     [position.bord === "bottom" ? "bottom" : "top"]: MARGE,
+    transform: `translateX(${Math.round(MARGE + libreX * position.offset)}px)`,
   };
+}
+
+/** La même translation, pendant le glisser : la barre suit le doigt. */
+function suivre(point: { x: number; y: number }): React.CSSProperties {
+  return { left: 0, top: 0, transform: `translate(${Math.round(point.x)}px, ${Math.round(point.y)}px)` };
 }
 
 /** Le bord le plus proche d'un point, et la proportion le long de ce bord. */
@@ -196,8 +217,13 @@ export function InkDock({
    * barre ouverte en paysage puis l'iPad tourné garderait la place de l'autre
    * orientation, et se retrouverait hors de l'écran. Même règle que pour la
    * hauteur de la feuille.
+   *
+   * Et la mesure se prend **avant** que l'écran ne soit peint : passée de la
+   * colonne à la rangée, la barre était d'abord placée avec la largeur de la
+   * colonne — `translateX(586px)` au lieu de 151 — puis corrigée une image
+   * plus tard, et l'on voyait les deux.
    */
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     const el = boite.current;
     if (!el) return;
     const mesurer = () => {
@@ -217,7 +243,27 @@ export function InkDock({
     };
   }, [flottante, position.reduit, position.bord]);
 
-  const vertical = estVertical(position.bord) && !position.reduit;
+  // En ligne, la barre est posée au-dessus de la page : elle n'est jamais une
+  // colonne, quel que soit le bord retenu pour le plein écran. Sans cela, la
+  // barre laissée à gauche en plein écran revenait dans la note en colonne
+  // haute de six cents pixels, la page repoussée dessous.
+  const vertical = flottante && estVertical(position.bord) && !position.reduit;
+
+  /*
+   * L'animation ne vaut que le long d'un même bord.
+   *
+   * D'un bord à l'autre, la translation change d'axe — `translateY` contre
+   * `translateX` — pendant que `top` ou `bottom` changent d'un coup : animée,
+   * la barre partait de cent soixante pixels sous l'écran et remontait en
+   * glissant, sa forme passant de colonne à rangée en chemin. Elle saute donc
+   * à sa nouvelle place, et ne glisse que pour se recentrer sur son bord.
+   * L'état part à faux : à l'ouverture du plein écran, rien ne doit glisser.
+   */
+  const [anime, setAnime] = React.useState(false);
+  const deplacer = (next: PositionBarre) => {
+    setAnime(next.bord === position.bord);
+    onPosition(next);
+  };
 
   /* ---------------------------------------------------------------- *
    * Le glisser.
@@ -265,7 +311,7 @@ export function InkDock({
       { x: event.clientX, y: event.clientY },
       { w: window.innerWidth, h: window.innerHeight },
     );
-    onPosition({ ...position, bord, offset });
+    deplacer({ ...position, bord, offset });
   }
 
   /* ---------------------------------------------------------------- *
@@ -276,7 +322,7 @@ export function InkDock({
     return (
       <div
         ref={boite}
-        style={glisse ? { left: glisse.x, top: glisse.y } : placer(position, taille, ecran)}
+        style={glisse ? suivre(glisse) : placer(position, taille, ecran)}
         className="fixed z-10 touch-none"
       >
         <button
@@ -290,7 +336,7 @@ export function InkDock({
           }}
           aria-label="Ouvrir les outils d'écriture"
           title="Ouvrir les outils — glisser pour déplacer"
-          className="grid size-14 place-items-center rounded-full border border-outline-variant bg-surface-container elevation-3"
+          className="verre grid size-14 place-items-center rounded-full"
         >
           {bulle}
         </button>
@@ -334,7 +380,7 @@ export function InkDock({
               <MenuBords
                 position={position}
                 onChoisir={(bord) => {
-                  onPosition({ ...position, bord, offset: 0.5 });
+                  deplacer({ ...position, bord, offset: 0.5 });
                   setMenu(false);
                 }}
                 onFermer={() => setMenu(false)}
@@ -380,12 +426,12 @@ export function InkDock({
     <div
       ref={boite}
       data-testid="barre-flottante"
-      style={glisse ? { left: glisse.x, top: glisse.y } : placer(position, taille, ecran)}
+      style={glisse ? suivre(glisse) : placer(position, taille, ecran)}
       className={cn(
-        "fixed z-10 max-w-[calc(100vw-1.25rem)] rounded-3xl border border-outline-variant bg-surface-container px-1.5 py-1 elevation-3",
+        "verre fixed z-10 max-w-[calc(100vw-1.25rem)] rounded-3xl px-1.5 py-1",
         // Pendant le glisser, la barre suit le doigt sans transition : une
         // animation ferait traîner la barre derrière la main.
-        !glisse && "transition-[left,top,bottom,right] duration-200",
+        !glisse && anime && "transition-transform duration-200",
       )}
     >
       {corps}
@@ -460,7 +506,7 @@ function MenuBords({
       aria-label="Placer la barre d'outils"
       // Ancré au coin de la poignée et **vers le haut** : la barre est le plus
       // souvent en bas de l'écran, et un menu déplié vers le bas y sortirait.
-      className="absolute bottom-full left-0 z-20 mb-1 w-40 rounded-xl border border-outline-variant bg-surface-container p-1 elevation-2"
+      className="verre absolute bottom-full left-0 z-20 mb-1 w-40 rounded-xl p-1"
     >
       {BORDS.map((entry) => (
         <button

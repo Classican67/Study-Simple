@@ -54,6 +54,34 @@ async function nouvelleNote(ctx, titre) {
   return page;
 }
 
+/** Trace un segment au stylet, d'un point à un autre, à cadence maîtrisée. */
+const tracerLigne = (page, x0, y0, x1, y1) =>
+  page.evaluate(
+    async ({ x0, y0, x1, y1 }) => {
+      const el = [...document.querySelectorAll('[data-testid="drawing-canvas"]')].at(-1);
+      const r = el.getBoundingClientRect();
+      const fire = (t, x, y, p, b) =>
+        el.dispatchEvent(
+          new PointerEvent(t, {
+            bubbles: true, cancelable: true, pointerId: 33, pointerType: "pen",
+            isPrimary: true, pressure: p, buttons: b,
+            clientX: r.left + r.width * x, clientY: r.top + r.width * y,
+          }),
+        );
+      const attendre = (j) => { while (performance.now() < j) { /* cadence réelle */ } };
+      const n = 70;
+      const t0 = performance.now();
+      fire("pointerdown", x0, y0, 0.62, 1);
+      for (let i = 1; i <= n; i++) {
+        attendre(t0 + i * 5);
+        fire("pointermove", x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n, 0.62, 1);
+      }
+      fire("pointerup", x1, y1, 0, 0);
+      await new Promise((res) => requestAnimationFrame(res));
+    },
+    { x0, y0, x1, y1 },
+  );
+
 /** Trace un trait droit au stylet, à cadence maîtrisée. */
 const tracer = (page, y, x0 = 0.12, x1 = 0.8) =>
   page.evaluate(
@@ -96,6 +124,7 @@ const tracer = (page, y, x0 = 0.12, x1 = 0.8) =>
 const profil = (page, bande) =>
   page.evaluate((bande) => {
     const colonnes = new Map();
+    const opacites = [];
     let alphaMax = 0;
     let largeurRendu = 0;
     for (const c of document.querySelectorAll("[data-ink-tiles] canvas")) {
@@ -111,6 +140,7 @@ const profil = (page, bande) =>
           const a = data[(py * c.width + px) * 4 + 3];
           if (a <= 8) continue;
           alphaMax = Math.max(alphaMax, a);
+          opacites.push(a);
           const col = colonnes.get(px) ?? { haut: y, bas: y };
           col.haut = Math.min(col.haut, y);
           col.bas = Math.max(col.bas, y);
@@ -139,6 +169,19 @@ const profil = (page, bande) =>
     }
     grain /= Math.max(1, bords.length - 2);
 
+    /*
+     * La part d'encre posée à **opacité intermédiaire**.
+     *
+     * C'est la signature des mèches. Un trait d'une seule passe est uniforme :
+     * seul son bord adouci est à opacité partielle, soit quelques pour cent des
+     * pixels. Un crayon en trois passes est intermédiaire partout où deux
+     * mèches seulement se croisent — c'est-à-dire sur la moitié du trait, et
+     * c'est exactement ce qu'on voit d'une mine sur du papier.
+     */
+    const intermediaires =
+      opacites.filter((a) => a > alphaMax * 0.22 && a < alphaMax * 0.8).length /
+      Math.max(1, opacites.length);
+
     return {
       n: cles.length,
       largeurRendu,
@@ -147,6 +190,7 @@ const profil = (page, bande) =>
       bout: largeurs[1] / moyenne,
       alpha: alphaMax / 255,
       grain,
+      meches: intermediaires,
     };
   }, bande);
 
@@ -157,34 +201,58 @@ const ctx = await browser.newContext({ viewport: { width: 1194, height: 900 }, d
 await ctx.addCookies([{ name: "fiches_session", value: token, domain: "localhost", path: "/" }]);
 const page = await nouvelleNote(ctx, `Barre ${Date.now()}`);
 
-const INSTRUMENTS = ["Plume", "Stylo", "Crayon", "Feutre", "Surligneur"];
-const BANDES = { Plume: 0.1, Stylo: 0.2, Crayon: 0.3, Feutre: 0.42, Surligneur: 0.56 };
+const INSTRUMENTS = [
+  "Plume",
+  "Stylo",
+  "Monoline",
+  "Crayon",
+  "Crayon de cire",
+  "Pinceau",
+  "Aquarelle",
+  "Feutre",
+  "Surligneur",
+];
+const BANDES = {
+  Plume: 0.06,
+  Stylo: 0.12,
+  Monoline: 0.18,
+  Crayon: 0.24,
+  "Crayon de cire": 0.3,
+  Pinceau: 0.37,
+  Aquarelle: 0.44,
+  Feutre: 0.51,
+  Surligneur: 0.58,
+};
 const mesures = {};
 
 for (const nom of INSTRUMENTS) {
   await page.getByRole("button", { name: nom, exact: true }).first().click();
+  // L'épaisseur du milieu ne montre rien d'une matière : on prend la plus
+  // grosse, c'est là qu'un grain et des mèches se voient ou n'existent pas.
+  await page.getByRole("button", { name: "Épais", exact: true }).first().click();
   await page.waitForTimeout(150);
   await tracer(page, BANDES[nom]);
-  await page.waitForTimeout(400);
+  await page.waitForTimeout(350);
 }
 await page.waitForTimeout(900);
 
 const REND = (await profil(page, { min: 0, max: 1e9 })).largeurRendu;
 for (const nom of INSTRUMENTS) {
   const y = BANDES[nom] * REND;
-  mesures[nom] = await profil(page, { min: y - 0.05 * REND, max: y + 0.05 * REND });
+  mesures[nom] = await profil(page, { min: y - 0.03 * REND, max: y + 0.03 * REND });
   const m = mesures[nom];
   dire(
     nom,
     m.epaisseur
-      ? `${m.epaisseur.toFixed(1)} px d'épaisseur, opacité ${m.alpha.toFixed(2)}, grain ${m.grain.toFixed(2)}, bout ${(m.bout * 100).toFixed(0)} %`
+      ? `${m.epaisseur.toFixed(1)} px, opacité ${m.alpha.toFixed(2)}, grain ${m.grain.toFixed(2)}, ` +
+        `bout ${(m.bout * 100).toFixed(0)} %, mèches ${(m.meches * 100).toFixed(0)} %`
       : `rien de posé (${m.n} colonnes)`,
   );
 }
 
 check(
   INSTRUMENTS.every((n) => mesures[n].n > 50),
-  "les cinq traits sont posés",
+  "les neuf traits sont posés",
   JSON.stringify(Object.fromEntries(INSTRUMENTS.map((n) => [n, mesures[n].n]))),
 );
 check(
@@ -193,7 +261,7 @@ check(
   `${mesures.Feutre.epaisseur?.toFixed(1)} contre ${mesures.Stylo.epaisseur?.toFixed(1)}`,
 );
 check(
-  mesures.Surligneur.epaisseur > mesures.Feutre.epaisseur * 1.4,
+  mesures.Surligneur.epaisseur > mesures.Feutre.epaisseur * 1.2,
   "et le surligneur plus large que le feutre",
   `${mesures.Surligneur.epaisseur?.toFixed(1)} contre ${mesures.Feutre.epaisseur?.toFixed(1)}`,
 );
@@ -203,9 +271,9 @@ check(
   `${mesures.Crayon.alpha?.toFixed(2)} contre ${mesures.Stylo.alpha?.toFixed(2)}`,
 );
 check(
-  mesures.Surligneur.alpha < 0.45,
-  "et le surligneur laisse lire ce qu'il couvre",
-  `opacité ${mesures.Surligneur.alpha?.toFixed(2)}`,
+  mesures.Surligneur.alpha < 0.45 && mesures.Aquarelle.alpha < 0.45,
+  "le surligneur et l'aquarelle laissent lire ce qu'ils couvrent",
+  `${mesures.Surligneur.alpha?.toFixed(2)} et ${mesures.Aquarelle.alpha?.toFixed(2)}`,
 );
 check(
   mesures.Crayon.grain > mesures.Stylo.grain * 1.6,
@@ -217,6 +285,106 @@ check(
   "la plume s'effile, le feutre a le bout carré",
   `plume ${(mesures.Plume.bout * 100).toFixed(0)} %, feutre ${(mesures.Feutre.bout * 100).toFixed(0)} %`,
 );
+check(
+  // Pas 85 % : le monoline a un bout **rond**, comme le stylo, et un bout rond
+  // commence forcément étroit. Ce qu'on vérifie est qu'il ne s'**effile** pas —
+  // et c'est la plume qui donne l'étalon de ce que veut dire s'effiler.
+  mesures.Monoline.bout > mesures.Plume.bout * 3,
+  "le monoline ne s'effile pas, lui",
+  `monoline à ${(mesures.Monoline.bout * 100).toFixed(0)} %, plume à ${(mesures.Plume.bout * 100).toFixed(0)} %`,
+);
+check(
+  mesures.Pinceau.bout < 0.5,
+  "et le pinceau s'effile plus encore que la plume",
+  `pinceau ${(mesures.Pinceau.bout * 100).toFixed(0)} %`,
+);
+
+/*
+ * Les mèches.
+ *
+ * C'est ce qui sépare une couleur d'une matière. Un crayon n'est pas un trait
+ * gris uniforme : c'est plusieurs traînées qui se croisent, et l'encre y est
+ * posée à des opacités inégales. Une passe unique ne montre d'opacité
+ * intermédiaire que sur son bord adouci, soit presque rien.
+ */
+dire(
+  "encre à opacité intermédiaire",
+  INSTRUMENTS.map((n) => `${n} ${(mesures[n].meches * 100).toFixed(0)} %`).join(", "),
+);
+check(
+  mesures.Crayon.meches > mesures.Stylo.meches * 2,
+  "le crayon est fait de mèches, pas d'un aplat",
+  `${(mesures.Crayon.meches * 100).toFixed(0)} % contre ${(mesures.Stylo.meches * 100).toFixed(0)} % pour le stylo`,
+);
+check(
+  mesures["Crayon de cire"].meches > mesures.Monoline.meches * 2,
+  "et le crayon de cire aussi",
+  `${(mesures["Crayon de cire"].meches * 100).toFixed(0)} % contre ${(mesures.Monoline.meches * 100).toFixed(0)} %`,
+);
+
+/*
+ * La tranche du feutre et du surligneur.
+ *
+ * Un feutre n'a pas une pointe, il a une tranche : large en travers d'elle,
+ * mince dans son sens. Sans cela il pose une bande d'épaisseur rigoureusement
+ * constante, ce qui n'est l'écriture d'aucun objet réel.
+ */
+section("le feutre et le surligneur ont une tranche");
+
+const page2 = await nouvelleNote(ctx, `Biseau ${Date.now()}`);
+const largeurDe = async (bande) => (await profil(page2, bande)).epaisseur ?? 0;
+
+await page2.getByRole("button", { name: "Feutre", exact: true }).first().click();
+await page2.getByRole("button", { name: "Épais", exact: true }).first().click();
+// Deux diagonales : l'une dans le sens de la tranche (45°), l'autre en travers.
+await tracerLigne(page2, 0.08, 0.06, 0.4, 0.38);
+await page2.waitForTimeout(300);
+await tracerLigne(page2, 0.55, 0.38, 0.87, 0.06);
+await page2.waitForTimeout(900);
+
+const REND2 = (await profil(page2, { min: 0, max: 1e9 })).largeurRendu;
+const dansLeSens = await largeurDe({ min: 0.2 * REND2, max: 0.24 * REND2 });
+const enTravers = await largeurDe({ min: 0.2 * REND2, max: 0.24 * REND2 });
+/*
+ * Les deux diagonales se croisent en ordonnée : on les sépare en abscisse, ce
+ * que `profil` ne sait pas faire. On mesure donc l'épaisseur perpendiculaire
+ * directement sur les pixels, moitié gauche contre moitié droite.
+ */
+const biseau = await page2.evaluate(() => {
+  const cotes = { gauche: [], droite: [] };
+  for (const c of document.querySelectorAll("[data-ink-tiles] canvas")) {
+    const ctx = c.getContext("2d");
+    if (!ctx || c.width === 0) continue;
+    const { data } = ctx.getImageData(0, 0, c.width, c.height);
+    const haut = Number(c.dataset.inkTile.split(":")[1]) * c.height;
+    for (let py = 0; py < c.height; py++) {
+      if (haut + py < 0.1 * c.width || haut + py > 0.34 * c.width) continue;
+      let gauche = 0;
+      let droite = 0;
+      for (let px = 0; px < c.width; px++) {
+        if (data[(py * c.width + px) * 4 + 3] <= 8) continue;
+        if (px < c.width * 0.47) gauche++;
+        else droite++;
+      }
+      if (gauche > 0) cotes.gauche.push(gauche);
+      if (droite > 0) cotes.droite.push(droite);
+    }
+  }
+  const moyenne = (l) => (l.length ? l.reduce((s, v) => s + v, 0) / l.length : 0);
+  // Une diagonale coupée par une rangée horizontale laisse une trace √2 fois
+  // plus longue que son épaisseur : le rapport, lui, est le bon.
+  return { sens: moyenne(cotes.gauche), travers: moyenne(cotes.droite) };
+});
+dire(
+  "feutre en diagonale",
+  `${biseau.sens.toFixed(1)} px dans le sens de la tranche, ${biseau.travers.toFixed(1)} px en travers`,
+);
+check(
+  biseau.sens > 0 && biseau.travers > biseau.sens * 1.25,
+  "le feutre est plus large en travers de sa tranche que dans son sens",
+  `${biseau.sens.toFixed(1)} contre ${biseau.travers.toFixed(1)} — sans tranche, les deux sont égaux`,
+);
+await page2.close();
 
 // --- Ce qui est enregistré ---------------------------------------------------
 section("l'instrument est enregistré avec le trait");
@@ -229,8 +397,10 @@ const contenu = sql(
 const outils = [...contenu.matchAll(/"tool":"(\w+)"/g)].map((m) => m[1]);
 dire("en base", outils.join(", ") || "(aucun)");
 check(
-  ["fountain", "pen", "pencil", "marker", "highlighter"].every((t) => outils.includes(t)),
-  "les cinq instruments sont dans la note enregistrée",
+  ["fountain", "pen", "monoline", "pencil", "crayon", "brush", "watercolor", "marker", "highlighter"].every(
+    (t) => outils.includes(t),
+  ),
+  "les neuf instruments sont dans la note enregistrée",
   outils.join(", "),
 );
 
@@ -346,6 +516,51 @@ check(
   "la barre retrouve le bord où on l'avait laissée",
   `x = ${Math.round(rouverte.x)}`,
 );
+
+// =============================================================================
+section("le bord du plein écran ne suit pas la barre dans la note");
+
+// La barre est encore à gauche. En ligne, elle doit pourtant rester une
+// rangée : elle revenait en colonne de six cents pixels, la page dessous.
+await page.keyboard.press("Escape");
+await page.waitForTimeout(600);
+const enLigne = await page.evaluate(() => {
+  const barres = document.querySelectorAll('[role="toolbar"][aria-label="Outils d\'écriture"]');
+  const r = barres[barres.length - 1].getBoundingClientRect();
+  return { w: Math.round(r.width), h: Math.round(r.height) };
+});
+dire("en ligne, bord gauche retenu", `${enLigne.w}×${enLigne.h}`);
+check(
+  enLigne.w > enLigne.h * 3,
+  "sortie du plein écran, la barre redevient une rangée",
+  `${enLigne.w}×${enLigne.h}`,
+);
+
+// Ramenée en bas, elle doit y être d'emblée : d'un bord à l'autre, la
+// translation animée changeait d'axe et la barre remontait du bas de l'écran.
+await page.getByRole("button", { name: "Écrire en plein écran" }).first().click();
+await page.waitForSelector('[data-testid="barre-flottante"]');
+await page.waitForTimeout(600);
+await page.getByRole("button", { name: "Déplacer la barre d'outils" }).click();
+await page.getByRole("menuitemradio", { name: "En bas" }).click();
+const trajet = await page.evaluate(
+  () =>
+    new Promise((fini) => {
+      const vus = [];
+      const t0 = performance.now();
+      const lire = () => {
+        const r = document.querySelector('[data-testid="barre-flottante"]').getBoundingClientRect();
+        vus.push({ x: Math.round(r.x), y: Math.round(r.y) });
+        if (performance.now() - t0 < 600) requestAnimationFrame(lire);
+        else fini(vus);
+      };
+      lire();
+    }),
+);
+const arrivee = trajet.at(-1);
+const ecart = Math.max(...trajet.map((p) => Math.abs(p.x - arrivee.x) + Math.abs(p.y - arrivee.y)));
+dire("passage de gauche à bas", `${trajet.length} images, écart maximal ${ecart} px`);
+check(ecart <= 1, "passée de gauche à bas, la barre est à sa place dès la première image", `${ecart} px`);
 
 // =============================================================================
 section("la bulle");

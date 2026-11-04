@@ -235,7 +235,7 @@ export function InkPalette(props: PaletteProps) {
            * `overflow-hidden` fait la fente : les instruments sont décalés vers
            * le bas et le bord les coupe, ce qui les fait paraître enfoncés.
            */
-          className="flex flex-wrap items-end justify-center gap-0.5 overflow-hidden rounded-2xl bg-surface-container-high px-1 pt-1.5"
+          className="verre-creux flex flex-wrap items-end justify-center gap-0.5 overflow-hidden rounded-2xl px-1 pt-1.5"
 
         >
           {INSTRUMENT_ORDER.map((name) => (

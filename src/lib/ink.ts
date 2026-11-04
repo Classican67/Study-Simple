@@ -214,6 +214,25 @@ export function snapStrokeToRuler(flat: number[], ruler: Ruler, width = 1): numb
   return sortie;
 }
 
+/**
+ * Accroche l'angle d'une règle aux multiples de quinze degrés.
+ *
+ * Une règle sert à tracer **droit**, et « droit » veut presque toujours dire
+ * horizontal, vertical, ou à quarante-cinq degrés. Sans accroche, obtenir un
+ * zéro franc au doigt demande une patience que personne n'a : on s'arrête à un
+ * degré et demi, et le trait penche pour toujours.
+ *
+ * La tolérance est de trois degrés — assez pour attraper l'intention, assez
+ * peu pour qu'un angle choisi exprès, disons vingt, reste atteignable.
+ */
+export const RULER_SNAP_DEG = 3;
+
+export function snapRulerAngle(angle: number): number {
+  const pas = Math.PI / 12;
+  const proche = Math.round(angle / pas) * pas;
+  return Math.abs(angle - proche) <= (RULER_SNAP_DEG * Math.PI) / 180 ? proche : angle;
+}
+
 /** Angle en degrés, pour l'afficher. Toujours ramené entre -90 et 90. */
 export function rulerDegrees(ruler: Ruler): number {
   let deg = (ruler.angle * 180) / Math.PI;
@@ -350,7 +369,17 @@ function segmentInCircle(
  * liste des instruments, et elle appartient aux instruments. La dépendance ne
  * va que dans un sens — `notes.ts` lit `ink.ts`, jamais l'inverse.
  */
-export const TOOLS = ["pen", "fountain", "pencil", "marker", "highlighter"] as const;
+export const TOOLS = [
+  "pen",
+  "fountain",
+  "monoline",
+  "pencil",
+  "crayon",
+  "brush",
+  "watercolor",
+  "marker",
+  "highlighter",
+] as const;
 export type Tool = (typeof TOOLS)[number];
 
 export type Instrument = {
@@ -388,21 +417,54 @@ export type Instrument = {
   /**
    * Grain du contour, en multiples de l'épaisseur.
    *
-   * C'est ce qui donne au crayon sa mine. Le grain est **géométrique** — le
+   * C'est ce qui écaille le bord d'une mine. Le grain est **géométrique** — le
    * contour lui-même est perturbé — et non une texture peinte : une texture
    * n'existerait pas à l'export, et l'on retrouverait un crayon parfaitement
    * lisse dans le PDF d'une page qui ne l'était pas à l'écran.
+   *
+   * Il est petit, et c'est voulu. À 0,34 il faisait des **bosses** : le bord
+   * enflait et se pinçait tous les sept points, et le trait ressemblait à une
+   * chenille. Un grain se voit, il ne se remarque pas.
    */
   grain: number;
+  /**
+   * Nombre de **mèches** : combien de passes composent le trait.
+   *
+   * C'est ce qui sépare une couleur d'une matière. Un crayon n'est pas un
+   * trait gris : c'est une dizaine de traînées de graphite qui se croisent,
+   * denses au milieu, clairsemées au bord, et qui laissent voir le papier
+   * entre elles. On le rend en posant plusieurs passes plus fines, décalées et
+   * plus pâles — leurs recouvrements font la densité, leurs bords font la
+   * matière. Une passe suffit à tout le reste.
+   */
+  meches: number;
+  /**
+   * Biseau : de 0 (pointe ronde) à 1 (large plume de calligraphe).
+   *
+   * Un feutre et un surligneur n'ont pas une pointe, ils ont une **tranche** :
+   * le trait est large quand on va en travers d'elle, mince quand on va dans
+   * son sens. Sans cela, un feutre pose une bande d'épaisseur rigoureusement
+   * constante, ce qui n'est l'écriture d'aucun objet réel.
+   */
+  biseau: number;
+  /** Orientation de cette tranche, en radians. */
+  biseauAngle: number;
   /** Les trois épaisseurs proposées par la barre d'outils. */
   tailles: readonly [number, number, number];
 };
 
 export const INSTRUMENTS: Record<Tool, Instrument> = {
-  /** Le stylo à bille : opaque, régulier, la pression pour seul relief. */
+  /**
+   * Le stylo à bille : opaque, régulier, la pression pour seul relief.
+   *
+   * Régulier pour de bon : à 0,62, le stylo faisait passer près des deux
+   * tiers de la pression dans la largeur, et le bruit du capteur du Pencil —
+   * échantillonné à deux cent quarante hertz — se lisait sur le bord du trait,
+   * qui sortait granuleux. Une bille ne change presque pas de largeur.
+   */
   pen: {
     label: "Stylo",
-    thinning: 0.62,
+    thinning: 0.3,
     smoothing: 0.62,
     streamline: 0.3,
     taper: 0,
@@ -411,6 +473,9 @@ export const INSTRUMENTS: Record<Tool, Instrument> = {
     alpha: 1,
     dessous: false,
     grain: 0,
+    meches: 1,
+    biseau: 0,
+    biseauAngle: (0 * Math.PI) / 180,
     tailles: [1.2, 2.5, 5],
   },
   /**
@@ -430,7 +495,33 @@ export const INSTRUMENTS: Record<Tool, Instrument> = {
     alpha: 1,
     dessous: false,
     grain: 0,
+    meches: 1,
+    biseau: 0,
+    biseauAngle: (0 * Math.PI) / 180,
     tailles: [1.4, 3, 6],
+  },
+  /**
+   * Le monoline : la largeur ne bouge **pas**, quoi qu'on fasse.
+   *
+   * C'est le stylo technique — schémas, flèches, encadrés. Sa raison d'être
+   * est de ne pas répondre à la pression : un trait de construction dont
+   * l'épaisseur varie n'a pas l'air d'un trait de construction.
+   */
+  monoline: {
+    label: "Monoline",
+    thinning: 0,
+    smoothing: 0.55,
+    streamline: 0.3,
+    taper: 0,
+    cap: true,
+    facteur: 1.1,
+    alpha: 1,
+    dessous: false,
+    grain: 0,
+    meches: 1,
+    biseau: 0,
+    biseauAngle: (0 * Math.PI) / 180,
+    tailles: [1, 2, 3.5],
   },
   /** Le crayon : mat, légèrement transparent, et le grain de la mine. */
   pencil: {
@@ -443,8 +534,79 @@ export const INSTRUMENTS: Record<Tool, Instrument> = {
     facteur: 1.05,
     alpha: 0.78,
     dessous: false,
-    grain: 0.34,
+    grain: 0.13,
+    meches: 3,
+    biseau: 0,
+    biseauAngle: (0 * Math.PI) / 180,
     tailles: [1.2, 2.4, 4.5],
+  },
+  /**
+   * Le crayon de cire : gras, épais, et un grain bien plus gros que la mine.
+   *
+   * Deux fois l'épaisseur d'un crayon à papier et un grain deux fois plus
+   * marqué : c'est ce qui les distingue à l'œil, et c'est aussi ce qui les
+   * distingue sur le papier.
+   */
+  crayon: {
+    label: "Crayon de cire",
+    thinning: 0.22,
+    smoothing: 0.45,
+    streamline: 0.32,
+    taper: 0,
+    cap: true,
+    facteur: 2,
+    alpha: 0.9,
+    dessous: false,
+    grain: 0.17,
+    meches: 4,
+    biseau: 0,
+    biseauAngle: (0 * Math.PI) / 180,
+    tailles: [1.6, 3, 5.5],
+  },
+  /**
+   * Le pinceau : tout est dans la pression, et les deux bouts s'effilent.
+   *
+   * L'effilement est le plus long de la trousse — dix fois l'épaisseur — parce
+   * qu'un poil de pinceau quitte le papier progressivement, jamais d'un coup.
+   */
+  brush: {
+    label: "Pinceau",
+    thinning: 0.95,
+    smoothing: 0.68,
+    streamline: 0.32,
+    taper: 10,
+    cap: true,
+    facteur: 1.9,
+    alpha: 1,
+    dessous: false,
+    grain: 0,
+    meches: 1,
+    biseau: 0,
+    biseauAngle: (0 * Math.PI) / 180,
+    tailles: [1.6, 3.5, 7],
+  },
+  /**
+   * L'aquarelle : large, très diluée, et le bord irrégulier d'un lavis.
+   *
+   * Elle se superpose à elle-même — deux passages font une teinte plus
+   * soutenue — ce qui vient tout seul de son opacité faible : c'est ainsi que
+   * se comporte de la couleur diluée.
+   */
+  watercolor: {
+    label: "Aquarelle",
+    thinning: 0.5,
+    smoothing: 0.72,
+    streamline: 0.36,
+    taper: 4,
+    cap: true,
+    facteur: 3.2,
+    alpha: 0.3,
+    dessous: false,
+    grain: 0.1,
+    meches: 2,
+    biseau: 0,
+    biseauAngle: (0 * Math.PI) / 180,
+    tailles: [2, 4, 7],
   },
   /** Le feutre : largeur constante, bout carré, couleur franche. */
   marker: {
@@ -454,10 +616,15 @@ export const INSTRUMENTS: Record<Tool, Instrument> = {
     streamline: 0.3,
     taper: 0,
     cap: false,
-    facteur: 2.2,
-    alpha: 0.95,
+    // Relevé de 2,2 : le biseau retire jusqu'à 45 % de la largeur selon la
+    // direction du geste, et un feutre doit rester un feutre dans tous les sens.
+    facteur: 2.8,
+    alpha: 0.88,
     dessous: false,
     grain: 0,
+    meches: 1,
+    biseau: 0.45,
+    biseauAngle: (45 * Math.PI) / 180,
     tailles: [1.6, 3, 5],
   },
   /**
@@ -475,6 +642,9 @@ export const INSTRUMENTS: Record<Tool, Instrument> = {
     alpha: 0.32,
     dessous: true,
     grain: 0,
+    meches: 1,
+    biseau: 0.4,
+    biseauAngle: (90 * Math.PI) / 180,
     tailles: [2, 4, 6],
   },
 };
@@ -512,11 +682,27 @@ export function inkSeed(flat: number[]): number {
 }
 
 /**
+ * Bruit haché, sans période, entre −1 et 1.
+ *
+ * Deux sinusoïdes superposées avaient l'air d'une bonne idée : c'est du bruit,
+ * et c'est déterministe. Mais deux sinusoïdes ont une période, et la période
+ * se **voit** — le bord du crayon enflait et se pinçait tous les sept points,
+ * régulièrement, et le trait ressemblait à une chenille. Un hachage n'a pas de
+ * période, et reste aussi déterministe.
+ */
+export function bruitHache(i: number, graine: number): number {
+  let h = (Math.imul(i, 374761393) + Math.imul(graine, 668265263)) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 2147483647.5 - 1;
+}
+
+/**
  * Perturbe un contour le long de sa normale : le grain de la mine.
  *
- * Deux fréquences superposées — une lente, qui fait onduler le bord, et une
- * rapide, qui l'écaille. Une seule donnerait soit une vague, soit un bruit
- * régulier, et ni l'une ni l'autre ne ressemble à du graphite.
+ * Le bruit est lissé sur trois points voisins. Brut, il donne une scie
+ * parfaitement régulière d'un point sur deux — ce qui est un autre motif, pas
+ * un grain. Lissé, il donne des irrégularités de longueurs inégales, qui est
+ * ce qu'on voit sur du papier.
  *
  * Tout est déterministe : même trait, même graine, même contour. C'est ce qui
  * permet au PDF de montrer exactement ce que l'écran montrait, et au trait de
@@ -524,10 +710,12 @@ export function inkSeed(flat: number[]): number {
  */
 export function roughenOutline(outline: number[][], amplitude: number, graine: number): number[][] {
   if (amplitude <= 0 || outline.length < 3) return outline;
+  const n = outline.length;
+  const brut = Array.from({ length: n }, (_, i) => bruitHache(i, graine));
   const sortie: number[][] = [];
-  for (let i = 0; i < outline.length; i++) {
+  for (let i = 0; i < n; i++) {
     const [x, y] = outline[i];
-    const [px, py] = outline[i === 0 ? outline.length - 1 : i - 1];
+    const [px, py] = outline[i === 0 ? n - 1 : i - 1];
     const dx = x - px;
     const dy = y - py;
     const l = Math.hypot(dx, dy) || 1;
@@ -535,10 +723,66 @@ export function roughenOutline(outline: number[][], amplitude: number, graine: n
     // dans le sens du trait — l'allonger ou le raccourcir se verrait.
     const nx = -dy / l;
     const ny = dx / l;
-    const bruit = Math.sin(i * 0.9 + graine * 0.0011) * 0.6 + Math.sin(i * 2.7 + graine * 0.0007) * 0.4;
-    sortie.push([x + nx * bruit * amplitude, y + ny * bruit * amplitude, outline[i][2] ?? 0.5]);
+    const b =
+      (brut[(i - 1 + n) % n] + 2 * brut[i] + brut[(i + 1) % n]) / 4;
+    sortie.push([x + nx * b * amplitude, y + ny * b * amplitude, outline[i][2] ?? 0.5]);
   }
   return sortie;
+}
+
+/**
+ * Opacité d'**une** passe, pour que les mèches réunies fassent l'opacité voulue.
+ *
+ * Quatre passes à 0,9 donnent un noir d'encre de Chine : ce qui manque n'est
+ * pas la couleur mais la transparence de chacune. On la retourne — recouvrir
+ * `n` fois à `a` donne `1 − (1 − a)ⁿ`, donc chaque passe prend
+ * `1 − (1 − voulu)^(1/n)`. Là où toutes se recouvrent on retrouve exactement
+ * l'opacité de l'instrument ; là où deux seulement se croisent, moins. C'est
+ * cette inégalité qui fait la matière.
+ */
+export function alphaParPasse(alpha: number, meches: number): number {
+  return meches <= 1 ? alpha : 1 - Math.pow(1 - alpha, 1 / meches);
+}
+
+/**
+ * Le facteur de largeur d'une **tranche**, point par point.
+ *
+ * Un feutre biseauté pose une bande large de `w·|sin(θ − φ)|` : plein format
+ * quand on va en travers de la tranche, presque rien quand on va dans son
+ * sens. C'est ce qui fait qu'un surligneur passé à l'horizontale couvre une
+ * ligne entière et qu'un trait vertical du même feutre est mince.
+ *
+ * Le facteur est **lissé** sur les points voisins : sans cela, un changement
+ * de direction brusque ferait sauter la largeur d'un point au suivant, ce qui
+ * se voit comme une marche et non comme une plume.
+ */
+export function biseauFacteurs(
+  points: number[][],
+  biseau: number,
+  angle: number,
+): number[] {
+  const n = points.length;
+  const brut = points.map((_, i) => {
+    const a = points[Math.max(0, i - 1)];
+    const b = points[Math.min(n - 1, i + 1)];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    if (dx === 0 && dy === 0) return 1;
+    const theta = Math.atan2(dy, dx);
+    return 1 - biseau + biseau * Math.abs(Math.sin(theta - angle));
+  });
+  return brut.map((_, i) => {
+    let somme = 0;
+    let poids = 0;
+    for (let k = -2; k <= 2; k++) {
+      const j = i + k;
+      if (j < 0 || j >= n) continue;
+      const w = 3 - Math.abs(k);
+      somme += brut[j] * w;
+      poids += w;
+    }
+    return somme / poids;
+  });
 }
 
 /**
@@ -574,6 +818,34 @@ export function roughenOutline(outline: number[][], amplitude: number, graine: n
  * est donc tirée des données elles-mêmes — c'est ce qui permet à l'écran et à
  * l'export d'en décider pareil, sans champ supplémentaire à enregistrer.
  */
+/**
+ * Courbe de réponse à la pression d'un stylet.
+ *
+ * Une pression mesurée va de 0 à 1, mais la main ne parcourt pas cette plage :
+ * l'Apple Pencil, dans Safari, rend environ 0,3 pour une écriture ordinaire —
+ * la force le long de la mine, divisée par la plus grande qu'il sache mesurer.
+ * Prise telle quelle, une écriture normale tombait donc au **tiers bas** de la
+ * plage : le trait sortait plus fin que l'épaisseur choisie, et la moindre
+ * variation du capteur se lisait sur sa largeur.
+ *
+ * C'est ce que règlent les courbes de pression de Procreate ou de GoodNotes.
+ * Celle-ci envoie l'écriture ordinaire **au milieu** — là où l'épaisseur
+ * obtenue est celle qu'on a demandée —, garde le relief d'un appui léger ou
+ * appuyé, et sature au-delà de `PRESSION_PLEINE` : appuyer de toutes ses
+ * forces n'a jamais été une façon d'écrire.
+ *
+ * Appliquée au **rendu**, jamais à la capture : le trait enregistré garde la
+ * pression mesurée, et l'écran comme le PDF passent par la même courbe.
+ */
+export const PRESSION_ORDINAIRE = 0.3;
+export const PRESSION_PLEINE = 0.75;
+
+export function pressionPercue(p: number): number {
+  if (!(p > 0)) return 0;
+  if (p <= PRESSION_ORDINAIRE) return 0.5 * Math.sqrt(p / PRESSION_ORDINAIRE);
+  return Math.min(1, 0.5 + (0.5 * (p - PRESSION_ORDINAIRE)) / (PRESSION_PLEINE - PRESSION_ORDINAIRE));
+}
+
 export function hasRealPressure(flat: number[]): boolean {
   if (flat.length < 12) return false;
   const premiere = flat[2];

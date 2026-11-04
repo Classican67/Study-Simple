@@ -15,8 +15,10 @@ import {
   translateStroke,
   unionBounds,
   rulerDegrees,
+  snapRulerAngle,
   snapStrokeToRuler,
   snapToRuler,
+  RULER_SNAP_DEG,
 } from "@/lib/ink";
 
 /** Trait droit horizontal, de x1 à x2 à hauteur y. */
@@ -317,7 +319,7 @@ describe("le contour du trait", () => {
         !/\bgetStroke\s*\(/.test(code),
         `${fichier} appelle getStroke : le calcul doit passer par inkOutline`,
       );
-      assert.ok(/inkOutline\(/.test(code), `${fichier} doit passer par inkOutline`);
+      assert.ok(/inkOutlines\(/.test(code), `${fichier} doit passer par inkOutlines`);
     }
     assert.ok(/getStroke\(/.test(lire("src/lib/ink-stroke.ts")));
   });
@@ -330,7 +332,7 @@ describe("le contour du trait", () => {
         `${fichier} redéclare les réglages au lieu de les lire dans INSTRUMENTS`,
       );
     }
-    assert.ok(/thinning:\s*0\.62/.test(lire("src/lib/ink.ts")));
+    assert.ok(/thinning:\s*0\.3,/.test(lire("src/lib/ink.ts")));
   });
 
   it("et l'épaisseur se rapporte partout à la même page de référence", () => {
@@ -350,6 +352,46 @@ describe("le contour du trait", () => {
  * partout donnerait à la souris et au doigt un trait d'une régularité de
  * machine : la règle se tire donc des données.
  */
+/**
+ * L'accroche de la règle.
+ *
+ * Une règle sert à tracer droit, et « droit » veut presque toujours dire zéro,
+ * quarante-cinq ou quatre-vingt-dix. Obtenir un zéro franc au doigt sans
+ * accroche demande une patience que personne n'a.
+ */
+describe("snapRulerAngle", () => {
+  const deg = (d: number) => (d * Math.PI) / 180;
+  // `|| 0` : `Math.round(-0.03)` rend **moins zéro**, et la comparaison stricte
+  // distingue −0 de 0. Ce n'est pas un angle différent, c'est le même.
+  const enDeg = (r: number) => Math.round((r * 180) / Math.PI) || 0;
+
+  it("attrape les angles francs quand on en est près", () => {
+    for (const [donne, attendu] of [
+      [1.5, 0],
+      [-2, 0],
+      [44, 45],
+      [46.5, 45],
+      [91, 90],
+      [-134, -135],
+    ]) {
+      assert.equal(enDeg(snapRulerAngle(deg(donne))), attendu, `${donne}° devrait donner ${attendu}°`);
+    }
+  });
+
+  it("mais laisse choisir un angle quelconque", () => {
+    // Trois degrés de tolérance : assez pour attraper l'intention, assez peu
+    // pour qu'un angle voulu reste atteignable.
+    for (const donne of [20, 33, 52, -8]) {
+      assert.equal(enDeg(snapRulerAngle(deg(donne))), donne, `${donne}° ne devrait pas bouger`);
+    }
+  });
+
+  it("et la tolérance est celle qui est déclarée", () => {
+    assert.equal(enDeg(snapRulerAngle(deg(RULER_SNAP_DEG))), 0);
+    assert.notEqual(enDeg(snapRulerAngle(deg(RULER_SNAP_DEG + 2))), 0);
+  });
+});
+
 describe("hasRealPressure", () => {
   /** Un trait plat, avec la pression donnée à chaque point. */
   const trait = (pressions: number[]): number[] =>
@@ -381,7 +423,9 @@ describe("les deux rendus décident de la pression de la même façon", () => {
     // La règle se tire des données, et elle se tire **une fois** : c'est
     // `inkOutline` qui la lit, pour l'écran comme pour le papier.
     const code = readFileSync(path.join(process.cwd(), "src/lib/ink-stroke.ts"), "utf8");
-    assert.ok(/simulatePressure:\s*!hasRealPressure/.test(code));
+    assert.ok(/hasRealPressure\(flat\)/.test(code));
+    // Mesurée, la pression passe par la courbe de réponse — là aussi une fois.
+    assert.ok(/pressionPercue\(/.test(code));
     for (const fichier of ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"]) {
       const rendu = readFileSync(path.join(process.cwd(), fichier), "utf8");
       assert.ok(
@@ -389,5 +433,45 @@ describe("les deux rendus décident de la pression de la même façon", () => {
         `${fichier} ne doit plus en décider lui-même`,
       );
     }
+  });
+});
+
+describe("courbe de réponse à la pression", () => {
+  it("met l'écriture ordinaire au milieu, et reste croissante et bornée", async () => {
+    const { pressionPercue, PRESSION_ORDINAIRE } = await import("../src/lib/ink");
+    assert.equal(pressionPercue(PRESSION_ORDINAIRE), 0.5);
+    assert.equal(pressionPercue(0), 0);
+    assert.equal(pressionPercue(1), 1);
+    let avant = -1;
+    for (let p = 0; p <= 1.0001; p += 0.01) {
+      const v = pressionPercue(p);
+      assert.ok(v >= avant && v >= 0 && v <= 1, `p = ${p.toFixed(2)} → ${v}`);
+      avant = v;
+    }
+  });
+
+  it("rend un trait de stylo plus régulier sous un capteur bruité", async () => {
+    const { inkOutlines } = await import("../src/lib/ink-stroke");
+    // Un trait droit à pression d'écriture ordinaire, avec le bruit d'un capteur.
+    const points: number[] = [];
+    for (let i = 0; i < 200; i++) {
+      const bruit = Math.sin(i * 2.3) * 0.04 + Math.sin(i * 5.1) * 0.02;
+      points.push(0.1 + i * 0.003, 0.3, Number((0.3 + bruit).toFixed(2)));
+    }
+    // Dans le repère de la page de mille, comme le fait le canevas.
+    const reperes: number[][] = [];
+    for (let i = 0; i < points.length; i += 3) reperes.push([points[i] * 1000, points[i + 1] * 1000, points[i + 2]]);
+    const [contour] = inkOutlines(reperes, points, "pen", 2.5, 1);
+    // Largeur du contour, colonne par colonne, au milieu du trait.
+    const largeurs: number[] = [];
+    for (let x = 200; x < 650; x += 5) {
+      const ys = contour.filter(([cx]) => Math.abs(cx - x) < 2.5).map(([, y]) => y);
+      if (ys.length >= 2) largeurs.push(Math.max(...ys) - Math.min(...ys));
+    }
+    const moyenne = largeurs.reduce((a, b) => a + b, 0) / largeurs.length;
+    const ecart = Math.sqrt(largeurs.reduce((a, b) => a + (b - moyenne) ** 2, 0) / largeurs.length);
+    const variation = (ecart / moyenne) * 100;
+    assert.ok(moyenne > 2.5 * 0.85 && moyenne < 2.5 * 1.2, `épaisseur ${moyenne.toFixed(2)} pour 2,5 demandés`);
+    assert.ok(variation < 4, `${variation.toFixed(1)} % de variation de largeur`);
   });
 });

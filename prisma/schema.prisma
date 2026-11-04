@@ -26,12 +26,14 @@ model User {
   role         String   @default("user") // "user" | "admin"
   createdAt    DateTime @default(now())
 
-  decks    Deck[]
-  folders  Folder[]
-  progress CardProgress[]
-  sessions StudySession[]
-  notes    Note[]
-  answers  ReviewAnswer[]
+  decks      Deck[]
+  folders    Folder[]
+  progress   CardProgress[]
+  sessions   StudySession[]
+  notes      Note[]
+  answers    ReviewAnswer[]
+  drive      DriveLink?
+  driveItems DriveItem[]
 }
 
 // Arborescence de classement. `parentId` nul = dossier à la racine.
@@ -54,7 +56,7 @@ model Folder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner    User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   // Supprimer un dossier emporte ses sous-dossiers, mais pas les paquets
   // qu'il contient : ceux-ci remontent à la racine (voir Deck.folder).
   parent   Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
@@ -129,8 +131,8 @@ model Card {
   // Effacer ce fichier n'est donc permis que lorsque plus aucune carte ne le
   // référence — voir `deleteUnreferencedUploads`.
   sourceCardId String?
-  sourceCard   Card?  @relation("CardCopy", fields: [sourceCardId], references: [id], onDelete: SetNull)
-  copies       Card[] @relation("CardCopy")
+  sourceCard   Card?   @relation("CardCopy", fields: [sourceCardId], references: [id], onDelete: SetNull)
+  copies       Card[]  @relation("CardCopy")
 
   deck     Deck           @relation(fields: [deckId], references: [id], onDelete: Cascade)
   progress CardProgress[]
@@ -244,16 +246,16 @@ model StudySession {
 // cartes ensuite. Les notes ne sont pas rangées dans les dossiers de paquets —
 // elles ont leur propre espace, pour ne pas mêler deux arborescences.
 model Note {
-  id        String   @id @default(cuid())
-  ownerId   String
+  id         String   @id @default(cuid())
+  ownerId    String
   // Les notes se rangent dans la MÊME arborescence que les paquets : un cours
   // a ses cartes et ses notes, deux arbres séparés obligeraient à ranger deux
   // fois. `SetNull` : supprimer un dossier ne doit jamais effacer des notes.
-  folderId  String?
-  title     String   @default("")
+  folderId   String?
+  title      String   @default("")
   // Copie normalisée du titre et du texte des blocs, pour la recherche. Même
   // mécanique que `Card.searchText` : SQLite ne sait pas retirer les accents.
-  searchText String  @default("")
+  searchText String   @default("")
   // Aperçu de la première page, en JSON compact et borné : soit la page d'un
   // document importé, soit quelques traits échantillonnés.
   //
@@ -261,12 +263,12 @@ model Note {
   // a déjà en main — jamais relu pour l'occasion. Une page dense pèse des
   // centaines de kilooctets : la recharger pour afficher une vignette
   // rendrait la liste des notes plus lourde que les notes elles-mêmes.
-  preview   String   @default("")
+  preview    String   @default("")
   // « Je maîtrise cette note » : l'appréciation de la personne, jamais un
   // calcul. Rien ne la pose ni ne la retire à sa place.
-  mastered  Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  mastered   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   owner  User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   folder Folder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
@@ -295,4 +297,58 @@ model NoteBlock {
   note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
 
   @@index([noteId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Sauvegarde Google Drive
+// ---------------------------------------------------------------------------
+
+// Le lien d'un compte avec son Google Drive. Un par compte : c'est le Drive de
+// la personne, pas celui de l'installation.
+//
+// Le jeton de rafraîchissement est **chiffré** (AES-256-GCM, clé tirée de
+// SESSION_SECRET) : une copie de la base qui fuit ne doit pas ouvrir le Drive
+// de quelqu'un. Le jeton d'accès, lui, ne vit qu'en mémoire — il expire en
+// une heure.
+model DriveLink {
+  userId       String    @id
+  refreshToken String
+  // Adresse du compte Google, pour dire **lequel** est relié.
+  email        String    @default("")
+  // Dernière synchronisation achevée, et ce qu'elle a donné.
+  lastSyncAt   DateTime?
+  // "ok" | "error" | "reconnect" — ce dernier quand Google a retiré l'accès.
+  lastStatus   String    @default("")
+  lastError    String    @default("")
+  // Ce que la dernière passe a envoyé, pour le dire sans le recompter.
+  lastSent     Int       @default(0)
+  // Empreinte de l'état du compte à la dernière passe réussie : quand rien n'a
+  // bougé, la passe horaire s'arrête là, sans rien relire ni rien envoyer.
+  signature    String    @default("")
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Ce que l'app a déposé dans le Drive, et à partir de quoi.
+//
+// La sauvegarde est un **miroir** et non une suite d'instantanés : chaque note
+// a son fichier, mis à jour sur place quand elle change — Drive garde de
+// lui-même l'historique des versions. Cette table dit, pour chaque chose de
+// l'app (`key` : « note:<id>:pdf », « folder:<id> », « file:<nom> »…), quel
+// fichier Drive la reflète, dans quelle version, sous quel nom et où.
+model DriveItem {
+  id      String @id @default(cuid())
+  userId  String
+  key     String
+  driveId String
+  // Version du contenu envoyé : date de modification, ou empreinte.
+  version String
+  name    String
+  // Clé du dossier parent, côté app (« root », « folder:<id> »…).
+  parent  String @default("")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, key])
 }

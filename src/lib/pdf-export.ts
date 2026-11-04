@@ -1,6 +1,6 @@
 
-import { INK_REF, instrumentOf, strokeWeight } from "@/lib/ink";
-import { inkOutline } from "@/lib/ink-stroke";
+import { alphaParPasse, INK_REF, instrumentOf, strokeWeight } from "@/lib/ink";
+import { inkOutlines } from "@/lib/ink-stroke";
 import { hexToRgb01 } from "@/lib/ink-color";
 import { PAPER_COLORS, PAPER_STEPS, type Paper, type Stroke } from "@/lib/notes";
 
@@ -37,7 +37,7 @@ export function toPdfPoint(
  * calcul est le même qu'au rendu — même bibliothèque, mêmes réglages — donc
  * l'écran et le papier ne peuvent pas diverger.
  */
-export function strokeOutline(stroke: Stroke, page: PageSize): number[][] {
+export function strokeOutlines(stroke: Stroke, page: PageSize): number[][][] {
   const points: number[][] = [];
   for (let i = 0; i + 2 < stroke.points.length + 1; i += 3) {
     if (stroke.points[i] === undefined || stroke.points[i + 1] === undefined) break;
@@ -54,7 +54,23 @@ export function strokeOutline(stroke: Stroke, page: PageSize): number[][] {
    * repère du PDF et l'échelle qui y traduit une unité de la page de mille.
    * Tant que les deux rendus passent par elle, ils ne peuvent plus diverger.
    */
-  return inkOutline(points, stroke.points, stroke.tool, stroke.size, page.width / INK_REF);
+  return inkOutlines(points, stroke.points, stroke.tool, stroke.size, page.width / INK_REF);
+}
+
+/** Le contour principal : ce qu'il faut à qui ne veut qu'une enveloppe. */
+export function strokeOutline(stroke: Stroke, page: PageSize): number[][] {
+  return strokeOutlines(stroke, page)[0] ?? [];
+}
+
+/**
+ * Opacité d'**une** passe à l'export.
+ *
+ * Un crayon sort du PDF en trois passes, comme à l'écran, et chacune doit y
+ * être aussi transparente : c'est leur recouvrement qui fait la densité. Sans
+ * cela le crayon exporté serait trois fois plus noir que le crayon tracé.
+ */
+export function strokePassOpacity(stroke: Stroke, passes: number): number {
+  return alphaParPasse(strokeOpacity(stroke), passes);
 }
 
 /** Épaisseur du trait, en points PDF. */
@@ -62,13 +78,29 @@ export function strokeWidth(stroke: Stroke, page: PageSize): number {
   return strokeWeight(stroke, page.width / INK_REF);
 }
 
-export function strokeToSvgPath(stroke: Stroke, page: PageSize): string | null {
-  const outline = strokeOutline(stroke, page);
+/** Un contour, en commande SVG. */
+function contourEnSvg(outline: number[][]): string | null {
   if (outline.length < 3) return null;
-
   const [premier, ...reste] = outline;
   const segments = reste.map(([x, y]) => `L ${round(x)} ${round(y)}`).join(" ");
   return `M ${round(premier[0])} ${round(premier[1])} ${segments} Z`;
+}
+
+/**
+ * Les chemins d'un trait — **un par mèche**.
+ *
+ * Ils sont dessinés séparément, à l'opacité d'une passe : réunis en un seul
+ * chemin, leurs recouvrements ne compteraient qu'une fois et le crayon sortirait
+ * du PDF en aplat uni, quand l'écran montrait une matière.
+ */
+export function strokeToSvgPaths(stroke: Stroke, page: PageSize): string[] {
+  return strokeOutlines(stroke, page)
+    .map(contourEnSvg)
+    .filter((c): c is string => c !== null);
+}
+
+export function strokeToSvgPath(stroke: Stroke, page: PageSize): string | null {
+  return strokeToSvgPaths(stroke, page)[0] ?? null;
 }
 
 /**
@@ -156,13 +188,19 @@ function round(value: number): number {
  * les fichiers annotés « ne s'ouvrent nulle part ailleurs ».
  */
 export function strokeToPdfOperators(stroke: Stroke, page: PageSize): string | null {
-  const outline = strokeOutline(stroke, page);
-  if (outline.length < 3) return null;
+  const contours = strokeOutlines(stroke, page).filter((c) => c.length >= 3);
+  if (contours.length === 0) return null;
 
   const [r, g, b] = inkRgb(stroke.color);
-  const lignes = [`${r} ${g} ${b} rg`, `${round(outline[0][0])} ${round(outline[0][1])} m`];
-  for (const [x, y] of outline.slice(1)) lignes.push(`${round(x)} ${round(y)} l`);
-  lignes.push("h", "f");
+  const lignes = [`${r} ${g} ${b} rg`];
+  // Un remplissage par mèche, et non un seul chemin à plusieurs sous-chemins :
+  // un seul remplissage ne peint chaque pixel qu'une fois, et la densité du
+  // crayon — qui vient du recouvrement — disparaîtrait.
+  for (const outline of contours) {
+    lignes.push(`${round(outline[0][0])} ${round(outline[0][1])} m`);
+    for (const [x, y] of outline.slice(1)) lignes.push(`${round(x)} ${round(y)} l`);
+    lignes.push("h", "f");
+  }
   return lignes.join("\n");
 }
 

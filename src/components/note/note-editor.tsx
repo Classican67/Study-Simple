@@ -33,7 +33,7 @@ import {
   type TableContent,
   type TextContent,
 } from "@/lib/notes";
-import { analyserDessin, souvenirDessin } from "@/lib/drawing-cache";
+import { analyserDessin, serialiserDessin, souvenirDessin } from "@/lib/drawing-cache";
 import { cn } from "@/lib/utils";
 import {
   addBlock,
@@ -494,7 +494,7 @@ function BlockCard({
       onSave(next.texte);
       return;
     }
-    const raw = JSON.stringify(next.dessin);
+    const raw = serialiserDessin(next.dessin);
     // L'écho reviendra à l'identique : cf. `souvenirDessin`.
     souvenirDessin(raw, next.dessin);
     onLocalChange(raw);

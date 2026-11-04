@@ -371,6 +371,56 @@ journalctl -u fiches-backup.service         # journal des sauvegardes
 dossier `uploads/` du NAS (les images). Les deux ensemble suffisent à tout
 reconstruire.
 
+### Sauvegarde Google Drive
+
+Chaque compte peut relier **son** Google Drive (page « Sauvegarde »). L'app y
+tient à jour un dossier « Fiches », environ une fois par heure : chaque note en
+PDF avec ses annotations et son texte en `.md`, rangés comme dans l'app, et un
+dossier `Données/` — paquets, dossiers, notes brutes et fichiers d'origine —
+de quoi tout restaurer. Seul ce qui a changé repart ; Drive garde l'historique
+des versions de chaque fichier, et ce qui est supprimé dans l'app part dans la
+corbeille de Drive (trente jours).
+
+L'app ne demande que la portée `drive.file` : elle ne voit **que** les fichiers
+qu'elle a créés, rien d'autre du Drive. C'est une portée « non sensible » chez
+Google, qui ne demande pas d'audit de sécurité.
+
+**Configuration, une fois, par l'administrateur :**
+
+1. Sur <https://console.cloud.google.com/>, créer un projet (« Fiches »).
+2. *API et services → Bibliothèque* : activer **Google Drive API**.
+3. *API et services → Écran de consentement OAuth* (ou *Google Auth Platform*) :
+   type d'utilisateur **Externe**, nom de l'app, adresse de contact. Dans
+   *Accès aux données*, ajouter la portée
+   `https://www.googleapis.com/auth/drive.file`.
+4. **Publier l'app** (*Audience → Publier l'application*, statut « En
+   production »). En statut « Test », Google fait expirer les jetons au bout
+   de **sept jours** et la sauvegarde s'arrêterait toute seule chaque semaine.
+   Avec la seule portée `drive.file`, la publication ne demande pas de
+   vérification ; Google peut afficher un avertissement « application non
+   vérifiée » à la liaison, qu'on passe par *Paramètres avancés*.
+5. *Identifiants → Créer des identifiants → ID client OAuth* : type
+   **Application Web**, et dans *URI de redirection autorisés* :
+   `https://fiches.<ton-tailnet>.ts.net/api/google-drive/retour` — au
+   caractère près, sans barre finale. Google refuse une adresse IP et le
+   `http://` (sauf `localhost`) : c'est l'adresse Tailscale servie en HTTPS par
+   Caddy qu'il faut.
+6. Dans `.env` :
+
+   ```bash
+   GOOGLE_CLIENT_ID="…apps.googleusercontent.com"
+   GOOGLE_CLIENT_SECRET="…"
+   GOOGLE_REDIRECT_URI="https://fiches.<ton-tailnet>.ts.net/api/google-drive/retour"
+   ```
+
+7. `docker compose up -d` pour relancer l'app, puis *Sauvegarde → Relier
+   Google Drive*.
+
+Le jeton de Google est chiffré en base (clé dérivée de `SESSION_SECRET`) :
+changer `SESSION_SECRET` demande de relier le Drive à nouveau, ce que la page
+« Sauvegarde » dit. Délier révoque le jeton chez Google et laisse les fichiers
+dans le Drive ; relier plus tard les retrouve, sans doublon.
+
 ---
 
 ## Développement

@@ -426,7 +426,7 @@ export function RichEditor({
                   pressed={colorOpen}
                 />
                 {colorOpen ? (
-                  <div className="absolute left-0 top-full z-20 mt-1 flex gap-1 rounded-xl border border-outline-variant bg-surface-container p-1.5 elevation-2">
+                  <div className="verre absolute left-0 top-full z-20 mt-1 flex gap-1 rounded-xl p-1.5">
                     {(Object.keys(TEXT_COLORS) as TextColor[]).map((name) => (
                       <button
                         key={name}
@@ -653,7 +653,7 @@ function PaletteMaths({
     <div
       ref={panneau}
       data-testid="palette-maths"
-      className="absolute left-1.5 right-1.5 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl border border-outline-variant bg-surface-container p-2 elevation-2"
+      className="verre absolute left-1.5 right-1.5 top-full z-20 mt-1 max-h-72 overflow-y-auto rounded-xl p-2"
     >
       <input
         type="text"

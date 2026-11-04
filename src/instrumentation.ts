@@ -31,4 +31,8 @@ export async function register() {
       // servir : la recherche se rabat sur la lecture directe des cartes.
       console.error("[recherche] réindexation impossible :", error);
     });
+
+  // La sauvegarde Google Drive : rien ne démarre si elle n'est pas configurée.
+  const { demarrerPlanificateur } = await import("@/lib/google-drive/planificateur");
+  demarrerPlanificateur();
 }

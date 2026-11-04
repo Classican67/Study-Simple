@@ -37,6 +37,14 @@ const nextConfig: NextConfig = {
        */
       bodySizeLimit: "10mb",
     },
+    /*
+     * Le proxy (`src/proxy.ts`) oblige Next à garder le corps de chaque requête
+     * en mémoire, et il n'en garde par défaut que **dix mégaoctets** : au-delà,
+     * la route reçoit un corps tronqué. Un bloc manuscrit se renvoie en entier
+     * quand le morceau ne peut pas servir (cf. `lib/bloc-delta.ts`) et peut
+     * peser jusqu'à `MAX_BLOCK_BYTES` ; un document importé, `MAX_DOCUMENT_BYTES`.
+     */
+    proxyClientMaxBodySize: "130mb",
   },
 
   allowedDevOrigins: [

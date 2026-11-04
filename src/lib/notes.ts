@@ -517,7 +517,16 @@ export function blockFiles(kind: string, content: string): string[] {
 
 /** Un polycopié de plus de deux cents pages n'est pas une note. */
 export const MAX_DOCUMENT_PAGES = 200;
-export const MAX_STROKES = 4000;
+/*
+ * Pas de plafond sur le nombre de traits : on annote autant qu'on veut.
+ *
+ * Il y en avait un — quatre mille, soit dix à vingt pages d'écriture dans un
+ * polycopié, dont tous les traits vivent dans le même bloc —, et
+ * `parseDrawing` taillait au-delà sans rien dire : les traits suivants
+ * disparaissaient au rechargement. Ce qui borne un bloc, c'est son poids
+ * (`MAX_BLOCK_BYTES`), et il est vérifié là où il faut : à l'enregistrement,
+ * avec un refus qui se dit.
+ */
 export const MAX_POINTS_PER_STROKE = 30000;
 /**
  * Hauteur du bloc, en proportion de sa largeur.
@@ -579,7 +588,6 @@ export function parseDrawing(raw: string): DrawingContent {
     paper,
     pages,
     strokes: strokes
-      .slice(0, MAX_STROKES)
       .map((stroke: unknown) => {
         const s = stroke as Partial<Stroke> | null;
         const points = Array.isArray(s?.points) ? s.points : [];
@@ -615,11 +623,22 @@ export function defaultContent(kind: BlockKind): string {
 }
 
 /**
- * Taille maximale d'un bloc enregistré. Une page dense au stylet approche les
- * 300 Ko ; la borne laisse de la marge sans permettre qu'une note fasse tomber
- * la base.
+ * Garde-fou sur le poids d'un bloc — pas une limite d'usage.
+ *
+ * Elle était de deux mégaoctets, pensée pour une page — or un document importé
+ * est un seul bloc pour toutes ses pages. Un trait d'une seconde au Pencil
+ * pèse environ cinq kilooctets (240 points) : deux mégaoctets, c'était quatre
+ * cents traits, une à deux pages d'écriture. Au-delà, le serveur répondait 413,
+ * la file cessait de réessayer, et l'on annotait pour rien.
+ *
+ * On doit pouvoir annoter autant qu'on veut. Cent vingt-huit mégaoctets, c'est
+ * vingt-cinq mille secondes de Pencil : les deux cents pages qu'un document
+ * peut compter (`MAX_DOCUMENT_PAGES`), écrites jusqu'au bord, n'y arrivent pas.
+ * Ce qui reste, c'est la protection contre un client fautif qui enverrait un
+ * gigaoctet. Ce n'est tenable que parce que l'enregistrement automatique
+ * n'envoie plus que ce qui a changé (`lib/bloc-delta.ts`).
  */
-export const MAX_BLOCK_BYTES = 2_000_000;
+export const MAX_BLOCK_BYTES = 128_000_000;
 
 /** Titre affiché pour une note sans titre saisi. */
 export const UNTITLED = "Note sans titre";

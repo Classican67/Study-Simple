@@ -28,6 +28,11 @@ services:
       # Le cookie de session n'est renvoyé qu'en HTTPS. Passer à "false"
       # seulement pour un accès LAN en http:// sans reverse proxy.
       COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+      # Sauvegarde Google Drive, facultative : vides, elle est désactivée.
+      GOOGLE_CLIENT_ID: "${GOOGLE_CLIENT_ID:-}"
+      GOOGLE_CLIENT_SECRET: "${GOOGLE_CLIENT_SECRET:-}"
+      GOOGLE_REDIRECT_URI: "${GOOGLE_REDIRECT_URI:-}"
+      GOOGLE_DRIVE_INTERVALLE_MINUTES: "${GOOGLE_DRIVE_INTERVALLE_MINUTES:-60}"
     volumes:
       - fiches_db:/app/data
       - "${NAS_UPLOADS:?NAS_UPLOADS manquant — voir .env.example}:/app/uploads"

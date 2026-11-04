@@ -215,7 +215,18 @@ function arrondir(valeur: number, decimales: number): number {
 export class LisseurDeTrait {
   private readonly fx = new UnEuro(LISSAGE.minCutoff, LISSAGE.beta, LISSAGE.dCutoff);
   private readonly fy = new UnEuro(LISSAGE.minCutoff, LISSAGE.beta, LISSAGE.dCutoff);
-  private readonly fp = new UnEuro(LISSAGE.pressureCutoff, 0, LISSAGE.dCutoff);
+  private fp = new UnEuro(LISSAGE.pressureCutoff, 0, LISSAGE.dCutoff);
+  /**
+   * La pression du poser est une **estimation**.
+   *
+   * Apple le documente : la force du Pencil arrive d'abord estimée, puis
+   * corrigée — et une page web ne reçoit jamais la correction. Ce premier
+   * chiffre est souvent loin du suivant, et le filtre de la pression, qui en
+   * partait, le traînait sur les premiers millimètres : chaque lettre
+   * commençait trop fine ou trop grasse. Le filtre repart donc de la première
+   * pression mesurée **en mouvement**.
+   */
+  private pressionEstimee = true;
   /** Dernier horodatage vu, pour l'intervalle. */
   private temps: number | null = null;
   /** Dernier point **retenu**, en unités de mille. */
@@ -256,6 +267,11 @@ export class LisseurDeTrait {
 
     const x = this.fx.filtrer(point.x * INK_REF, dt);
     const y = this.fy.filtrer(point.y * INK_REF, dt);
+    if (this.pressionEstimee) {
+      this.pressionEstimee = false;
+      this.fp = new UnEuro(LISSAGE.pressureCutoff, 0, LISSAGE.dCutoff);
+      this.fp.filtrer(point.pression, LISSAGE.dtMin);
+    }
     const pression = this.fp.filtrer(point.pression, dt);
     this.brut = { x: point.x * INK_REF, y: point.y * INK_REF, pression };
 

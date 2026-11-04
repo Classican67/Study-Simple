@@ -21,11 +21,16 @@ import {
   type Brouillon,
 } from "@/lib/brouillons";
 import { creerSauvegarde, type Diagnostic, type Verdict } from "@/lib/sauvegarde";
+import { calculerDelta, DELTA_SEUIL } from "@/lib/bloc-delta";
 import { cn } from "@/lib/utils";
 import { blocConfirme } from "@/lib/hors-ligne/client";
 
+/** Ce qu'une réponse dit, et l'empreinte de ce que le serveur garde désormais. */
+type Reponse = { verdict: Verdict; statut: number; empreinte: string | null };
+
 /**
- * Transport HTTP d'un brouillon, et **traduction d'un échec en conduite**.
+ * Transport HTTP d'un corps d'enregistrement, et **traduction d'un échec en
+ * conduite**.
  *
  * C'est tout l'intérêt d'être passé par une route plutôt que par une action
  * serveur : le code de réponse dit ce qu'il faut faire. Auparavant, une
@@ -33,13 +38,13 @@ import { blocConfirme } from "@/lib/hors-ligne/client";
  * rejouer — d'une session expirée — qu'il faut signaler — ni d'un bloc trop
  * volumineux — qu'il ne sert à rien de renvoyer.
  */
-export async function envoyerBrouillon(brouillon: Brouillon): Promise<Verdict> {
+async function envoyerCorps(brouillon: Brouillon, corps: object): Promise<Reponse> {
   let reponse: Response;
   try {
     reponse = await fetch(`/api/notes/${brouillon.noteId}/blocks/${brouillon.blockId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: brouillon.content, seq: brouillon.seq }),
+      body: JSON.stringify({ ...corps, seq: brouillon.seq }),
       // Le cookie de session, et pas de cache : un enregistrement ne se
       // rejoue pas depuis une réponse mise de côté.
       credentials: "same-origin",
@@ -56,24 +61,92 @@ export async function envoyerBrouillon(brouillon: Brouillon): Promise<Verdict> {
       redirect: "manual",
     });
   } catch {
-    return { sort: "reseau" };
+    return { verdict: { sort: "reseau" }, statut: 0, empreinte: null };
   }
+  const statut = reponse.status;
 
-  if (reponse.type === "opaqueredirect" || reponse.status === 0 || reponse.redirected) {
-    return { sort: "session" };
+  if (reponse.type === "opaqueredirect" || statut === 0 || reponse.redirected) {
+    return { verdict: { sort: "session" }, statut, empreinte: null };
   }
-  if (reponse.ok) return { sort: "ok" };
-  if (reponse.status === 401 || reponse.status === 403) return { sort: "session" };
-
-  const message = await reponse
-    .json()
-    .then((corps) => (typeof corps?.error === "string" ? corps.error : null))
-    .catch(() => null);
-
-  if (reponse.status === 413 || reponse.status === 404 || reponse.status === 400) {
-    return { sort: "refus", message: message ?? "Le serveur a refusé ce contenu." };
+  const lu = (await reponse.json().catch(() => null)) as
+    | { error?: unknown; empreinte?: unknown }
+    | null;
+  if (reponse.ok) {
+    const empreinte = typeof lu?.empreinte === "string" ? lu.empreinte : null;
+    return { verdict: { sort: "ok" }, statut, empreinte };
   }
-  return { sort: "serveur", message: message ?? `Le serveur a répondu ${reponse.status}.` };
+  if (statut === 401 || statut === 403) return { verdict: { sort: "session" }, statut, empreinte: null };
+
+  const message = typeof lu?.error === "string" ? lu.error : null;
+  if (statut === 413 || statut === 404 || statut === 400) {
+    return {
+      verdict: { sort: "refus", message: message ?? "Le serveur a refusé ce contenu." },
+      statut,
+      empreinte: null,
+    };
+  }
+  return {
+    verdict: { sort: "serveur", message: message ?? `Le serveur a répondu ${statut}.` },
+    statut,
+    empreinte: null,
+  };
+}
+
+/** SHA-256 en hexadécimal, ou `null` hors contexte sécurisé (pas de `crypto.subtle`). */
+async function empreinteDe(texte: string): Promise<string | null> {
+  if (typeof crypto === "undefined" || !crypto.subtle) return null;
+  try {
+    const octets = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(texte));
+    return [...new Uint8Array(octets)].map((o) => o.toString(16).padStart(2, "0")).join("");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Le transport des brouillons : **seulement ce qui a changé**, quand c'est possible.
+ *
+ * Il retient, bloc par bloc, la dernière version que le serveur a confirmée
+ * — ou, avant le premier envoi, celle qu'il a rendue à l'ouverture — et
+ * n'envoie que le morceau qui en diffère (`lib/bloc-delta.ts`). C'est ce qui
+ * permet d'annoter un polycopié de cent pages : l'envoyer entier à chaque
+ * seconde d'écriture finissait sur un 413, et la file s'arrêtait.
+ *
+ * Tout le reste se rabat sur l'envoi complet, qui reste la vérité : bloc
+ * petit, première version inconnue, empreinte impossible à calculer, ou
+ * serveur qui ne part plus de la même version (409, un autre appareil a
+ * écrit entre-temps). La file de reprise n'en sait rien — elle confie un
+ * brouillon et reçoit un verdict, comme avant.
+ */
+export function creerTransport(baseInitiale: (blockId: string) => string | undefined) {
+  const bases = new Map<string, { content: string; empreinte: string | null }>();
+
+  return async function envoyer(brouillon: Brouillon): Promise<Verdict> {
+    const initiale = baseInitiale(brouillon.blockId);
+    const base =
+      bases.get(brouillon.blockId) ??
+      (initiale === undefined ? null : { content: initiale, empreinte: null });
+
+    let reponse: Reponse | null = null;
+    if (base && brouillon.content.length >= DELTA_SEUIL) {
+      const morceau = calculerDelta(base.content, brouillon.content);
+      // Un morceau qui pèse la moitié du bloc n'économise rien : on envoie tout.
+      if (morceau && morceau.inserer.length < brouillon.content.length / 2) {
+        const empreinte = base.empreinte ?? (await empreinteDe(base.content));
+        if (empreinte) {
+          reponse = await envoyerCorps(brouillon, { delta: { base: empreinte, ...morceau } });
+          // 409 : le serveur ne part plus de notre version. On renvoie tout.
+          if (reponse.statut === 409) reponse = null;
+        }
+      }
+    }
+    reponse ??= await envoyerCorps(brouillon, { content: brouillon.content });
+
+    if (reponse.verdict.sort === "ok") {
+      bases.set(brouillon.blockId, { content: brouillon.content, empreinte: reponse.empreinte });
+    }
+    return reponse.verdict;
+  };
 }
 
 export type Reprise = { blockId: string; content: string };
@@ -111,11 +184,25 @@ export function useSauvegarde({
   const [litiges, setLitiges] = React.useState<Brouillon[]>([]);
   const [repris, setRepris] = React.useState(0);
 
-  const sauvegarde = React.useMemo(
-    () =>
-      creerSauvegarde({
+  // Les rappels changent à chaque rendu de l'éditeur ; les effets ci-dessous
+  // ne doivent pas se redéclencher pour autant.
+  const dernierContenus = React.useRef(contenus);
+  const dernierReprise = React.useRef(onReprise);
+  React.useEffect(() => {
+    dernierContenus.current = contenus;
+    dernierReprise.current = onReprise;
+  });
+
+  // La première version connue d'un bloc est celle que le serveur a rendue à
+  // l'ouverture — relevée au premier rendu, avant la moindre modification —,
+  // les suivantes celles qu'il a confirmées.
+  const [initiaux] = React.useState(contenus);
+
+  const sauvegarde = React.useMemo(() => {
+    const transport = creerTransport((blockId) => initiaux.get(blockId));
+    return creerSauvegarde({
         envoyer: async (brouillon) => {
-          const verdict = await envoyerBrouillon(brouillon);
+          const verdict = await transport(brouillon);
           // La copie gardée hors ligne suit ce que le serveur a confirmé — et
           // rien d'autre : cf. `blocConfirme`.
           if (verdict.sort === "ok") blocConfirme(brouillon.noteId, brouillon.blockId, brouillon.content);
@@ -128,18 +215,8 @@ export function useSauvegarde({
         // il annonce « en ligne » sur un réseau qui ne route rien — mais il ne
         // ment pas dans l'autre : faux veut dire faux.
         enLigne: () => navigator.onLine,
-      }),
-    [],
-  );
-
-  // Les rappels changent à chaque rendu de l'éditeur ; les effets ci-dessous
-  // ne doivent pas se redéclencher pour autant.
-  const dernierContenus = React.useRef(contenus);
-  const dernierReprise = React.useRef(onReprise);
-  React.useEffect(() => {
-    dernierContenus.current = contenus;
-    dernierReprise.current = onReprise;
-  });
+      });
+  }, [initiaux]);
 
   React.useEffect(() => {
     const oublier = sauvegarde.ecouter(setDiagnostic);
