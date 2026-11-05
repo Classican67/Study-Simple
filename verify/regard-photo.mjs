@@ -21,7 +21,7 @@ for (const theme of ["light", "dark"]) {
   await page.getByLabel("Titre de la note").fill(`Photo annotée ${theme}`);
   await page.getByLabel("Titre de la note").blur();
   await retirerPageVierge(page);
-  await page.locator('input[type="file"][accept="image/*"]:not([data-page-image])').setInputFiles("photo.png");
+  await page.locator('input[type="file"][accept="image/*"]:not([data-page-image]):not([data-pose-image]):not([data-bloc-image])').setInputFiles("photo.png");
   await page.waitForTimeout(900);
   await page.getByRole("button", { name: "Utiliser" }).click();
   await page.waitForSelector('[data-testid="drawing-canvas"]');

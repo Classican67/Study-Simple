@@ -94,6 +94,9 @@ check((await traits()) === 3, "Annuler rend toute la page effacée, d'un seul ge
 // Un trait neuf rend l'avenir caduc : Rétablir n'a plus rien à refaire.
 await page.getByRole("button", { name: "Stylo" }).click();
 await geste(ligne(0.4));
+// L'encre fraîche ne rejoint le contenu qu'à la pause de la main : toucher Rétablir
+// avant la verse d'abord, et le bouton se grise à ce moment-là.
+await page.waitForTimeout(400);
 check(await retablir.isDisabled(), "après un trait neuf, Rétablir est désactivé");
 
 // Toucher la page de plusieurs doigts, sans glisser : deux annulent, trois rétablissent.

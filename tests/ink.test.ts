@@ -309,7 +309,7 @@ describe("eraseStroke — la gomme précise", () => {
  * bibliothèque en dehors de `lib/ink-stroke.ts`.
  */
 describe("le contour du trait", () => {
-  const rendus = ["src/components/note/ink-canvas.tsx", "src/lib/pdf-export.ts"];
+  const rendus = ["src/lib/ink-paths.ts", "src/lib/pdf-export.ts"];
   const lire = (fichier: string) => readFileSync(path.join(process.cwd(), fichier), "utf8");
 
   it("n'est calculé que par lib/ink-stroke.ts", () => {

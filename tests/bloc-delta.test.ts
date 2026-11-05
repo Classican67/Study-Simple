@@ -42,8 +42,8 @@ describe("morceau d'un bloc", () => {
 
   it("un trait ajouté à un dessin ne fait voyager que ce trait", () => {
     const trait = (n: number) => ({ color: "ink", size: 2, tool: "pen", points: [n, n, 0.5] });
-    const avant = JSON.stringify({ strokes: Array.from({ length: 500 }, (_, i) => trait(i)), pages: [] });
-    const apres = JSON.stringify({ strokes: [...Array.from({ length: 500 }, (_, i) => trait(i)), trait(9)], pages: [] });
+    const avant = JSON.stringify({ strokes: Array.from({ length: 500 }, (_, i) => trait(i)), pages: [], images: [], textes: [] });
+    const apres = JSON.stringify({ strokes: [...Array.from({ length: 500 }, (_, i) => trait(i)), trait(9)], pages: [], images: [], textes: [] });
     const d = calculerDelta(avant, apres)!;
     assert.ok(d.inserer.length < 80, `${d.inserer.length} caractères`);
     assert.equal(appliquerDelta(avant, d), apres);
@@ -109,7 +109,7 @@ describe("sérialisation d'un dessin", () => {
       tool: "pen" as const,
       points: [i / 100, 0.1234, 0.5, i / 50, 0.2, 0.75],
     }));
-    const dessin = { strokes: traits, ratio: 1.4142, paper: "ruled" as const, pages: [] };
+    const dessin = { strokes: traits, ratio: 1.4142, paper: "ruled" as const, pages: [], images: [], textes: [] };
     assert.equal(serialiserDessin(dessin), JSON.stringify(dessin));
     const suite = { ...dessin, strokes: [...traits.slice(0, 20), ...traits.slice(21), { ...traits[3], color: "red" }] };
     assert.equal(serialiserDessin(suite), JSON.stringify(suite));

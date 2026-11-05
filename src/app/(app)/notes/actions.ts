@@ -8,13 +8,19 @@ import { prisma } from "@/lib/prisma";
 // `userId`, et une telle fonction exportée depuis un module « use server »
 // serait appelable par le client avec le compte de son choix.
 import { enregistrerBloc, recalculerApercu, touch } from "@/lib/note-save";
+import { lierDocuments } from "@/lib/documents-index";
 import {
   defaultContent,
+  insertDocumentPages,
+  parseDrawing,
   surfaceRatio,
   isBlockKind,
   MAX_DOCUMENT_PAGES,
   MAX_RATIO,
+  parseTable,
+  parseText,
   type BlockKind,
+  type ImageBlockContent,
 } from "@/lib/notes";
 
 export type NoteResult = { ok: boolean; error?: string };
@@ -53,6 +59,9 @@ export async function createNote(folderId?: string | null): Promise<string | nul
       ownerId: user.id,
       folderId: dossier?.id ?? null,
       title: "",
+      // Une note, c'est une feuille. `NOTES_FORMAT_DEFAUT=blocs` ne sert qu'au
+      // banc d'essai : l'ancienne forme reste à vérifier tant qu'il en existe.
+      format: process.env.NOTES_FORMAT_DEFAUT === "blocs" ? "blocs" : "feuille",
       blocks: { create: [{ kind: "drawing", position: 0, content: defaultContent("drawing") }] },
     },
     select: { id: true },
@@ -143,6 +152,70 @@ export async function addBlock(
   return block;
 }
 
+/** Ce qu'un seul collage peut créer : un cours entier, pas une archive. */
+const MAX_BLOCS_COLLES = 120;
+
+export type BlocInsere = { id: string; kind: string; content: string };
+
+/**
+ * Insère d'un coup les blocs d'un collage, à la suite d'un bloc.
+ *
+ * Une seule transaction : un chapitre collé doit arriver entier, dans l'ordre,
+ * ou pas du tout. Seuls le texte et les tableaux passent, relus par les mêmes
+ * fonctions qu'à l'ouverture de la note — le contenu vient du navigateur.
+ */
+export async function addBlocks(
+  noteId: string,
+  blocs: { kind: "text" | "table"; content: string }[],
+  afterBlockId?: string | null,
+): Promise<BlocInsere[] | null> {
+  const user = await requireUser();
+  if (!(await ownsNote(noteId, user.id))) return null;
+
+  const propres = blocs.slice(0, MAX_BLOCS_COLLES).flatMap((bloc) => {
+    if (bloc.kind === "text") return [{ kind: "text", content: JSON.stringify(parseText(bloc.content)) }];
+    if (bloc.kind === "table") return [{ kind: "table", content: JSON.stringify(parseTable(bloc.content)) }];
+    return [];
+  });
+  if (propres.length === 0) return [];
+
+  const crees = await prisma.$transaction(async (tx) => {
+    let position: number;
+    if (afterBlockId) {
+      const after = await tx.noteBlock.findFirst({
+        where: { id: afterBlockId, noteId },
+        select: { position: true },
+      });
+      if (!after) return null;
+      await tx.noteBlock.updateMany({
+        where: { noteId, position: { gt: after.position } },
+        data: { position: { increment: propres.length } },
+      });
+      position = after.position + 1;
+    } else {
+      const last = await tx.noteBlock.findFirst({
+        where: { noteId },
+        orderBy: { position: "desc" },
+        select: { position: true },
+      });
+      position = (last?.position ?? -1) + 1;
+    }
+    const resultats: BlocInsere[] = [];
+    for (const [rang, bloc] of propres.entries()) {
+      resultats.push(
+        await tx.noteBlock.create({
+          data: { noteId, kind: bloc.kind, position: position + rang, content: bloc.content },
+          select: { id: true, kind: true, content: true },
+        }),
+      );
+    }
+    return resultats;
+  });
+
+  if (crees) await touch(noteId);
+  return crees;
+}
+
 /**
  * Duplique un bloc, juste après l'original.
  *
@@ -217,8 +290,9 @@ export async function deleteBlock(blockId: string): Promise<NoteResult> {
   // servait de fond — sauf si un autre bloc s'en sert, ce qu'une duplication
   // rend possible.
   await nettoyerFichiers(fichiers);
+  if (fichiers.length > 0) await lierDocuments(block.noteId);
   // La page retirée donnait peut-être l'aperçu : c'est alors la suivante.
-  if (block.kind === "drawing") await recalculerApercu(block.noteId);
+  if (block.kind === "drawing" || block.kind === "image") await recalculerApercu(block.noteId);
   await touch(block.noteId);
   return { ok: true };
 }
@@ -265,6 +339,7 @@ export async function duplicateNote(noteId: string): Promise<string | null> {
       title: true,
       folderId: true,
       preview: true,
+      format: true,
       blocks: { orderBy: { position: "asc" }, select: { kind: true, position: true, content: true } },
     },
   });
@@ -276,6 +351,7 @@ export async function duplicateNote(noteId: string): Promise<string | null> {
       ownerId: user.id,
       folderId: source.folderId,
       title: titre ? `${titre} (copie)`.slice(0, 200) : "",
+      format: source.format,
       // L'aperçu est celui des mêmes pages : inutile de le recalculer.
       preview: source.preview,
       blocks: {
@@ -287,6 +363,8 @@ export async function duplicateNote(noteId: string): Promise<string | null> {
 
   // Le titre a changé : `touch` reconstruit le texte de recherche.
   await touch(note.id);
+  // Ses documents sont déjà lus : la copie les retrouve aussitôt.
+  await lierDocuments(note.id);
   return note.id;
 }
 
@@ -387,6 +465,44 @@ export async function addDocumentBlocks(
     ratio: Math.min(MAX_RATIO, Math.max(0.2, ratio)),
   }));
 
+  /*
+   * Une note-feuille n'a qu'une surface : le document y entre, il ne s'ajoute pas
+   * à côté. Sur une feuille encore vierge — le cas d'un document déposé sur la
+   * liste des notes —, il la remplace.
+   */
+  const feuille = await prisma.note.findFirst({
+    where: { id: noteId, format: "feuille" },
+    select: {
+      blocks: {
+        where: { kind: "drawing" },
+        orderBy: { position: "asc" },
+        take: 1,
+        select: { id: true, kind: true, content: true },
+      },
+    },
+  });
+  const surface = feuille?.blocks[0];
+  if (surface) {
+    const contenu = parseDrawing(surface.content);
+    const vierge =
+      contenu.strokes.length === 0 && contenu.images.length === 0 && contenu.pages.length === 0;
+    const suivant = vierge
+      ? { ...contenu, pages, ratio: surfaceRatio(pages) }
+      : insertDocumentPages(contenu, contenu.pages.length - 1, file, ratios);
+    if (suivant === contenu) {
+      return { ok: false, error: "Ce document ferait dépasser le nombre maximal de pages." };
+    }
+    const bloc = await prisma.noteBlock.update({
+      where: { id: surface.id },
+      data: { content: JSON.stringify(suivant) },
+      select: { id: true, kind: true, content: true },
+    });
+    await lierDocuments(noteId);
+    await recalculerApercu(noteId);
+    await touch(noteId);
+    return { ok: true, blocks: [bloc] };
+  }
+
   const last = await prisma.noteBlock.findFirst({
     where: { noteId },
     orderBy: { position: "desc" },
@@ -411,6 +527,7 @@ export async function addDocumentBlocks(
   // La première page importée sert d'aperçu, s'il n'y en avait pas déjà une —
   // la page vierge d'une note neuve ne compte pas.
   await recalculerApercu(noteId);
+  await lierDocuments(noteId);
 
   await touch(noteId);
 
@@ -474,6 +591,79 @@ export async function uploadPageImage(
   }
 }
 
+/**
+ * Une image dans le fil de la note, là où est le curseur ou à la fin.
+ *
+ * Le format vient du navigateur, comme pour `addPhotoBlock`, et pour la même
+ * raison.
+ */
+export async function addImageBlock(
+  noteId: string,
+  formData: FormData,
+  afterBlockId?: string | null,
+): Promise<PhotoResult> {
+  const user = await requireUser();
+  if (!(await ownsNote(noteId, user.id))) return { ok: false, error: "Note introuvable." };
+
+  const file = formData.get("photo");
+  if (!(file instanceof File) || file.size === 0) return { ok: false, error: "Aucune image reçue." };
+  const brut = Number(formData.get("ratio"));
+  const ratio = Number.isFinite(brut) && brut > 0.05 && brut <= MAX_RATIO ? brut : 1;
+
+  const { saveUpload, UploadError } = await import("@/lib/uploads");
+  let image: string;
+  try {
+    image = await saveUpload(file);
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof UploadError ? error.message : "Cette image n'a pas pu être enregistrée.",
+    };
+  }
+
+  const contenu = JSON.stringify({
+    file: image,
+    ratio: Number(ratio.toFixed(4)),
+    largeur: 1,
+    align: "center",
+    legende: "",
+  } satisfies ImageBlockContent);
+
+  const bloc = await prisma.$transaction(async (tx) => {
+    let position: number | null = null;
+    if (afterBlockId) {
+      const after = await tx.noteBlock.findFirst({
+        where: { id: afterBlockId, noteId },
+        select: { position: true },
+      });
+      if (after) {
+        await tx.noteBlock.updateMany({
+          where: { noteId, position: { gt: after.position } },
+          data: { position: { increment: 1 } },
+        });
+        position = after.position + 1;
+      }
+    }
+    if (position === null) {
+      const last = await tx.noteBlock.findFirst({
+        where: { noteId },
+        orderBy: { position: "desc" },
+        select: { position: true },
+      });
+      position = (last?.position ?? -1) + 1;
+    }
+    return tx.noteBlock.create({
+      data: { noteId, kind: "image", position, content: contenu },
+      select: { id: true, kind: true, content: true },
+    });
+  });
+
+  await recalculerApercu(noteId);
+  await lierDocuments(noteId);
+  await touch(noteId);
+  return { ok: true, block: bloc };
+}
+
 export async function addPhotoBlock(noteId: string, formData: FormData): Promise<PhotoResult> {
   const user = await requireUser();
   if (!(await ownsNote(noteId, user.id))) return { ok: false, error: "Note introuvable." };
@@ -519,6 +709,7 @@ export async function addPhotoBlock(noteId: string, formData: FormData): Promise
   // La photo sert d'aperçu si aucune page avant elle ne montre quelque chose —
   // la page vierge d'une note neuve ne compte pas.
   await recalculerApercu(noteId);
+  await lierDocuments(noteId);
 
   await touch(noteId);
   return { ok: true, block: bloc };

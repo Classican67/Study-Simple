@@ -7,7 +7,14 @@ import { revalidatePath } from "next/cache";
 import { toPlainText } from "@/components/rich-text";
 import { prisma } from "@/lib/prisma";
 import { normalizeForSearch } from "@/lib/search";
-import { blockFiles, MAX_BLOCK_BYTES, notePreview, noteSearchText } from "@/lib/notes";
+import {
+  blockFiles,
+  MAX_BLOCK_BYTES,
+  notePreview,
+  noteSearchText,
+  texteDesZones,
+  zonesDuContenu,
+} from "@/lib/notes";
 import { appliquerDelta, deltaTouche, type Delta } from "@/lib/bloc-delta";
 
 /*
@@ -41,16 +48,24 @@ export async function touch(noteId: string) {
     where: { id: noteId },
     select: {
       title: true,
-      blocks: { where: { kind: { in: ["text", "table"] } }, select: { kind: true, content: true } },
+      blocks: { where: { kind: { in: ["text", "table", "image"] } }, select: { kind: true, content: true } },
     },
   });
   if (!note) return;
+
+  // Les pages manuscrites comptent par leur texte déjà extrait : jamais par leur
+  // contenu, qu'on ne relit pas ici.
+  const pages = await prisma.noteBlock.findMany({
+    where: { noteId, kind: "drawing", NOT: { plain: "" } },
+    select: { kind: true, content: false, plain: true },
+  });
+  const blocs = [...note.blocks, ...pages.map((p) => ({ ...p, content: "" }))];
 
   await prisma.note.update({
     where: { id: noteId },
     data: {
       updatedAt: new Date(),
-      searchText: normalizeForSearch(noteSearchText(note.title, note.blocks, toPlainText)),
+      searchText: normalizeForSearch(noteSearchText(note.title, blocs, toPlainText)),
     },
   });
   revalidatePath("/notes");
@@ -68,15 +83,19 @@ export async function touch(noteId: string) {
  */
 export async function recalculerApercu(noteId: string, enMain?: { id: string; content: string }) {
   const pages = await prisma.noteBlock.findMany({
-    where: { noteId, kind: "drawing" },
+    where: { noteId, kind: { in: ["drawing", "image"] } },
     orderBy: { position: "asc" },
-    select: { id: true },
+    select: { id: true, kind: true },
   });
   const ids = pages.map((page) => page.id);
-  const { apercu, source } = await notePreview(ids, async (id) =>
-    id === enMain?.id
-      ? enMain.content
-      : ((await prisma.noteBlock.findUnique({ where: { id }, select: { content: true } }))?.content ?? null),
+  const genres = new Map(pages.map((page) => [page.id, page.kind]));
+  const { apercu, source } = await notePreview(
+    ids,
+    async (id) =>
+      id === enMain?.id
+        ? enMain.content
+        : ((await prisma.noteBlock.findUnique({ where: { id }, select: { content: true } }))?.content ?? null),
+    (id) => genres.get(id) ?? "drawing",
   );
   if (enMain && source !== null && ids.indexOf(source) < ids.indexOf(enMain.id)) return;
   await prisma.note.update({
@@ -204,17 +223,32 @@ export async function enregistrerBloc(
   const avant = fichiersIntacts ? [] : blockFiles(block.kind, block.content);
   const apres = new Set(fichiersIntacts ? [] : blockFiles(block.kind, content));
   const partis = avant.filter((nom) => !apres.has(nom));
+  const connus = new Set(avant);
+  const arrives = [...apres].filter((nom) => !connus.has(nom));
 
-  await prisma.noteBlock.update({ where: { id: blockId }, data: { content } });
+  await prisma.noteBlock.update({
+    where: { id: blockId },
+    data: {
+      content,
+      ...(block.kind === "drawing" ? { plain: texteDesZones(zonesDuContenu(content), toPlainText) } : {}),
+    },
+  });
 
   if (partis.length > 0) {
     const { nettoyerFichiers } = await import("@/lib/note-uploads");
     await nettoyerFichiers(partis);
   }
+  // Un document de plus ou de moins : la recherche et la loupe doivent le savoir.
+  if (partis.length > 0 || arrives.length > 0) {
+    const { lierDocuments } = await import("@/lib/documents-index");
+    await lierDocuments(block.noteId);
+  }
 
   // L'aperçu de la note : sa première page manuscrite qui montre quelque chose,
   // à partir du contenu déjà en main — jamais en relisant ce bloc.
-  if (block.kind === "drawing") await apercuEspace(block.noteId, { id: blockId, content });
+  if (block.kind === "drawing" || block.kind === "image") {
+    await apercuEspace(block.noteId, { id: blockId, content });
+  }
 
   await touch(block.noteId);
   return { ok: true, empreinte: empreinte(content) };

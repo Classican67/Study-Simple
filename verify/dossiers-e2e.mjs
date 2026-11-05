@@ -91,7 +91,7 @@ await page.waitForTimeout(2500);
 
 section("portée de la recherche");
 await page.goto(`${BASE}/notes`, { waitUntil: "networkidle" });
-await page.getByTitle("Rechercher (Ctrl+K)").click();
+await page.getByTitle("Rechercher (Ctrl+K)").filter({ visible: true }).click();
 // La page des notes a son propre champ : on vise celui du dialogue.
 const dialogue = page.getByRole("dialog", { name: "Rechercher" });
 const champ = dialogue.getByRole("searchbox");

@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarClock, HardDriveUpload, Layers, NotebookPen, ShieldUser } from "lucide-react";
+import { BarChart3, CalendarClock, HardDriveUpload, Layers, NotebookPen, ShieldUser } from "lucide-react";
 
+import { Logo } from "@/components/logo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -17,12 +18,23 @@ import { cn } from "@/lib/utils";
  * de Material 3, plus lisible qu'un simple changement de couleur.
  */
 
-type Destination = { href: string; label: string; icon: React.ElementType };
+type Destination = {
+  href: string;
+  label: string;
+  icon: React.ElementType;
+  /**
+   * Seulement dans la colonne latérale : la barre du téléphone tient cinq
+   * destinations, pas six. Le bilan y reste à un geste, depuis l'accueil et la
+   * recherche.
+   */
+  large?: boolean;
+};
 
 const DESTINATIONS: Destination[] = [
   { href: "/", label: "Paquets", icon: Layers },
   { href: "/study", label: "Réviser", icon: CalendarClock },
   { href: "/notes", label: "Notes", icon: NotebookPen },
+  { href: "/stats", label: "Bilan", icon: BarChart3, large: true },
   // Chaque compte a la sienne : ce n'est pas un réglage de l'installation.
   { href: "/sauvegarde", label: "Sauvegarde", icon: HardDriveUpload },
 ];
@@ -53,7 +65,7 @@ export function isImmersive(pathname: string): boolean {
 
 export function BottomNavigation({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
-  const destinations = useDestinations(isAdmin);
+  const destinations = useDestinations(isAdmin).filter((d) => !d.large);
 
   if (isImmersive(pathname)) return null;
 
@@ -99,38 +111,69 @@ export function BottomNavigation({ isAdmin }: { isAdmin: boolean }) {
   );
 }
 
-/** Mêmes destinations, en ligne, pour la barre supérieure des grands écrans. */
-export function InlineNavigation({ isAdmin }: { isAdmin: boolean }) {
+/**
+ * La colonne latérale : la bibliothèque à gauche, le contenu à droite.
+ *
+ * Les libellés paraissent quand il y a la place ; sur un iPad en portrait elle se
+ * réduit à ses icônes, pour rendre sa largeur aux cahiers.
+ */
+export function ColonneLaterale({
+  isAdmin,
+  haut,
+  children,
+}: {
+  isAdmin: boolean;
+  haut?: React.ReactNode;
+  children?: React.ReactNode;
+}) {
   const pathname = usePathname();
   const destinations = useDestinations(isAdmin);
+  if (isImmersive(pathname)) return null;
 
   return (
-    <nav aria-label="Navigation principale" className="hidden md:block">
-      <ul className="flex items-center gap-1">
-        {destinations.map((destination) => {
-          const active = isActive(pathname, destination.href);
-          return (
-            <li key={destination.href}>
-              <Link
-                href={destination.href}
-                aria-current={active ? "page" : undefined}
-                className={cn(
-                  // h-12 : la cible tactile de 48 dp de Material 3, et la
-                  // hauteur des boutons d'icône voisins dans le bandeau.
-                  "state-layer flex h-12 items-center gap-2 rounded-full px-4 m3-label-large transition-colors",
-                  active
-                    ? "bg-secondary-container text-on-secondary-container"
-                    : "text-on-surface-variant",
-                )}
-              >
-                <destination.icon className="size-5" />
-                {destination.label}
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-    </nav>
+    <aside className="pt-safe sticky top-0 hidden h-dvh w-20 shrink-0 flex-col border-r border-outline-variant bg-surface-container md:flex lg:w-60">
+      <Link
+        href="/"
+        aria-label="Accueil"
+        className="state-layer mx-2 mt-3 flex min-h-12 items-center justify-center gap-2.5 rounded-2xl px-2 text-on-surface lg:justify-start"
+      >
+        <Logo variant="mark" className="size-7" />
+        <span className="hidden m3-headline-small lg:inline">Fiches</span>
+      </Link>
+
+      <div className="mt-3 px-2">{haut}</div>
+
+      <nav aria-label="Navigation principale" className="scroll-slim mt-3 min-h-0 flex-1 overflow-y-auto px-2">
+        <ul className="space-y-1">
+          {destinations.map((destination) => {
+            const active = isActive(pathname, destination.href);
+            return (
+              <li key={destination.href}>
+                <Link
+                  href={destination.href}
+                  aria-current={active ? "page" : undefined}
+                  aria-label={destination.label}
+                  title={destination.label}
+                  className={cn(
+                    "state-layer flex h-12 items-center justify-center gap-3 rounded-2xl px-3 m3-label-large transition-colors lg:justify-start",
+                    active
+                      ? "bg-secondary-container text-on-secondary-container"
+                      : "text-on-surface-variant",
+                  )}
+                >
+                  <destination.icon className="size-5 shrink-0" />
+                  <span className="hidden lg:inline">{destination.label}</span>
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
+      <div className="pb-safe flex flex-col items-center gap-1 p-2 lg:flex-row lg:justify-between">
+        {children}
+      </div>
+    </aside>
   );
 }
 

@@ -74,12 +74,12 @@ check(await bouton.isVisible(), "la note propose de prendre une photo");
 // Un seul bouton, et c'est le menu du système qui offre ensuite « Prendre une
 // photo » ou « Photothèque » : c'est `accept="image/*"` qui le déclenche.
 check(
-  (await page.locator('input[type="file"][accept="image/*"]:not([data-page-image])').count()) === 1,
+  (await page.locator('input[type="file"][accept="image/*"]:not([data-page-image]):not([data-pose-image]):not([data-bloc-image])').count()) === 1,
   "avec un champ qui ouvre l'appareil photo comme la photothèque",
 );
 
 await retirerPageVierge(page);
-await page.locator('input[type="file"][accept="image/*"]:not([data-page-image])').setInputFiles(PHOTO);
+await page.locator('input[type="file"][accept="image/*"]:not([data-page-image]):not([data-pose-image]):not([data-bloc-image])').setInputFiles(PHOTO);
 await page.waitForTimeout(900);
 
 // Le recadrage : une page photographiée l'est toujours de biais.

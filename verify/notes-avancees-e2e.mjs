@@ -115,6 +115,8 @@ check(page.url().includes("has=drawing"), "le filtre vit dans l'adresse", page.u
 // Comparer au nombre de notes de la racine n'aurait aucun sens : un filtre
 // porte volontairement sur toute l'arborescence. On vérifie plutôt que chaque
 // résultat contient bien ce qu'on a demandé.
+// Une couverture ne porte que le titre : le détail des contenus est dans la vue liste.
+await page.goto(`${page.url()}${page.url().includes("?") ? "&" : "?"}vue=list`, { waitUntil: "networkidle" });
 const cartes = page.locator('a[href^="/notes/"]');
 const n = await cartes.count();
 let toutesManuscrites = true;

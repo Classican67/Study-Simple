@@ -34,7 +34,7 @@ import {
   strokeWeight,
   type Tool,
 } from "@/lib/ink";
-import { inkSpine, LISSAGE } from "@/lib/ink-smooth";
+import { adoucirAxe, inkSpine, LISSAGE, traceMain } from "@/lib/ink-smooth";
 
 /**
  * Les contours d'un trait, dans le repère où ses points sont donnés.
@@ -58,13 +58,39 @@ export function inkOutlines(
   echelle = 1,
 ): number[][][] {
   if (points.length === 0) return [];
+  if (echelle === 1) return contours(points, flat, tool, size);
+  /*
+   * Tout se calcule dans le repère de mille unités, et le **résultat** est mis à
+   * l'échelle.
+   *
+   * `getStroke` n'est pas invariant d'échelle : il écarte les points à moins d'une
+   * unité absolue et rogne trois unités au bout du tracé. Lui donner les points du
+   * PDF, où une unité de page vaut 0,6 point, produisait donc une forme voisine,
+   * mais pas la même. Un seul repère de calcul, et le papier montre ce que l'écran
+   * montrait, au pixel près et non à deux pour cent.
+   */
+  const reference = points.map((p) => [p[0] / echelle, p[1] / echelle, p[2]]);
+  return contours(reference, flat, tool, size).map((contour) =>
+    contour.map(([x, y]) => [x * echelle, y * echelle]),
+  );
+}
+
+/** Les contours d'un trait, dans le repère de mille unités. */
+function contours(
+  points: number[][],
+  flat: number[],
+  tool: string | undefined,
+  size: number,
+): number[][][] {
   const instrument = instrumentOf(tool);
-  const epaisseur = strokeWeight({ size, tool }, echelle);
+  const epaisseur = strokeWeight({ size, tool });
   const graine = inkSeed(flat);
 
   // Les trous sont comblés **une fois**, avant les passes : deux mèches
   // calculées sur des échantillonnages différents ne se suivraient pas.
-  const dense = inkSpine(points, LISSAGE.ecart * echelle);
+  // Le tracé d'une main est ensuite refait à pas constant et lissé sans retard.
+  const comble = inkSpine(points, LISSAGE.ecart);
+  const dense = traceMain(comble, LISSAGE.ecart) ? adoucirAxe(comble, LISSAGE.pasAxe) : comble;
 
   /*
    * La tranche du feutre et du surligneur.

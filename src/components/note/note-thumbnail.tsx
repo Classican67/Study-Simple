@@ -58,6 +58,17 @@ export function NoteThumbnail({
     );
   }
 
+  if (preview.kind === "texte") {
+    return (
+      <div
+        style={style}
+        className={cn("overflow-hidden bg-surface-lowest p-2 text-[0.55rem] leading-tight text-on-surface-variant", className)}
+      >
+        {preview.texte}
+      </div>
+    );
+  }
+
   if (preview.kind === "pdf") {
     return (
       <div style={style} className={cn("overflow-hidden bg-surface-lowest", className)}>

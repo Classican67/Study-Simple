@@ -252,7 +252,7 @@ export function PageNavigator({
                   onClick={() => aller(index)}
                   aria-current={index === active ? "true" : undefined}
                   aria-label={`Page ${index + 1}`}
-                  className="w-full rounded-xl p-1 text-left transition-colors hover:bg-surface-container-high"
+                  className="w-full rounded-xl p-1 text-left transition-colors hover:bg-surface-high"
                 >
                   {entree.paper !== null ? (
                     // Une page ajoutée se reconnaît à son fond : on le dessine

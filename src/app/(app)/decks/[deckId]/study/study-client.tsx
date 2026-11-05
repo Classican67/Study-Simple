@@ -420,13 +420,13 @@ function SwipeCard({
         <>
           <motion.div
             style={{ opacity: knownGlow }}
-            className="pointer-events-none absolute left-6 top-6 -rotate-12 rounded-2xl border-[3px] border-success bg-surface-container-container/80 px-4 py-2 text-base font-bold uppercase tracking-wide text-success backdrop-blur-sm"
+            className="pointer-events-none absolute left-6 top-6 -rotate-12 rounded-2xl border-[3px] border-success bg-surface-container/80 px-4 py-2 text-base font-bold uppercase tracking-wide text-success backdrop-blur-sm"
           >
             Je savais
           </motion.div>
           <motion.div
             style={{ opacity: reviewGlow }}
-            className="pointer-events-none absolute right-6 top-6 rotate-12 rounded-2xl border-[3px] border-error bg-surface-container-container/80 px-4 py-2 text-base font-bold uppercase tracking-wide text-error backdrop-blur-sm"
+            className="pointer-events-none absolute right-6 top-6 rotate-12 rounded-2xl border-[3px] border-error bg-surface-container/80 px-4 py-2 text-base font-bold uppercase tracking-wide text-error backdrop-blur-sm"
           >
             À revoir
           </motion.div>

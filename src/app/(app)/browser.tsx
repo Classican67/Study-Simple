@@ -1,8 +1,10 @@
 import Link from "next/link";
 import {
   ArrowRight,
+  BarChart3,
   CalendarClock,
   ChevronRight,
+  Flame,
   Folder as FolderIcon,
   History,
   Home,
@@ -11,6 +13,7 @@ import {
   Sparkles,
 } from "lucide-react";
 
+import { IconeDossier } from "@/components/couverture";
 import { Badge, EmptyState, ProgressBar } from "@/components/ui/panel";
 import { Button } from "@/components/ui/button";
 import { toPlainText } from "@/components/rich-text";
@@ -36,6 +39,7 @@ export function FolderBrowser({
   folderOptions,
   moveTargets = folderOptions,
   lastStudied,
+  serie = 0,
 }: {
   view: FolderView;
   folderOptions: FolderOption[];
@@ -43,6 +47,8 @@ export function FolderBrowser({
   moveTargets?: FolderOption[];
   /** Dernier paquet révisé. Absent hors de la racine, et tant qu'on n'a rien révisé. */
   lastStudied?: LastStudied | null;
+  /** Jours de révision d'affilée. Présent à la racine seulement. */
+  serie?: number;
 }) {
   const { current, breadcrumb, folders, decks, subtreeCards, dueHere, dueTotal } = view;
   const totalCards = decks.reduce((sum, deck) => sum + deck.cardCount, 0);
@@ -63,6 +69,18 @@ export function FolderBrowser({
       {/* Reprendre où l'on s'était arrêté : après la révision du jour, qui
           reste la porte d'entrée principale. */}
       {!current && lastStudied ? <ResumeBanner last={lastStudied} /> : null}
+
+      {/* Le chemin du bilan sur téléphone, où il n'a pas sa place dans la barre. */}
+      {!current && (lastStudied || serie > 0) ? (
+        <Link
+          href="/stats"
+          className="state-layer flex min-h-11 w-fit items-center gap-2 rounded-full bg-surface-container px-4 m3-label-large text-on-surface"
+        >
+          {serie > 0 ? <Flame aria-hidden className="size-4 text-primary" /> : <BarChart3 aria-hidden className="size-4 text-primary" />}
+          {serie > 0 ? `${serie} jour${serie > 1 ? "s" : ""} d'affilée` : "Voir mon bilan"}
+          <ChevronRight aria-hidden className="size-4 text-on-surface-variant" />
+        </Link>
+      ) : null}
 
       <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="flex min-w-0 items-start gap-3">
@@ -87,7 +105,7 @@ export function FolderBrowser({
           </div>
         </div>
 
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:flex-nowrap sm:gap-3">
+        <div className="flex w-full flex-wrap items-center gap-2 xl:w-auto xl:flex-nowrap xl:gap-3">
           {current ? (
             <FolderSettings
               folder={current}
@@ -150,7 +168,7 @@ export function FolderBrowser({
               <h2 className="m3-title-small uppercase tracking-widest text-on-surface-variant">
                 Dossiers
               </h2>
-              <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <ul className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                 {folders.map((folder) => (
                   // `min-w-0` : un élément de grille ne descend pas sous la
                   // largeur de son contenu, et un long nom de dossier faisait
@@ -158,29 +176,21 @@ export function FolderBrowser({
                   <DropZone key={folder.id} folderId={folder.id} className="min-w-0">
                     <Link
                       href={`/folders/${folder.id}`}
-                      className="group flex items-center gap-3 rounded-xl border border-outline-variant bg-surface-container p-4 elevation-1 transition-all hover:-translate-y-0.5 hover:border-outline hover:elevation-2"
+                      className="state-layer relative flex flex-col items-center gap-2 rounded-2xl p-3 transition-transform hover:-translate-y-0.5"
                     >
-                      <span
-                        className="grid size-10 shrink-0 place-items-center rounded-xl text-white elevation-1"
-                        style={{ backgroundColor: deckColor(folder.color) }}
-                      >
-                        <FolderIcon className="size-4.5" />
+                      <IconeDossier couleur={folder.color} id={folder.id} className="w-full max-w-36 drop-shadow-sm" />
+                      <span className="flex w-full min-w-0 items-center justify-center gap-1.5">
+                        <span className="min-w-0 truncate m3-title-small text-on-surface">{folder.name}</span>
+                        <PastilleHorsLigne genre="dossier" id={folder.id} />
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-semibold">
-                          {folder.name}
-                        </span>
-                        <span className="block m3-body-small text-on-surface-variant">
-                          {summarise(folder.deckCount, folder.childCount)}
-                        </span>
+                      <span className="text-center m3-body-small text-on-surface-variant">
+                        {summarise(folder.deckCount, folder.childCount)}
                       </span>
                       {folder.dueCount > 0 ? (
-                        <Badge tone="accent" className="shrink-0">
+                        <Badge tone="accent" className="absolute right-3 top-3">
                           {folder.dueCount}
                         </Badge>
                       ) : null}
-                      <PastilleHorsLigne genre="dossier" id={folder.id} />
-                      <ChevronRight className="size-4 shrink-0 text-on-surface-variant transition-transform group-hover:translate-x-0.5" />
                     </Link>
                   </DropZone>
                 ))}

@@ -197,7 +197,7 @@ const profil = (page, bande) =>
 // =============================================================================
 section("chaque instrument pose un trait différent");
 
-const ctx = await browser.newContext({ viewport: { width: 1194, height: 900 }, deviceScaleFactor: 2, hasTouch: true });
+const ctx = await browser.newContext({ viewport: { width: 1434, height: 900 }, deviceScaleFactor: 2, hasTouch: true });
 await ctx.addCookies([{ name: "fiches_session", value: token, domain: "localhost", path: "/" }]);
 const page = await nouvelleNote(ctx, `Barre ${Date.now()}`);
 
@@ -465,7 +465,7 @@ async function glisser(page, x, y) {
 
 const cadre = () => page.locator('[data-testid="barre-flottante"]').boundingBox();
 const dedans = (b, vp) => b.x >= -1 && b.y >= -1 && b.x + b.width <= vp.width + 1 && b.y + b.height <= vp.height + 1;
-const VP = { width: 1194, height: 900 };
+const VP = { width: 1434, height: 900 };
 
 for (const [nom, x, y] of [
   ["en haut à gauche", 40, 30],

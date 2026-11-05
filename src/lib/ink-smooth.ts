@@ -127,7 +127,7 @@ export const LISSAGE = {
    * sinon au bout d'un trait qui s'arrête net — l'erreur reste inférieure à
    * l'épaisseur d'un trait.
    */
-  predictionMax: 14,
+  predictionMax: 6,
   /**
    * Pas d'échantillonnage sous lequel on ne comble rien, en unités de la page.
    *
@@ -136,6 +136,33 @@ export const LISSAGE = {
    * souris ou un geste très rapide.
    */
   ecart: 3,
+  /**
+   * Pas de l'axe du trait, une fois rééchantillonné, en unités de la page.
+   *
+   * Les points d'un stylet sont rapprochés quand la main ralentit et écartés quand
+   * elle file : un lissage qui compte en **points** lisserait donc moins là où le
+   * bruit se voit le plus. Il compte en **longueur** : l'axe est d'abord refait à pas
+   * constant.
+   */
+  pasAxe: 1,
+  /**
+   * Passes du lissage de l'axe, chacune un noyau `[1, 2, 1]`.
+   *
+   * Deux passes valent un écart-type d'une unité : assez pour fondre la marche d'un
+   * pixel d'écran, bien sous la taille d'une lettre (vingt-cinq unités). Le filtre
+   * de capture, lui, traîne ; celui-ci est **symétrique**, il n'a pas de retard, et
+   * n'arrondit un angle que d'un cinquième de millimètre.
+   */
+  passesAxe: 2,
+  /**
+   * Passes du lissage de la pression, sur le même pas.
+   *
+   * Plus fort que pour la position : c'est la largeur du trait, et l'œil voit une
+   * largeur qui grésille bien avant une position qui tremble. Vingt-quatre passes
+   * valent trois unités et demie, soit moins d'une demi-lettre : on garde l'appui
+   * qui enfle sur un jambage, pas le bruit du capteur.
+   */
+  passesPression: 24,
 } as const;
 
 /** Lissage exponentiel d'une grandeur, à coefficient donné. */
@@ -194,6 +221,42 @@ export class UnEuro {
   get allure(): number {
     return Math.abs(this.vitesse.valeur ?? 0);
   }
+}
+
+/**
+ * L'heure de chaque événement d'un lot fusionné.
+ *
+ * Le filtre divise par le temps écoulé : deux points portant la même heure donnent
+ * une vitesse fausse, donc une coupure qui saute d'un point à l'autre, au rythme de
+ * l'écran. Selon le navigateur, les événements d'un lot portent leur heure propre,
+ * ou celle de l'événement principal. Dans le second cas, on les répartit
+ * régulièrement entre le lot précédent et celui-ci : c'est ce qu'ils sont.
+ */
+export function datesDuLot(heures: number[], precedente: number, fin: number): number[] {
+  const croissantes =
+    heures.length > 0 &&
+    heures[0] > precedente &&
+    heures.every((h, i) => i === 0 || h > heures[i - 1]);
+  if (croissantes) return heures;
+  return heures.map((_, i) => precedente + ((fin - precedente) * (i + 1)) / heures.length);
+}
+
+type EvenementPression = { pointerType: string; pressure: number };
+
+/**
+ * La pression d'un point d'un lot fusionné.
+ *
+ * Ces événements arrivent incomplets sur Safari 18.2 — sans `pointerId` ni `target`,
+ * documenté — et on ne peut pas présumer du reste. Tester le type sur **chacun**
+ * ferait retomber à 0,5 ceux à qui il manquerait, un point sur deux ou trois : la
+ * largeur sauterait dix fois plus d'un point au suivant, et le bord du trait
+ * grésillerait. Le type se lit donc sur l'événement principal, et la pression du
+ * fusionné n'est gardée que si elle est sûre.
+ */
+export function pressionDuPoint(point: EvenementPression, principal: EvenementPression): number {
+  if (principal.pointerType !== "pen") return 0.5;
+  if (point.pointerType === "pen" && point.pressure > 0) return point.pressure;
+  return principal.pressure > 0 ? principal.pressure : 0.5;
 }
 
 /** Un point du tracé, en proportion de la largeur de page. */
@@ -382,6 +445,84 @@ export function inkSpine(points: number[][], ecart: number): number[][] {
 
 function distance(a: number[], b: number[]): number {
   return Math.hypot(b[0] - a[0], b[1] - a[1]);
+}
+
+/** Une passe de noyau `[1, 2, 1]` sur une composante. Les deux bouts ne bougent pas. */
+function passe(valeurs: Float64Array, tampon: Float64Array) {
+  const n = valeurs.length;
+  tampon[0] = valeurs[0];
+  tampon[n - 1] = valeurs[n - 1];
+  for (let i = 1; i < n - 1; i++) tampon[i] = (valeurs[i - 1] + 2 * valeurs[i] + valeurs[i + 1]) / 4;
+  valeurs.set(tampon);
+}
+
+/**
+ * L'axe d'un trait, refait à pas constant et lissé **sans retard**.
+ *
+ * Le filtre de capture n'a pas accès à l'avenir : il traîne, et il doit laisser
+ * passer les gestes vifs. Ce qui reste — la marche d'un pixel d'une coordonnée
+ * arrondie, le bruit du capteur quand la main file — passe donc dans le contour, et
+ * c'est le bord du trait qui sort granuleux. Ici, au rendu, on a les points des deux
+ * côtés : le lissage est symétrique, et il ne décale rien.
+ *
+ * Il agit **au rendu**, sur les points enregistrés : l'écran, le PDF et les traits
+ * déjà écrits en profitent également, et rien de ce qui est stocké ne change.
+ *
+ * `pas` est dans le repère des points. Les bouts sont gardés : un trait commence et
+ * finit là où on l'a posé.
+ */
+export function adoucirAxe(points: number[][], pas: number): number[][] {
+  if (points.length < 4 || !(pas > 0)) return points;
+
+  const longueurs = new Float64Array(points.length);
+  for (let i = 1; i < points.length; i++) longueurs[i] = longueurs[i - 1] + distance(points[i - 1], points[i]);
+  const total = longueurs[points.length - 1];
+  // Arrondi à l'écart d'une erreur de calcul près : la même longueur doit donner le
+  // même nombre de points à l'écran et dans le PDF, sans quoi le grain d'un crayon,
+  // tiré du rang de chaque point, ne tomberait plus au même endroit.
+  const n = Math.floor(total / pas + 1e-6) + 1;
+  // Trop court pour que le lissage ait un sens : un point, un accent.
+  if (n < 5) return points;
+
+  const xs = new Float64Array(n + 1);
+  const ys = new Float64Array(n + 1);
+  const ps = new Float64Array(n + 1);
+  let k = 1;
+  for (let i = 0; i <= n; i++) {
+    const cible = (total * i) / n;
+    while (k < points.length - 1 && longueurs[k] < cible) k++;
+    const debut = longueurs[k - 1];
+    const u = longueurs[k] > debut ? (cible - debut) / (longueurs[k] - debut) : 0;
+    const a = points[k - 1];
+    const b = points[k];
+    xs[i] = a[0] + (b[0] - a[0]) * u;
+    ys[i] = a[1] + (b[1] - a[1]) * u;
+    ps[i] = (a[2] ?? 0.5) + ((b[2] ?? 0.5) - (a[2] ?? 0.5)) * u;
+  }
+
+  const tampon = new Float64Array(n + 1);
+  for (let i = 0; i < LISSAGE.passesAxe; i++) {
+    passe(xs, tampon);
+    passe(ys, tampon);
+  }
+  for (let i = 0; i < LISSAGE.passesPression; i++) passe(ps, tampon);
+
+  const sortie: number[][] = new Array(n + 1);
+  for (let i = 0; i <= n; i++) sortie[i] = [xs[i], ys[i], ps[i]];
+  return sortie;
+}
+
+/**
+ * Ces points viennent-ils d'une main ?
+ *
+ * Une forme redressée n'a que ses sommets, à des distances sans commune mesure avec
+ * un échantillonnage : lissée, elle perdrait ses angles.
+ */
+export function traceMain(points: number[][], ecart: number): boolean {
+  if (points.length < 8) return false;
+  let total = 0;
+  for (let i = 1; i < points.length; i++) total += distance(points[i - 1], points[i]);
+  return total / (points.length - 1) < ecart;
 }
 
 /**

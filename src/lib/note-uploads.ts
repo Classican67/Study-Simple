@@ -32,7 +32,10 @@ export async function nettoyerFichiers(noms: string[]) {
       // `contains` sur le contenu : le nom est un UUID suivi d'une extension,
       // il ne peut pas apparaître par hasard dans un texte.
       const encore = await prisma.noteBlock.count({ where: { content: { contains: nom } } });
-      if (encore === 0) await deleteUpload(nom);
+      if (encore > 0) return;
+      await deleteUpload(nom);
+      // Ce qu'on en avait lu n'a plus de raison d'être : on le chercherait encore.
+      await prisma.documentIndex.deleteMany({ where: { file: nom } });
     }),
   );
 }
@@ -40,7 +43,7 @@ export async function nettoyerFichiers(noms: string[]) {
 /** Les fichiers auxquels se réfèrent les blocs d'une note. */
 export async function fichiersDeLaNote(noteId: string): Promise<string[]> {
   const blocs = await prisma.noteBlock.findMany({
-    where: { noteId, kind: "drawing" },
+    where: { noteId, kind: { in: ["drawing", "image"] } },
     select: { kind: true, content: true },
   });
   return blocs.flatMap((b) => blockFiles(b.kind, b.content));

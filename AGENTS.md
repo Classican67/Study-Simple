@@ -59,6 +59,27 @@ Après toute modification visuelle, depuis `verify/` (serveur sur le port 3100) 
   se dit, délier qui révoque. La page y est mesurée reliée et « à relier », en
   clair et en sombre, sur téléphone et en desktop : `audit.mjs` ne la voit que
   sans Google configuré
+- `node latence-e2e.mjs` — **entre deux lettres** : cinquante traits au rythme d'une
+  écriture, sur une page de trois mille traits, processeur ralenti quatre fois.
+  `SEUIL_MS=10` en fait un garde-fou
+- `node texte-e2e.mjs` — **du texte sur la feuille** : écrire, rouvrir, déplacer,
+  agrandir, coller avec sa structure, et le PDF relu par pdf.js, où `∑` et `λ`
+  doivent se lire et tomber à la place qu'ils ont à l'écran
+- `node feuille-e2e.mjs` — **une note, une feuille** : une note neuve s'ouvre en
+  plein écran sur une seule surface, sans blocs, et une note d'avant la mise à
+  jour — posée en base sous sa forme d'origine — garde ses blocs
+- `node recherche-documents-e2e.mjs` — **chercher dans les documents** : un scan
+  fabriqué sans aucune couche de texte, lu par l'OCR, trouvé par la recherche
+  globale, ouvert à la bonne page ; et la loupe, dont le surlignage est mesuré
+  contre la place réelle du mot
+- `node images-posees-e2e.mjs` — **images posées et sélection** : poser, déplacer,
+  redimensionner, tourner, relu **en base** ; un geste vaut une entrée d'historique ;
+  copier-coller d'une note à l'autre, capture collée, image lâchée, et le PDF
+- `node etude-e2e.mjs` — caches de révision, carte tirée d'une note, bilan (sur des
+  réponses posées en base à dates connues), actions rapides, reprise de lecture
+- `node collage-e2e.mjs` — **coller en gardant la structure**, et l'image dans le
+  fil, sur le vrai presse-papiers. À lancer avec `NOTES_FORMAT_DEFAUT=blocs` : seules
+  les notes à blocs ont encore du texte
 - `node regard-sauvegarde.mjs` — la pastille d'enregistrement dans ses cinq
   états, mesurée et photographiée en clair et en sombre, sur téléphone et en
   desktop. `audit.mjs` ne la voit pas : il saute les éléments qui ont des
@@ -244,7 +265,101 @@ Les vérifications qui tiennent sans navigateur vont dans `tests/` — ordre des
 couches CSS, en-têtes HTTP, ordre des instructions du `Dockerfile`, cohérence
 du verrou npm.
 
+## Deux formes de note
+
+Toute note créée est une **feuille** (`Note.format = "feuille"`) : une seule
+surface, ouverte en plein écran. Les notes d'avant restent à **blocs**, et leur
+éditeur reste en place tant qu'il en existe. Presque tous les scénarios de `verify/`
+exercent ce second éditeur : ils se lancent sur un serveur démarré avec
+`NOTES_FORMAT_DEFAUT=blocs`, qui ne sert qu'à cela. `feuille-e2e`,
+`recherche-documents-e2e`, `images-posees-e2e`, `etude-e2e`, `texte-e2e` et
+`latence-e2e` se lancent sans lui.
+
 ## Pièges rencontrés
+
+- **Une classe de couleur inconnue ne produit rien, en silence.**
+  `bg-surface-container-high` a vécu à treize endroits — barre de l'éditeur,
+  dialogues, gouttière entre deux pages — sans jamais exister : le rôle s'appelle
+  `surface-high`. Aucune mesure ne pouvait le voir, l'élément existe et a la bonne
+  taille. C'est la capture d'une barre illisible en sombre qui l'a montré, et
+  `tests/styles.test.ts` vérifie désormais chaque rôle contre le thème.
+- **La sonde de contraste ne regarde que le texte.** Une icône pâle sur un fond
+  manquant passe. Il faut ouvrir la capture.
+- **Une langue absente de `langPath` ne fait pas d'erreur.** `tesseract.js` attend
+  pour toujours, sans un mot : l'indexeur restait suspendu. D'où `fra` seul, depuis
+  `node_modules`, et le délai de garde par page dans `lib/documents-index.ts`.
+- **`npm install` retire `@emnapi/*` du verrou.** `tests/lockfile.test.ts` l'attrape.
+  Remettre ces entrées depuis la version committée, puis éprouver `npm ci` dans un
+  dossier vide : il ne suffit pas que le test passe.
+- **Le milieu de la surface n'est pas le milieu de l'écran.** La surface d'une note à
+  blocs dépasse en bas de la fenêtre : une image posée « au centre » arrivait avec
+  sa poignée hors de portée. `zoneVisible` croise la surface et l'écran.
+- **Agrandir se mesure en projection, pas en distance.** Tirer un coin au-delà du
+  centre fait remonter la distance : l'image regrandissait jusqu'à deux fois la page
+  au lieu de se réduire. C'est la projection sur la diagonale de départ qui compte.
+- **Le coût d'un lever se paie sur le poser suivant.** Écrire, c'est lever et reposer
+  la pointe dix fois par seconde. Repeindre les tuiles et prévenir React à chaque
+  lever occupait le fil principal 38 ms sur une page dense : le début de la lettre
+  suivante arrivait en retard, ou pas du tout. C'était invisible dans les scripts,
+  qui ne levaient jamais la pointe à ce rythme. Le trait reste désormais sur la
+  couche vive (`fraiches`) jusqu'à une pause de 280 ms : 1 ms mesurée. **Un trait
+  n'est dans le contenu qu'après la pause** : tout ce qui lit `actuel` ailleurs que
+  sur la feuille passe par `encre.current?.verser()` d'abord.
+- **Les événements fusionnés de Safari sont incomplets.** Sur 18.2 ils n'ont ni
+  `pointerId` ni `target` (documenté). Le type et la pression se lisent donc sur
+  l'événement principal, et l'heure se répartit quand elle est en double
+  (`datesDuLot`). Tester le type sur chaque point multiplie par dix le saut de
+  pression d'un point à l'autre s'il manque : le bord grésille.
+- **`/diagnostic-stylet` dit ce que Safari livre vraiment.** Aucun réglage du tracé
+  ne se décide sans lui : Chromium ne reproduit ni les heures, ni les arrondis, ni
+  les interruptions. Ouvrir la page sur l'iPad, écrire, copier le rapport.
+- **Le lissage de l'axe se fait au rendu, et il est symétrique** (`adoucirAxe`). Il
+  n'a donc pas de retard, profite aux traits déjà écrits et au PDF, et ne change
+  rien à ce qui est stocké. Il compte en longueur et non en points : refaire l'axe à
+  pas constant vient d'abord, sinon il lisserait moins là où la main ralentit.
+- **Un contour se calcule dans un seul repère.** `getStroke` n'est pas invariant
+  d'échelle : lui donner les points du PDF donnait une forme voisine. Il reçoit
+  toujours des unités de mille, et seul le résultat est mis à l'échelle.
+- **Une clef neuve se place après les traits.** L'enregistrement n'envoie que ce
+  qui change entre le début et la fin du texte : `images` placée avant `strokes`
+  faisait de tout le document « ce qui a changé », et un trait dans une note d'avant
+  renvoyait vingt mégaoctets. `long-document-e2e.mjs` l'a vu, et seulement lui : le
+  résultat à l'écran était juste.
+- **La colonne latérale prend 240 px à tout ce qui mesurait la largeur.** Les en-têtes
+  en `sm:flex-nowrap` débordaient de 107 px à 1024 px, et deux sondes à seuil
+  (`fonds-e2e`, `barre-e2e`) mesuraient soudain une page plus étroite : elles tournent
+  en 1434 px, pour garder la largeur de page qu'elles éprouvent. Ne pas baisser un
+  seuil : donner à la sonde la page qu'elle attendait.
+- **Une pilule flotte sur le haut de la feuille.** Un geste de script qui y commence
+  n'atteint pas le canevas : c'est voulu. Les lassos partent donc sous elle.
+- **`prisma migrate deploy` échoue si un serveur tient la base en WAL.** Arrêter le
+  serveur d'abord. L'image n'est pas concernée : elle migre avant de démarrer.
+- **Une sortie de commande vide n'est pas un succès.** `… | tail -1` a caché l'échec
+  d'une migration : le serveur a ensuite répondu « The column `plain` does not exist »,
+  et la page a sorti une erreur React 441, qui ne dit rien.
+- **L'arrêt de la file coupe les relances, pas le dernier envoi.** Quitter une note
+  vide le dernier enregistrement au moment où la file s'arrête : il restait sur
+  l'appareil et n'atteignait le serveur qu'à la réouverture. Ancien, et invisible tant
+  que le script ne regardait pas la base juste après être sorti de la note.
+- **Une police standard de PDF n'a ni λ, ni ∑.** Le texte passe donc par DejaVu Sans
+  Condensed, embarquée par sous-ensemble (8 Ko pour une page), dont `zones-texte.test`
+  vérifie les quatre graisses contre **toute** la palette de symboles. Ajouter un
+  symbole hors de la police fait échouer le test, pas l'export.
+- **`textes` est la dernière clef d'un dessin.** La recherche la relit à chaque
+  enregistrement en repartant de la fin (`zonesDuContenu`), et le texte extrait reste
+  dans `NoteBlock.plain` : une page de vingt mégaoctets ne se réanalyse pas à chaque
+  lettre.
+- **Chaque `npm install` retire Playwright de `node_modules`.** `verify/` n'a pas son
+  propre dossier : relancer `./bootstrap.sh` après toute installation.
+- **Une note neuve n'a plus de bloc de texte.** Le collage de texte n'a donc nulle
+  part où aller sur une feuille : il le dit au lieu de créer un bloc, qui ferait de
+  la feuille autre chose qu'une feuille.
+- **`> 65 ans` n'est pas une citation.** Le balisage n'a pas de `>` à dessein : les
+  cartes médicales en commencent, et rien de ce qui existe n'est échappé. Une
+  citation collée passe en italique.
+- **Le journal SQLite est en WAL** (posé à chaque démarrage, `instrumentation.ts`).
+  `cp data/dev.db` ne prend donc pas ce qui attend dans `dev.db-wal` si le serveur
+  de dev tourne : l'arrêter d'abord, ou copier avec `sqlite3 … ".backup"`.
 
 - **Couches CSS.** Une règle maison dans `@layer utilities` passe *après* celles
   de Tailwind et gagne à spécificité égale. Tout ce qu'un utilitaire doit

@@ -9,8 +9,7 @@ import {
   inkSpine,
   LISSAGE,
   LisseurDeTrait,
-  UnEuro,
-} from "@/lib/ink-smooth";
+  UnEuro, adoucirAxe, datesDuLot, pressionDuPoint, traceMain } from "@/lib/ink-smooth";
 
 /**
  * Un stylet de laboratoire.
@@ -293,12 +292,83 @@ describe("l'écran et le papier comblent les trous de la même façon", () => {
     // Comblés **une fois**, avant les mèches : deux passes calculées sur des
     // échantillonnages différents ne se suivraient pas.
     assert.ok(
-      /const dense = inkSpine\(points, LISSAGE\.ecart \* echelle\)/.test(code),
+      /const comble = inkSpine\(points, LISSAGE\.ecart\)/.test(code),
       "inkOutlines doit combler une fois, avant les passes",
     );
     assert.ok(!/getStroke\([^)]*inkSpine/.test(code), "et non à chaque passe");
-    // Et l'écart est mis à l'échelle du repère : dans un PDF, une unité de la
-    // page de mille ne vaut pas un point typographique.
-    assert.ok(/LISSAGE\.ecart \* echelle/.test(code), "l'écart doit suivre l'échelle du repère");
+    // Et le calcul se fait dans un seul repère : le PDF ne reçoit que le résultat,
+    // mis à l'échelle, parce que `getStroke` n'est pas invariant d'échelle.
+    assert.ok(/contour\.map\(\(\[x, y\]\) => \[x \* echelle, y \* echelle\]\)/.test(code), "le contour doit être mis à l'échelle");
+  });
+});
+
+describe("le trait tel que Safari le livre", () => {
+  const pen = { pointerType: "pen", pressure: 0.3 };
+
+  it("garde la pression d'un point fusionné qui se dit stylet", () => {
+    assert.equal(pressionDuPoint({ pointerType: "pen", pressure: 0.42 }, pen), 0.42);
+  });
+
+  it("un fusionné sans type prend la pression de l'événement principal, jamais 0,5", () => {
+    assert.equal(pressionDuPoint({ pointerType: "", pressure: 0 }, pen), 0.3);
+    assert.equal(pressionDuPoint({ pointerType: "", pressure: 0.5 }, pen), 0.3);
+  });
+
+  it("une souris et un doigt restent à l'appui moyen", () => {
+    assert.equal(pressionDuPoint({ pointerType: "mouse", pressure: 0.9 }, { pointerType: "mouse", pressure: 0.9 }), 0.5);
+  });
+
+  it("garde les heures d'un lot quand elles sont les siennes", () => {
+    assert.deepEqual(datesDuLot([104, 108, 112], 100, 112), [104, 108, 112]);
+  });
+
+  it("répartit un lot qui porte partout la même heure", () => {
+    assert.deepEqual(datesDuLot([112, 112, 112], 100, 112), [104, 108, 112]);
+  });
+
+  it("répartit aussi un lot qui commence avant le précédent", () => {
+    assert.deepEqual(datesDuLot([90, 95], 100, 110), [105, 110]);
+  });
+
+  it("l'axe garde ses deux bouts : un trait finit là où on l'a levé", () => {
+    const points = Array.from({ length: 60 }, (_, i) => [i * 0.7, Math.round(Math.sin(i / 6) * 8), 0.5]);
+    const doux = adoucirAxe(points, 1);
+    assert.deepEqual(doux[0].slice(0, 2), points[0].slice(0, 2));
+    assert.deepEqual(doux.at(-1)!.slice(0, 2), points.at(-1)!.slice(0, 2));
+  });
+
+  it("une marche d'un pixel se fond", () => {
+    // Une droite faiblement inclinée, arrondie au pixel : un escalier.
+    const points = Array.from({ length: 200 }, (_, i) => [i * 0.8, Math.round(i * 0.05), 0.5]);
+    const marche = (liste: number[][]) => {
+      let max = 0;
+      for (let i = 1; i < liste.length; i++) max = Math.max(max, Math.abs(liste[i][1] - liste[i - 1][1]));
+      return max;
+    };
+    assert.ok(marche(adoucirAxe(points, 1)) < marche(points) / 2.5, String(marche(adoucirAxe(points, 1))));
+  });
+
+  it("une pression qui saute un point sur deux ne fait plus grésiller la largeur", () => {
+    const points = Array.from({ length: 200 }, (_, i) => [i, 0, i % 2 ? 0.5 : 0.3]);
+    const pressions = adoucirAxe(points, 1).slice(30, 170).map((p) => p[2]);
+    assert.ok(Math.max(...pressions) - Math.min(...pressions) < 0.01);
+  });
+
+  it("garde un jambage : l'angle d'un « v » reste à moins d'une unité", () => {
+    const points: number[][] = [];
+    for (let i = 0; i <= 40; i++) points.push([i * 0.5, i * 0.5, 0.5]);
+    for (let i = 1; i <= 40; i++) points.push([20 + i * 0.5, 20 - i * 0.5, 0.5]);
+    const bas = Math.max(...adoucirAxe(points, 1).map((p) => p[1]));
+    assert.ok(20 - bas < 1, String(20 - bas));
+  });
+
+  it("une forme redressée n'est pas une main : ses angles restent francs", () => {
+    assert.equal(traceMain([[0, 0], [100, 0], [100, 100], [0, 100], [0, 0]], 3), false);
+    assert.equal(traceMain(Array.from({ length: 40 }, (_, i) => [i, 0]), 3), true);
+  });
+
+  it("un point ou un accent ne bouge pas", () => {
+    const accent = [[0, 0, 0.5], [0.5, 0.2, 0.5], [1, 0.3, 0.5], [1.2, 0.5, 0.5]];
+    assert.equal(adoucirAxe(accent, 1), accent);
   });
 });

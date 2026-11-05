@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Columns3, Rows3, Trash2 } from "lucide-react";
 
+import { grilleDuPressePapiers } from "@/lib/collage";
 import { columnName, evaluateSheet, isFormula } from "@/lib/sheet";
 import { MAX_TABLE_COLS, MAX_TABLE_ROWS, type TableContent } from "@/lib/notes";
 import { cn } from "@/lib/utils";
@@ -42,6 +43,32 @@ export function TableBlock({
   function setCell(row: number, col: number, value: string) {
     const next = rows.map((r, ri) => r.map((c, ci) => (ri === row && ci === col ? value : c)));
     onChange({ rows: next });
+  }
+
+  /**
+   * Coller une plage depuis une feuille de calcul ou un tableau.
+   *
+   * Elle remplit les cellules à partir de celle où l'on est, et le tableau
+   * grandit pour la recevoir. Une seule cellule collée suit le chemin ordinaire :
+   * c'est du texte dans un champ.
+   */
+  function collerPlage(event: React.ClipboardEvent, row: number, col: number) {
+    const plage = grilleDuPressePapiers(
+      event.clipboardData.getData("text/html"),
+      event.clipboardData.getData("text/plain"),
+    );
+    if (!plage || (plage.length < 2 && (plage[0]?.length ?? 0) < 2)) return;
+    event.preventDefault();
+
+    const hauteur = Math.min(MAX_TABLE_ROWS, Math.max(rows.length, row + plage.length));
+    const largeur = Math.min(MAX_TABLE_COLS, Math.max(width, col + (plage[0]?.length ?? 0)));
+    const suivant = Array.from({ length: hauteur }, (_, r) =>
+      Array.from({ length: largeur }, (_, c) => {
+        const collee = plage[r - row]?.[c - col];
+        return collee !== undefined ? collee : (rows[r]?.[c] ?? "");
+      }),
+    );
+    onChange({ rows: suivant });
   }
 
   function addRow() {
@@ -141,6 +168,7 @@ export function TableBlock({
                         onFocus={() => setEditing({ row: ri, col: ci })}
                         onBlur={() => setEditing(null)}
                         onChange={(event) => setCell(ri, ci, event.target.value)}
+                        onPaste={readOnly ? undefined : (event) => collerPlage(event, ri, ci)}
                         aria-label={`${columnName(ci)}${ri + 1}`}
                         className={cn(
                           "h-11 w-full min-w-24 bg-transparent px-2 text-on-surface outline-none",

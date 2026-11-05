@@ -11,7 +11,7 @@
  * reste.
  */
 
-import { parseTable, parseText, type TextStyle } from "@/lib/notes";
+import { parseImageBlock, parseTable, parseText, zonesDuContenu, type TextStyle } from "@/lib/notes";
 import { evaluateSheet } from "@/lib/sheet";
 
 const PREFIXES: Record<TextStyle, string> = {
@@ -75,6 +75,14 @@ export function noteMarkdown(
     } else if (bloc.kind === "table") {
       const md = tableau(parseTable(bloc.content).rows);
       if (md) morceaux.push(md);
+    } else if (bloc.kind === "drawing") {
+      for (const zone of zonesDuContenu(bloc.content)) {
+        const texte = sansCouleur(zone.markup).trim();
+        if (texte) morceaux.push(texte);
+      }
+    } else if (bloc.kind === "image") {
+      const { file, legende } = parseImageBlock(bloc.content);
+      if (file) morceaux.push(`![${legende.replace(/[[\]]/g, "")}](${file})`);
     }
   }
   if (morceaux.length === 0) return null;

@@ -82,7 +82,7 @@ await audit("sens inverse sombre", phone, `/decks/${deckId}/study?all=1`, true, 
 
 // La recherche AVEC du texte saisi : la croix d'effacement n'existe qu'alors.
 const openSearch = async (p) => {
-  await p.locator('button[aria-label^="Rechercher"]').first().click();
+  await p.locator('button[aria-label^="Rechercher"]:visible').first().click();
   await p.waitForSelector('input[aria-label="Rechercher"]');
   await p.locator('input[aria-label="Rechercher"]').fill("mit");
   await p.waitForTimeout(700);

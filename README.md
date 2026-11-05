@@ -45,6 +45,28 @@ L'icône de la PWA est générée par `npm run icons` à partir du même dessin 
 
 ---
 
+## Recherche dans les documents
+
+Chaque PDF, Word converti et photo d'une note est lu en arrière-plan, page par
+page : la couche de texte d'abord, l'**OCR** (`tesseract.js`, français) pour les
+pages scannées. La recherche globale et la loupe de la barre d'outils s'appuient
+sur ce texte. Rien ne quitte la machine : les données de langue sont dans
+`node_modules`, et il n'y a ni service externe ni modèle génératif.
+
+La lecture tourne dans un processus à part, à basse priorité, un document à la
+fois. Elle reprend où elle en était après un redémarrage, et les documents importés
+avant cette version sont rattrapés au démarrage du serveur. Compter quelques
+secondes par page scannée.
+
+Avec une base en WAL, **arrêter le serveur avant `npm run db:deploy`** : sinon la
+migration échoue sur un verrou. L'image Docker migre avant de démarrer, elle n'est
+pas concernée.
+
+`APP_TIMEZONE` (par défaut `Europe/Paris`) fixe le fuseau du bilan : c'est lui qui
+dit quel jour était une révision, et donc si une série tient.
+
+---
+
 ## Comment les données sont réparties
 
 | Donnée | Où elle vit | Pourquoi |

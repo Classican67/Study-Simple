@@ -75,6 +75,8 @@ export type NoteHorsLigne = {
   mastered: boolean;
   /** Vignette de la liste — petite et bornée, cf. `Note.preview`. */
   preview: string;
+  /** « feuille » ou « blocs ». Absent des copies gardées avant les feuilles. */
+  format?: string;
   /** Date serveur de dernière écriture : c'est elle qui départage un brouillon local. */
   updatedAt: number;
   version: string;

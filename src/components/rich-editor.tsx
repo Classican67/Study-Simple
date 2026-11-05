@@ -3,13 +3,9 @@
 import * as React from "react";
 import { Bold, Italic, List, ListOrdered, Palette, Sigma, Strikethrough } from "lucide-react";
 
-import {
-  TEXT_COLORS,
-  escapeMarkup,
-  isTextColor,
-  markupToHtml,
-  type TextColor,
-} from "@/components/rich-text";
+import { TEXT_COLORS, markupInlineHtml, markupToHtml, type TextColor } from "@/components/rich-text";
+import { serializeEditor } from "@/lib/balisage-dom";
+import { blocsDuPressePapiers, tableEnLignes, type BlocColle } from "@/lib/collage";
 import {
   GROUPES_MATHS,
   chercherSymboles,
@@ -18,6 +14,8 @@ import {
   type Symbole,
 } from "@/lib/maths";
 import { cn } from "@/lib/utils";
+
+export { serializeEditor };
 
 /**
  * Éditeur visuel : le gras s'affiche en gras, jamais sous forme de `**`.
@@ -29,198 +27,6 @@ import { cn } from "@/lib/utils";
  * ce que le navigateur pourrait produire (styles collés, balises exotiques)
  * n'atteint la base.
  */
-
-// --- DOM → balisage ---------------------------------------------------------
-
-/*
- * Le DOM d'un contenteditable ne se transcrit pas balise par balise. Le
- * navigateur imbrique, découpe et recouvre ses éléments à sa guise, et une
- * traduction récursive écrivait des balisages que l'analyseur relisait de
- * travers — des `**` et des `{c:…}` visibles à la réouverture :
- *   - `**mot **` quand la sélection emportait l'espace (double-tap sur iPad) ;
- *   - `**a *b***` quand l'italique finit avec le gras : trois étoiles, que
- *     l'analyseur ferme au mauvais endroit ;
- *   - `{c:rose}a {c:blue}b{/c} c{/c}` quand on recolore un texte coloré ;
- *   - `**un\ndeux**` quand le gras enjambe un retour à la ligne, alors que
- *     l'analyse se fait ligne par ligne ;
- *   - `5*3*2` tapé au clavier, relu comme une italique.
- * Le DOM est donc d'abord **aplati** en lignes de segments, chacun portant
- * l'ensemble de ses mises en forme, puis réécrit : chaque ligne porte ses
- * propres marqueurs, les espaces restent hors des marqueurs, l'italique
- * s'écrit `_` pour ne jamais toucher l'étoile du gras, la couleur la plus
- * intérieure l'emporte sans imbrication, et le texte tapé est échappé.
- */
-
-type Format = {
-  strong: boolean;
-  em: boolean;
-  del: boolean;
-  code: boolean;
-  color: TextColor | null;
-};
-
-type Segment = { text: string; format: Format };
-type Line = { prefix: string; segments: Segment[] };
-
-const PLAIN: Format = { strong: false, em: false, del: false, code: false, color: null };
-
-/**
- * Couleur portée par un span, lue sur `data-c` uniquement. `none` est posé
- * par « Retirer la couleur » à l'intérieur d'un texte coloré, et annule la
- * couleur héritée.
- *
- * On ne tente pas de rattraper une couleur posée en style inline : les
- * navigateurs normalisent la valeur à la sérialisation (`oklch(55% …)` devient
- * `oklch(0.55 …)`), donc toute comparaison de chaînes échouerait. Le cas ne se
- * présente d'ailleurs pas : la couleur est toujours posée par applyColor, qui
- * écrit `data-c`, et le collage est réduit en texte brut.
- */
-function colorOf(element: HTMLElement, inherited: TextColor | null): TextColor | null {
-  const attribute = element.dataset.c;
-  if (attribute === "none") return null;
-  return attribute && isTextColor(attribute) ? attribute : inherited;
-}
-
-/**
- * Mise en forme qu'un élément ajoute — ou retire — à celle qu'il hérite.
- * WebKit ne défait pas toujours un gras en retirant la balise : dans un
- * `<strong>`, il pose un `<span style="font-weight: normal">`. Sans lire ce
- * style, le gras retiré revenait à la réouverture.
- */
-function formatOf(element: HTMLElement, parent: Format): Format {
-  const tag = element.tagName.toLowerCase();
-  const next = { ...parent };
-
-  if (tag === "b" || tag === "strong") next.strong = true;
-  if (tag === "i" || tag === "em") next.em = true;
-  if (tag === "s" || tag === "strike" || tag === "del") next.del = true;
-  if (tag === "code") next.code = true;
-
-  const style = element.style;
-  if (style) {
-    const weight = style.fontWeight;
-    if (weight === "bold" || weight === "bolder" || Number(weight) >= 600) next.strong = true;
-    else if (weight === "normal" || (weight && Number(weight) < 600)) next.strong = false;
-    if (style.fontStyle === "italic") next.em = true;
-    else if (style.fontStyle === "normal") next.em = false;
-  }
-
-  if (tag === "span") next.color = colorOf(element, parent.color);
-  return next;
-}
-
-const BLOCK_TAGS = new Set(["div", "p", "li", "h1", "h2", "h3", "h4", "blockquote", "pre"]);
-
-/** Aplatit l'éditeur en lignes de segments mis en forme. */
-function flatten(root: HTMLElement): Line[] {
-  const lines: Line[] = [];
-  let current: Line | null = null;
-
-  const open = (prefix = "") => {
-    // Un bloc ouvert juste après un autre, vide, le réutilise : sans cela
-    // `<div><div>x</div></div>` laisserait une ligne vide devant.
-    if (current && current.segments.length === 0 && !current.prefix) current.prefix = prefix;
-    else {
-      current = { prefix, segments: [] };
-      lines.push(current);
-    }
-  };
-
-  const walk = (node: Node, format: Format, listItem?: () => string) => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent ?? "";
-      if (!text) return;
-      if (!current) open();
-      current!.segments.push({ text, format });
-      return;
-    }
-    if (node.nodeType !== Node.ELEMENT_NODE) return;
-
-    const element = node as HTMLElement;
-    const tag = element.tagName.toLowerCase();
-
-    if (tag === "br") {
-      if (!current) open();
-      current = null;
-      return;
-    }
-
-    if (tag === "ul" || tag === "ol") {
-      let index = 0;
-      const prefix = () => (tag === "ul" ? "- " : `${++index}. `);
-      for (const child of Array.from(element.childNodes)) walk(child, format, prefix);
-      current = null;
-      return;
-    }
-
-    const next = formatOf(element, format);
-
-    if (BLOCK_TAGS.has(tag)) {
-      open(tag === "li" && listItem ? listItem() : "");
-      for (const child of Array.from(element.childNodes)) walk(child, next);
-      current = null;
-      return;
-    }
-
-    for (const child of Array.from(element.childNodes)) walk(child, next, listItem);
-  };
-
-  for (const child of Array.from(root.childNodes)) walk(child, PLAIN);
-  return lines;
-}
-
-// Ordre d'imbrication : la couleur à l'extérieur, le code au plus près du
-// texte. Un ordre fixe fait que deux segments voisins partagent leurs
-// marqueurs extérieurs au lieu de les fermer et rouvrir.
-const LAYERS: {
-  key: keyof Format;
-  wrap: (inner: string, format: Format) => string;
-}[] = [
-  { key: "color", wrap: (inner, f) => `{c:${f.color}}${inner}{/c}` },
-  { key: "strong", wrap: (inner) => `**${inner}**` },
-  { key: "del", wrap: (inner) => `~~${inner}~~` },
-  { key: "em", wrap: (inner) => `_${inner}_` },
-  { key: "code", wrap: (inner) => `\`${inner}\`` },
-];
-
-function emit(segments: Segment[], depth = 0): string {
-  if (depth === LAYERS.length) return segments.map((s) => escapeMarkup(s.text)).join("");
-
-  const layer = LAYERS[depth];
-  let out = "";
-  let start = 0;
-  while (start < segments.length) {
-    const value = segments[start].format[layer.key];
-    let end = start + 1;
-    while (end < segments.length && segments[end].format[layer.key] === value) end++;
-
-    const inner = emit(segments.slice(start, end), depth + 1);
-    if (!value) out += inner;
-    else {
-      // Les espaces restent hors des marqueurs : `**mot **` ne se relit pas.
-      // Les couches intérieures les ont déjà repoussés au bord.
-      const [, lead, core, trail] = /^(\s*)([\s\S]*?)(\s*)$/.exec(inner)!;
-      out += core ? lead + layer.wrap(core, segments[start].format) + trail : inner;
-    }
-    start = end;
-  }
-  return out;
-}
-
-/** Transcrit le contenu d'un contenteditable dans le balisage stocké. */
-export function serializeEditor(root: HTMLElement): string {
-  return flatten(root)
-    .map((line) => {
-      const text = emit(line.segments);
-      // Une puce vide ne vaut pas d'être gardée.
-      if (line.prefix) return text.trim() ? line.prefix + text.trim() : null;
-      return text;
-    })
-    .filter((line): line is string => line !== null)
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
 
 // --- Commandes --------------------------------------------------------------
 
@@ -248,6 +54,9 @@ export function RichEditor({
   className,
   compact = false,
   minHeight = "3.5rem",
+  onPasteImage,
+  onPasteBlocs,
+  flottant = false,
 }: {
   value: string;
   onChange: (markup: string) => void;
@@ -258,6 +67,15 @@ export function RichEditor({
   /** Masque la barre d'outils tant que le champ n'a pas le focus. */
   compact?: boolean;
   minHeight?: string;
+  /** Une image collée. Sans lui, seul le texte du presse-papiers est repris. */
+  onPasteImage?: (image: File) => void;
+  /** Ce qui ne tient pas dans ce champ : un tableau, un très long texte. */
+  onPasteBlocs?: (blocs: BlocColle[]) => void;
+  /**
+   * Posé sur une page : sans cadre, le texte à sa taille de page, et la barre au-dessus
+   * de lui plutôt qu'en tête — elle ne doit pas le faire descendre pendant qu'on écrit.
+   */
+  flottant?: boolean;
 }) {
   const ref = React.useRef<HTMLDivElement>(null);
   const [empty, setEmpty] = React.useState(!value.trim());
@@ -378,6 +196,17 @@ export function RichEditor({
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
+    /*
+     * Tabulation dans une liste : un niveau de plus, ou de moins. Elle ne sort
+     * du champ que hors d'une liste — et Maj+Tab au premier niveau doit laisser
+     * la main, sans quoi on ne quitterait jamais le champ au clavier.
+     */
+    if (event.key === "Tab" && dansUneListe()) {
+      event.preventDefault();
+      document.execCommand(event.shiftKey ? "outdent" : "indent", false);
+      emit();
+      return;
+    }
     if (!event.metaKey && !event.ctrlKey) return;
     const key = event.key.toLowerCase();
     if (key === "b") {
@@ -389,27 +218,80 @@ export function RichEditor({
     }
   }
 
+  /**
+   * Coller en gardant la structure.
+   *
+   * Le HTML du presse-papiers n'atteint jamais le champ : il est traduit dans
+   * notre balisage (`lib/collage.ts`), et c'est **ce balisage** qui est remis
+   * en HTML pour être inséré. Rien de ce que Word ou une page web a posé —
+   * styles, polices, classes — ne peut donc entrer, et ce qui entre se relit à
+   * l'identique après enregistrement.
+   */
+  function dansUneListe(): boolean {
+    const noeud = window.getSelection()?.anchorNode ?? null;
+    const element = noeud?.nodeType === 1 ? (noeud as Element) : noeud?.parentElement;
+    return Boolean(element?.closest("li") && ref.current?.contains(element));
+  }
+
   function onPaste(event: React.ClipboardEvent) {
-    // Le HTML collé depuis une page web amène des styles et des balises qui
-    // n'ont pas de traduction dans notre balisage : on n'en garde que le texte.
     event.preventDefault();
-    const text = event.clipboardData.getData("text/plain");
-    document.execCommand("insertText", false, text);
+    const donnees = event.clipboardData;
+
+    const image = Array.from(donnees.files).find((f) => f.type.startsWith("image/"));
+    if (image && onPasteImage) {
+      onPasteImage(image);
+      return;
+    }
+
+    const blocs = blocsDuPressePapiers(
+      donnees.getData("text/html"),
+      donnees.getData("text/plain"),
+    );
+    if (blocs.length === 0) return;
+
+    // Un tableau, ou un texte trop long pour un seul champ : ce qui suit la
+    // première partie devient des blocs, juste après celui-ci.
+    if (onPasteBlocs && (blocs.length > 1 || blocs[0].kind === "table" || blocs[0].markup.length > 8000)) {
+      const [premier, ...suite] = blocs;
+      if (premier.kind === "text" && premier.markup.length <= 8000) {
+        inserer(premier.markup);
+        onPasteBlocs(suite);
+      } else {
+        onPasteBlocs(blocs);
+      }
+      return;
+    }
+
+    // Une carte n'a pas de tableau : il devient des lignes, plutôt que rien.
+    inserer(blocs.map(enBalisage).join("\n"));
+  }
+
+  function inserer(markup: string) {
+    const lignes = markup.split("\n");
+    const simple = lignes.length === 1 && !/^(#{1,3}\s|\s*[-*]\s|\s*\d+[.)]\s)/.test(markup);
+    // Sur une ligne, le texte rejoint la ligne en cours ; sinon il apporte ses
+    // propres lignes.
+    document.execCommand("insertHTML", false, simple ? markupInlineHtml(markup) : markupToHtml(markup));
     emit();
   }
 
   return (
     <div
       className={cn(
-        "group rounded-xl border border-outline-variant bg-surface-container",
-        "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary",
+        "group",
+        flottant
+          ? "relative"
+          : "rounded-xl border border-outline-variant bg-surface-container focus-within:border-primary focus-within:ring-2 focus-within:ring-primary",
         className,
       )}
     >
       <div
         className={cn(
-          "relative flex-wrap items-center gap-0.5 border-b border-outline-variant bg-surface-container-high px-1.5 py-1",
-          compact ? "hidden group-focus-within:flex" : "flex",
+          "relative flex-wrap items-center gap-0.5 px-1.5 py-1",
+          flottant
+            ? "absolute bottom-full left-0 z-20 mb-2 flex w-max max-w-[min(90vw,28rem)] rounded-full bg-surface-high text-[1rem] elevation-2"
+            : "border-b border-outline-variant bg-surface-high",
+          flottant ? null : compact ? "hidden group-focus-within:flex" : "flex",
         )}
       >
         {TOOLS.map((tool) => {
@@ -526,10 +408,16 @@ export function RichEditor({
           onPaste={onPaste}
           style={{ minHeight }}
           className={cn(
-            "w-full px-3 py-2 text-sm leading-relaxed text-on-surface outline-none",
+            flottant
+              ? "w-full select-text outline-none [line-height:1.35] [&_li]:m-0 [&_ol]:pl-[1.2em] [&_ul]:pl-[1.2em]"
+              : "w-full px-3 py-2 text-sm leading-relaxed text-on-surface outline-none",
             // Les listes du contenteditable n'héritent pas des styles de base.
             "[&_ol]:list-decimal [&_ol]:pl-5 [&_ul]:list-disc [&_ul]:pl-5",
-            "[&_code]:rounded [&_code]:bg-surface-container-high [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono",
+            "[&_ul_ul]:list-[circle] [&_ul_ul_ul]:list-[square]",
+            flottant
+              ? "[&_h1]:text-[1.35em] [&_h1]:font-bold [&_h2]:text-[1.15em] [&_h2]:font-bold [&_h3]:text-[1.05em] [&_h3]:font-bold"
+              : "[&_h1]:mt-2 [&_h1]:text-lg [&_h1]:font-semibold [&_h2]:mt-2 [&_h2]:text-base [&_h2]:font-semibold [&_h3]:mt-1 [&_h3]:font-semibold",
+            "[&_code]:rounded [&_code]:bg-surface-high [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono",
           )}
         />
       </div>
@@ -738,4 +626,8 @@ function ToolButton({
       </span>
     </button>
   );
+}
+
+function enBalisage(bloc: BlocColle): string {
+  return bloc.kind === "text" ? bloc.markup : tableEnLignes(bloc.rows);
 }

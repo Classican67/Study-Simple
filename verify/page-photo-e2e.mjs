@@ -124,8 +124,9 @@ check(existsSync(`uploads/${premierePhoto}`), "son fichier est enregistré");
 const defile = await surface().evaluate((el) => el.scrollTop);
 check(defile > 0, "et la surface défile jusqu'à elle", `${Math.round(defile)} px`);
 
-// On écrit sur la photo, qui est sous les yeux.
-await tracer(0.1);
+// On écrit sur la photo, qui est sous les yeux. Plus bas que le haut de la fenêtre :
+// la surface arrive en butée de défilement, et le haut montre encore la page d'avant.
+await tracer(0.4);
 c = bloc(noteId);
 check(pageDe(c.pages, milieu(c.strokes[1])) === 1, "on écrit sur la photo");
 

@@ -67,7 +67,7 @@ export function DialogContent({
 
         <DialogPrimitive.Close
           aria-label="Fermer"
-          className="absolute right-3 top-3 grid size-11 place-items-center rounded-xl text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface sm:right-4 sm:top-5"
+          className="absolute right-3 top-3 grid size-11 place-items-center rounded-xl text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface sm:right-4 sm:top-5"
         >
           <X className="size-4.5" />
         </DialogPrimitive.Close>

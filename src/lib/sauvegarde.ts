@@ -146,7 +146,15 @@ export function creerSauvegarde(options: {
   }
 
   async function vider(): Promise<void> {
-    if (arrete || enVol) return;
+    /*
+     * `arrete` ne bloque pas ce qui est déjà en file.
+     *
+     * Quitter une note vide le dernier enregistrement au moment même où la file
+     * s'arrête. Il était bien posé sur l'appareil, mais ne partait pas : le serveur
+     * ne le recevait qu'à la réouverture de cette note, sur cet appareil-là. Arrêter
+     * coupe les relances — `programmer` n'en pose plus — pas le dernier envoi.
+     */
+    if (enVol) return;
     const suivant = file.values().next();
     if (suivant.done) {
       poser(refuses.size > 0 ? "refus" : "repos", refuses.size > 0 ? erreur : null);
@@ -175,7 +183,6 @@ export function creerSauvegarde(options: {
       verdict = { sort: "reseau" };
     }
     enVol = false;
-    if (arrete) return;
 
     if (verdict.sort === "ok") {
       // Le brouillon n'est retiré de la file que si rien n'a été écrit

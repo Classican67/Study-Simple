@@ -80,6 +80,65 @@ export async function createCard(
   return { ok: true };
 }
 
+/** Les paquets du compte, pour choisir où ranger une carte tirée d'une note. */
+export async function listDecksPourCarte(): Promise<{ id: string; title: string }[]> {
+  const user = await requireUser();
+  return prisma.deck.findMany({
+    where: { ownerId: user.id },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, title: true },
+  });
+}
+
+/**
+ * Une carte tirée d'une note : une question, et ce qu'on a entouré comme réponse.
+ *
+ * Le texte de réponse est facultatif : le schéma annoté **est** la réponse, et
+ * forcer à la redire ferait qu'on ne le fait pas.
+ */
+export async function addCardFromNote(
+  deckId: string,
+  formData: FormData,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireUser();
+  if (!(await assertOwnsDeck(deckId, user.id))) return { ok: false, error: "Paquet introuvable." };
+
+  const reponse = String(formData.get("definition") ?? "").trim();
+  const parsed = cardSchema.safeParse({
+    term: formData.get("term"),
+    definition: reponse || "Voir l'image.",
+  });
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Formulaire invalide." };
+  }
+
+  let imagePath: string | null = null;
+  try {
+    imagePath = (await readImage(formData)) ?? null;
+  } catch (error) {
+    if (error instanceof UploadError) return { ok: false, error: error.message };
+    throw error;
+  }
+
+  const last = await prisma.card.findFirst({
+    where: { deckId },
+    orderBy: { position: "desc" },
+    select: { position: true },
+  });
+  await prisma.card.create({
+    data: {
+      deckId,
+      term: parsed.data.term,
+      definition: parsed.data.definition,
+      searchText: buildSearchText(parsed.data.term, parsed.data.definition),
+      imagePath,
+      position: (last?.position ?? -1) + 1,
+    },
+  });
+  revalidatePath(`/decks/${deckId}`);
+  return { ok: true };
+}
+
 export async function updateCard(
   cardId: string,
   _prev: CardFormState,

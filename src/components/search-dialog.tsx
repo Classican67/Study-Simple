@@ -2,23 +2,39 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { CornerDownLeft, Layers, Loader2, NotebookPen, Search, X } from "lucide-react";
+import {
+  ArrowRight,
+  BarChart3,
+  CalendarClock,
+  CornerDownLeft,
+  FileText,
+  HardDriveUpload,
+  Layers,
+  Loader2,
+  NotebookPen,
+  PenLine,
+  Plus,
+  Search,
+  Sparkle,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTrigger } from "@/components/ui/dialog";
+import { createNote } from "@/app/(app)/notes/actions";
 import { search, type SearchAnswer } from "@/app/(app)/search/actions";
 import type { SearchResult } from "@/lib/decks";
 import type { NoteSearchResult } from "@/lib/note-queries";
 import { deckColor } from "@/lib/deck-colors";
-import { excerpt, highlight, searchTerms, type SearchScope } from "@/lib/search";
+import { excerpt, fold, highlight, searchTerms, type SearchScope } from "@/lib/search";
 import { cn } from "@/lib/utils";
 
 /**
- * Recherche — dans les cartes ou dans les notes, au choix.
+ * Recherche — une notion, où qu'elle soit.
  *
- * Les deux ne se cherchent pas pareil : on cherche un terme à réviser, ou un
- * cours à relire. Mêler les deux listes obligerait à trier du regard ce qu'on
- * sait déjà en tapant.
+ * Sur une carte, dans ce qu'on a écrit, ou au fond d'un polycopié importé : chaque
+ * page trouvée d'un document est un résultat à part entière, qui ouvre la note à
+ * cette page, le mot surligné.
  *
  * Ouverte au clavier par Ctrl/⌘ + K, la convention des applications modernes.
  * La liste se parcourt aux flèches et se valide par Entrée : sur un paquet
@@ -28,6 +44,9 @@ import { cn } from "@/lib/utils";
 // La frappe est plus rapide que la base : sans ce délai, chaque lettre
 // lancerait une requête dont le résultat serait aussitôt périmé.
 const DEBOUNCE_MS = 180;
+
+/** La colonne latérale ouvre la recherche par cet événement : un seul dialogue monté. */
+export const OUVRIR_RECHERCHE = "fiches:recherche";
 
 export function SearchDialog({
   deckId = null,
@@ -49,8 +68,13 @@ export function SearchDialog({
       event.preventDefault();
       setOpen(true);
     }
+    const ouvrir = () => setOpen(true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(OUVRIR_RECHERCHE, ouvrir);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(OUVRIR_RECHERCHE, ouvrir);
+    };
   }, []);
 
   return (
@@ -74,7 +98,7 @@ export function SearchDialog({
         description={
           deckTitle
             ? "Dans ce paquet, ou dans toutes tes notes."
-            : "Dans tes paquets ou dans tes notes. Les accents et la casse sont ignorés."
+            : "Dans tes paquets, tes notes et leurs documents. Les accents et la casse sont ignorés."
         }
         className="sm:max-w-2xl"
       >
@@ -84,15 +108,46 @@ export function SearchDialog({
   );
 }
 
-/** Une ligne de résultat, carte ou note : la liste en mêle les deux formes. */
+/**
+ * Les gestes les plus courants, au même endroit que la recherche.
+ *
+ * Ce qu'on vient chercher dans ce champ, c'est souvent d'aller quelque part : un
+ * raccourci de plus à retenir ne vaudrait pas une liste qui se filtre en tapant.
+ */
+type Action = { id: string; label: string; icon: React.ElementType; href?: string };
+
+const ACTIONS: Action[] = [
+  { id: "note", label: "Nouvelle note", icon: Plus },
+  { id: "reviser", label: "Réviser maintenant", icon: CalendarClock, href: "/study" },
+  { id: "bilan", label: "Voir le bilan", icon: BarChart3, href: "/stats" },
+  { id: "notes", label: "Aller aux notes", icon: NotebookPen, href: "/notes" },
+  { id: "paquets", label: "Aller aux paquets", icon: Layers, href: "/" },
+  { id: "sauvegarde", label: "Sauvegarde", icon: HardDriveUpload, href: "/sauvegarde" },
+  { id: "stylet", label: "Diagnostic du stylet", icon: PenLine, href: "/diagnostic-stylet" },
+];
+
+/** Une ligne de résultat : une carte, une note, ou une page de l'un de ses documents. */
 type Ligne =
+  | { kind: "action"; action: Action }
   | { kind: "card"; card: SearchResult }
-  | { kind: "note"; note: NoteSearchResult };
+  | { kind: "note"; note: NoteSearchResult }
+  | { kind: "page"; note: NoteSearchResult; page: NoteSearchResult["pages"][number] };
 
 function lignes(answer: SearchAnswer): Ligne[] {
-  return answer.scope === "notes"
-    ? answer.notes.map((note) => ({ kind: "note" as const, note }))
-    : answer.cards.map((card) => ({ kind: "card" as const, card }));
+  const notes = answer.notes.flatMap((note): Ligne[] => [
+    { kind: "note", note },
+    ...note.pages.map((page) => ({ kind: "page" as const, note, page })),
+  ]);
+  const cartes = answer.cards.map((card): Ligne => ({ kind: "card", card }));
+  // Les cartes d'abord : c'est court, et une réponse exacte se lit tout de suite.
+  return [...cartes, ...notes];
+}
+
+function cleDe(ligne: Ligne): string {
+  if (ligne.kind === "action") return `action-${ligne.action.id}`;
+  if (ligne.kind === "card") return ligne.card.cardId;
+  if (ligne.kind === "note") return ligne.note.noteId;
+  return `${ligne.note.noteId}-${ligne.page.file}-${ligne.page.page}`;
 }
 
 function SearchPanel({
@@ -104,7 +159,8 @@ function SearchPanel({
 }) {
   const router = useRouter();
   const [query, setQuery] = React.useState("");
-  const [scope, setScope] = React.useState<SearchScope>("cards");
+  // Dans un paquet, c'est lui qu'on interroge d'abord.
+  const [scope, setScope] = React.useState<SearchScope>(deckId ? "cards" : "all");
   const [active, setActive] = React.useState(0);
 
   /**
@@ -126,7 +182,16 @@ function SearchPanel({
 
   const tooShort = query.trim().length < 2;
   const fresh = found !== null && found.query === query && found.scope === scope;
-  const results = fresh ? found.items : [];
+  const trouves = fresh ? found.items : [];
+  // Sur un mot précis, seules les actions qui lui ressemblent passent devant.
+  const actions = React.useMemo(() => {
+    const requete = fold(query.trim());
+    if (deckId) return [];
+    return ACTIONS.filter((a) => !requete || fold(a.label).includes(requete)).map(
+      (action): Ligne => ({ kind: "action", action }),
+    );
+  }, [query, deckId]);
+  const results = [...actions, ...trouves];
   const failed = fresh && found.failed === true;
   const pending = !tooShort && !fresh;
   const searched = fresh;
@@ -158,11 +223,28 @@ function SearchPanel({
   // Les résultats ont pu raccourcir depuis le dernier déplacement au clavier.
   const activeIndex = results.length === 0 ? 0 : Math.min(active, results.length - 1);
 
-  function go(ligne: Ligne) {
+  async function go(ligne: Ligne) {
     onNavigate();
+    if (ligne.kind === "action") {
+      if (ligne.action.href) router.push(ligne.action.href);
+      else {
+        const id = await createNote().catch(() => null);
+        if (id) router.push(`/notes/${id}`);
+      }
+      return;
+    }
     // L'ancre amène directement sur la carte dans l'éditeur du paquet.
     if (ligne.kind === "card") router.push(`/decks/${ligne.card.deckId}#card-${ligne.card.cardId}`);
-    else router.push(`/notes/${ligne.note.noteId}`);
+    else if (ligne.kind === "note") router.push(`/notes/${ligne.note.noteId}`);
+    else {
+      // La note s'ouvre à la page trouvée, avec la loupe déjà ouverte sur le mot.
+      const adresse = new URLSearchParams({
+        cherche: query.trim(),
+        doc: ligne.page.file,
+        page: String(ligne.page.page),
+      });
+      router.push(`/notes/${ligne.note.noteId}?${adresse}`);
+    }
   }
 
   function onKeyDown(event: React.KeyboardEvent) {
@@ -175,7 +257,7 @@ function SearchPanel({
       setActive((i) => (i - 1 + results.length) % results.length);
     } else if (event.key === "Enter") {
       event.preventDefault();
-      go(results[activeIndex]);
+      void go(results[activeIndex]);
     }
   }
 
@@ -189,6 +271,7 @@ function SearchPanel({
       >
         {(
           [
+            { value: "all", label: "Tout", icon: Sparkle },
             { value: "cards", label: deckId ? "Ce paquet" : "Paquets", icon: Layers },
             { value: "notes", label: "Notes", icon: NotebookPen },
           ] as const
@@ -230,7 +313,7 @@ function SearchPanel({
           enterKeyHint="search"
           autoComplete="off"
           spellCheck={false}
-          placeholder={scope === "notes" ? "Titre, contenu…" : "Terme, définition…"}
+          placeholder={scope === "cards" ? "Terme, définition…" : "Une notion, un mot de ton cours…"}
           aria-label="Rechercher"
           className="h-14 w-full rounded-full bg-surface-high pl-12 pr-12 m3-body-large text-on-surface placeholder:text-on-surface-variant/70 focus:outline-none focus:ring-2 focus:ring-primary"
         />
@@ -259,36 +342,55 @@ function SearchPanel({
         </p>
       ) : null}
 
-      {!pending && searched && !failed && results.length === 0 ? (
+      {!pending && searched && !failed && trouves.length === 0 ? (
         <p className="py-8 text-center m3-body-medium text-on-surface-variant">
-          Aucune {scope === "notes" ? "note" : "carte"} ne contient{" "}
+          {scope === "all" ? "Rien" : `Aucune ${scope === "notes" ? "note" : "carte"}`} ne contient{" "}
           {terms.length > 1 ? "tous ces mots" : "ce mot"}.
         </p>
       ) : null}
 
-      {!pending && results.length > 0 ? (
+      {results.length > 0 ? (
         <>
-          <p className="m3-label-medium text-on-surface-variant">
-            {results.length} résultat{results.length > 1 ? "s" : ""}
-          </p>
+          {trouves.length > 0 ? (
+            <p className="m3-label-medium text-on-surface-variant">
+              {trouves.length} résultat{trouves.length > 1 ? "s" : ""}
+            </p>
+          ) : null}
           {/* `listbox` et `option` : la liste est parcourue aux flèches depuis
               le champ, pas au Tab — c'est le motif attendu par les lecteurs
               d'écran pour une recherche à suggestions. */}
           <ul role="listbox" aria-label="Résultats" className="scroll-slim max-h-[45dvh] space-y-1 overflow-y-auto">
             {results.map((ligne, index) => (
-              <li key={ligne.kind === "card" ? ligne.card.cardId : ligne.note.noteId}>
+              <li key={cleDe(ligne)}>
                 <button
                   type="button"
                   role="option"
                   aria-selected={index === activeIndex}
-                  onClick={() => go(ligne)}
+                  onClick={() => void go(ligne)}
                   onMouseEnter={() => setActive(index)}
                   className={cn(
                     "state-layer flex w-full items-start gap-3 rounded-lg p-3 text-left transition-colors",
+                    // Une page se range sous la note qui la porte.
+                    ligne.kind === "page" && "pl-8",
                     index === activeIndex ? "bg-surface-high" : "bg-transparent",
                   )}
                 >
-                  {ligne.kind === "card" ? (
+                  {ligne.kind === "action" ? (
+                    <>
+                      <span className="grid size-8 shrink-0 place-items-center rounded-sm bg-primary-container text-on-primary-container">
+                        <ligne.action.icon className="size-4" />
+                      </span>
+                      <span className="min-w-0 flex-1 self-center m3-title-small text-on-surface">
+                        {ligne.action.label}
+                      </span>
+                      <ArrowRight className="mt-1.5 size-4 shrink-0 text-on-surface-variant" />
+                    </>
+                  ) : null}
+                  {ligne.kind === "action" ? null : ligne.kind === "page" ? (
+                    <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-sm bg-tertiary-container text-on-tertiary-container">
+                      <FileText className="size-4" />
+                    </span>
+                  ) : ligne.kind === "card" ? (
                     <span
                       className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-sm text-white"
                       style={{ backgroundColor: deckColor(ligne.card.deckColor) }}
@@ -301,19 +403,27 @@ function SearchPanel({
                     </span>
                   )}
 
+                  {ligne.kind === "action" ? null : (
                   <span className="min-w-0 flex-1">
                     <span className="block truncate m3-title-small text-on-surface">
-                      <Highlighted
-                        text={ligne.kind === "card" ? ligne.card.term : ligne.note.title}
-                        terms={terms}
-                      />
+                      {ligne.kind === "page" ? (
+                        `Page ${ligne.page.page}`
+                      ) : (
+                        <Highlighted
+                          text={ligne.kind === "card" ? ligne.card.term : ligne.note.title}
+                          terms={terms}
+                        />
+                      )}
                     </span>
                     <span className="mt-0.5 block line-clamp-2 m3-body-small text-on-surface-variant">
                       <Highlighted
                         text={
                           ligne.kind === "card"
                             ? excerpt(ligne.card.definition, terms)
-                            : ligne.note.excerpt
+                            : ligne.kind === "page"
+                              ? ligne.page.extrait
+                              : ligne.note.excerpt ||
+                                `Dans ses documents : ${ligne.note.totalPages} page${ligne.note.totalPages > 1 ? "s" : ""}`
                         }
                         terms={terms}
                       />
@@ -326,14 +436,21 @@ function SearchPanel({
                           {ligne.card.deckTitle}
                         </span>
                       ) : null
+                    ) : ligne.kind === "page" ? (
+                      ligne.page.ocr ? (
+                        <span className="mt-1 block m3-label-small text-on-surface-variant/80">
+                          Lu sur le scan
+                        </span>
+                      ) : null
                     ) : ligne.note.folder ? (
                       <span className="mt-1 block truncate m3-label-small text-on-surface-variant/80">
                         {ligne.note.folder}
                       </span>
                     ) : null}
                   </span>
+                  )}
 
-                  {index === activeIndex ? (
+                  {ligne.kind !== "action" && index === activeIndex ? (
                     <CornerDownLeft className="mt-1 size-4 shrink-0 text-on-surface-variant" />
                   ) : null}
                 </button>

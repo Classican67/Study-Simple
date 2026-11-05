@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CircleCheck, Folder as FolderIcon, NotebookPen, PenLine, Table2, Type } from "lucide-react";
+import { CouvertureCahier, IconeDossier } from "@/components/couverture";
+import { CircleCheck, Folder as FolderIcon, Image as ImageIcon, NotebookPen, PenLine, Table2, Type } from "lucide-react";
 
 import { EmptyState } from "@/components/ui/panel";
 import { DropZone } from "@/components/drag-move";
@@ -111,8 +112,10 @@ export default async function NotesPage(props: PageProps<"/notes">) {
       </header>
 
       {view.total > 0 ? (
-        <div className="space-y-3">
-          <NoteSearch query={query} has={has ?? null} folderId={folderId} />
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+          <div className="min-w-64 flex-1">
+            <NoteSearch query={query} has={has ?? null} folderId={folderId} />
+          </div>
           <NoteViewOptions view={vue} sort={tri} />
         </div>
       ) : null}
@@ -129,7 +132,7 @@ export default async function NotesPage(props: PageProps<"/notes">) {
       {view.folders.length > 0 ? (
         <section className="space-y-2">
           <h2 className="m3-title-small text-on-surface-variant">Dossiers</h2>
-          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {view.folders.map((folder) => (
               <DropZone key={folder.id} folderId={folder.id} className="relative min-w-0">
                 {/* Clic droit, appui long ou bouton ⋮ : les options du dossier
@@ -140,20 +143,15 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                 >
                   <Link
                     href={dossier(folder.id)}
-                    className="state-layer flex min-h-14 items-center gap-3 rounded-xl border border-outline-variant bg-surface-container pl-4 pr-14 transition-all hover:-translate-y-0.5 hover:elevation-2"
+                    className="state-layer flex flex-col items-center gap-2 rounded-2xl p-3 transition-transform hover:-translate-y-0.5"
                   >
-                    <span
-                      className="grid size-9 shrink-0 place-items-center rounded-xl text-white"
-                      style={{ backgroundColor: deckColor(folder.color) }}
-                    >
-                      <FolderIcon className="size-4" />
+                    <IconeDossier couleur={folder.color} id={folder.id} className="w-full max-w-36 drop-shadow-sm" />
+                    <span className="flex w-full min-w-0 items-center justify-center gap-1.5">
+                      <span className="min-w-0 truncate m3-title-small text-on-surface">{folder.name}</span>
+                      <PastilleHorsLigne genre="dossier" id={folder.id} />
                     </span>
-                    <span className="min-w-0 flex-1 truncate m3-title-small text-on-surface">
-                      {folder.name}
-                    </span>
-                    <PastilleHorsLigne genre="dossier" id={folder.id} />
                     <span className="m3-label-small tabular-nums text-on-surface-variant">
-                      {folder.noteCount}
+                      {folder.noteCount} note{folder.noteCount > 1 ? "s" : ""}
                     </span>
                   </Link>
                 </FolderMenu>
@@ -175,8 +173,8 @@ export default async function NotesPage(props: PageProps<"/notes">) {
             vue === "list"
               ? "space-y-2"
               : vue === "small"
-                ? "grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5"
-                : "grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+                ? "grid grid-cols-3 gap-x-3 gap-y-5 sm:grid-cols-4 lg:grid-cols-6"
+                : "grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
           }
         >
           {view.notes.map((note) => (
@@ -209,28 +207,27 @@ export default async function NotesPage(props: PageProps<"/notes">) {
                 ) : (
                   <Link
                     href={`/notes/${note.id}`}
-                    className="state-layer flex h-full flex-col overflow-hidden rounded-xl border border-outline-variant bg-surface-container elevation-1 transition-all hover:-translate-y-0.5 hover:elevation-2"
+                    className="group flex h-full flex-col items-center gap-2 rounded-2xl p-2"
                   >
-                    {/* La vignette d'abord, et grande : deux notes de cours se
-                        ressemblent jusqu'à ce qu'on voie leur première page. */}
-                    <NoteThumbnail
-                      preview={note.preview}
-                      className={
-                        vue === "small"
-                          ? "aspect-[3/4] w-full border-b border-outline-variant"
-                          : "aspect-[4/3] w-full border-b border-outline-variant"
-                      }
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col gap-1 p-4">
-                      <span className="block truncate m3-title-small text-on-surface">
+                    {/* Un cahier debout : la première page, ou sa couverture tant
+                        qu'il n'y en a pas. Le filet à gauche fait la reliure. */}
+                    <span className="relative block aspect-[3/4] w-full overflow-hidden rounded-l-[4px] rounded-r-xl elevation-2 transition-transform group-hover:-translate-y-1">
+                      {note.preview ? (
+                        <NoteThumbnail preview={note.preview} className="h-full w-full" />
+                      ) : (
+                        <CouvertureCahier id={note.id} className="h-full w-full" />
+                      )}
+                      <span aria-hidden className="absolute inset-y-0 left-0 w-2 bg-black/10" />
+                    </span>
+                    <span className="flex w-full min-w-0 flex-col items-center gap-0.5 text-center">
+                      <span className="block w-full truncate m3-title-small text-on-surface">
                         {note.title.trim() || UNTITLED}
                       </span>
                       <span className="flex items-center gap-1.5 m3-body-small text-on-surface-variant">
-                        Modifiée {describeAgo(note.updatedAt)}
+                        {describeAgo(note.updatedAt)}
                         <PastilleHorsLigne genre="note" id={note.id} />
                       </span>
                       {note.mastered ? <Maitrisee /> : null}
-                      <Composition kinds={note.kinds} />
                     </span>
                   </Link>
                 )}
@@ -268,6 +265,7 @@ function Composition({ kinds }: { kinds: string[] }) {
     { n: kinds.filter((k) => k === "text").length, icon: Type, label: "blocs de texte" },
     { n: kinds.filter((k) => k === "table").length, icon: Table2, label: "tableaux" },
     { n: kinds.filter((k) => k === "drawing").length, icon: PenLine, label: "pages manuscrites" },
+    { n: kinds.filter((k) => k === "image").length, icon: ImageIcon, label: "images" },
   ].filter((e) => e.n > 0);
 
   if (entries.length === 0) return null;

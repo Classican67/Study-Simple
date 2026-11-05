@@ -45,8 +45,51 @@ export type Block =
   | { kind: "heading"; level: number; children: Inline[] }
   // Deux membres distincts et non « bullets | numbers » : sans cela
   // TypeScript ne sait pas éliminer l'un en testant l'autre.
-  | { kind: "bullets"; items: Inline[][] }
-  | { kind: "numbers"; items: Inline[][] };
+  | { kind: "bullets"; items: Inline[][]; meta?: MetaListe[] }
+  | { kind: "numbers"; items: Inline[][]; meta?: MetaListe[] };
+
+/**
+ * Niveau et genre de chaque élément d'une liste imbriquée.
+ *
+ * Absent d'une liste plate : c'est la grande majorité des cartes, et elles n'ont
+ * aucune raison de changer de forme. Une liste peut mêler les genres — une liste
+ * numérotée dont un élément porte des puces — d'où le genre par élément.
+ */
+export type MetaListe = { niveau: number; ordonnee: boolean };
+
+/** Une liste, remise en arbre pour être rendue. */
+export type NoeudListe = { ordonnee: boolean; items: { contenu: Inline[]; enfants: NoeudListe[] }[] };
+
+type ListeBloc = Extract<Block, { kind: "bullets" | "numbers" }>;
+
+export function arbreListe(bloc: ListeBloc): NoeudListe {
+  const racine: NoeudListe = { ordonnee: bloc.kind === "numbers", items: [] };
+  // La pile des listes ouvertes : son sommet reçoit le prochain élément.
+  const pile: NoeudListe[] = [racine];
+  bloc.items.forEach((contenu, index) => {
+    const meta = bloc.meta?.[index] ?? { niveau: 0, ordonnee: bloc.kind === "numbers" };
+    pile.length = Math.min(pile.length, meta.niveau + 1);
+    while (pile.length < meta.niveau + 1) {
+      const parent = pile[pile.length - 1];
+      const dernier = parent.items.at(-1);
+      // Un niveau sans parent ne vient que d'un balisage abîmé : on y reste.
+      if (!dernier) break;
+      const enfant: NoeudListe = { ordonnee: meta.ordonnee, items: [] };
+      dernier.enfants.push(enfant);
+      pile.push(enfant);
+    }
+    const sommet = pile[pile.length - 1];
+    // Même niveau, autre genre : une nouvelle liste à côté, sous le même parent.
+    if (pile.length > 1 && sommet.ordonnee !== meta.ordonnee) {
+      const parent = pile[pile.length - 2].items.at(-1)!;
+      const voisine: NoeudListe = { ordonnee: meta.ordonnee, items: [] };
+      parent.enfants.push(voisine);
+      pile[pile.length - 1] = voisine;
+    }
+    pile[pile.length - 1].items.push({ contenu, enfants: [] });
+  });
+  return racine;
+}
 
 type Found = { index: number; length: number; content: string; arg?: string };
 
@@ -223,8 +266,19 @@ function parseInline(text: string): Inline[] {
 }
 
 const HEADING = /^(#{1,3})\s+(.*)$/;
-const BULLET = /^\s*[-*]\s+(.*)$/;
-const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
+const BULLET = /^(\s*)[-*]\s+(.*)$/;
+const NUMBERED = /^(\s*)\d+[.)]\s+(.*)$/;
+/** Niveaux d'imbrication : au-delà, un écran de téléphone n'a plus de largeur. */
+const NIVEAU_MAX = 5;
+
+/** Ajoute un élément à une liste, en la faisant passer à la forme imbriquée s'il le faut. */
+function ajouterElement(liste: ListeBloc, contenu: Inline[], niveau: number, ordonnee: boolean) {
+  if (niveau > 0 && !liste.meta) {
+    liste.meta = liste.items.map(() => ({ niveau: 0, ordonnee: liste.kind === "numbers" }));
+  }
+  liste.items.push(contenu);
+  liste.meta?.push({ niveau, ordonnee });
+}
 
 export function parseMarkup(source: string): Block[] {
   const blocks: Block[] = [];
@@ -246,17 +300,21 @@ export function parseMarkup(source: string): Block[] {
       continue;
     }
 
-    const bullet = BULLET.exec(line);
-    if (bullet) {
-      if (previous?.kind === "bullets") previous.items.push(parseInline(bullet[1]));
-      else blocks.push({ kind: "bullets", items: [parseInline(bullet[1])] });
-      continue;
-    }
-
-    const numbered = NUMBERED.exec(line);
-    if (numbered) {
-      if (previous?.kind === "numbers") previous.items.push(parseInline(numbered[1]));
-      else blocks.push({ kind: "numbers", items: [parseInline(numbered[1])] });
+    const puce = BULLET.exec(line);
+    const numero = puce ? null : NUMBERED.exec(line);
+    const element = puce ?? numero;
+    if (element) {
+      const ordonnee = numero !== null;
+      const contenu = parseInline(element[2]);
+      const genre = ordonnee ? "numbers" : "bullets";
+      const liste = previous?.kind === "bullets" || previous?.kind === "numbers" ? previous : null;
+      const retrait = element[1].replace(/\t/g, "  ").length;
+      // Un retrait compte comme un niveau de plus sous l'élément d'avant, jamais
+      // deux : un document mal indenté ne doit pas faire sauter un niveau.
+      const avant = liste?.meta?.at(-1)?.niveau ?? 0;
+      const niveau = liste ? Math.min(Math.floor(retrait / 2), avant + 1, NIVEAU_MAX) : 0;
+      if (liste && (niveau > 0 || liste.kind === genre)) ajouterElement(liste, contenu, niveau, ordonnee);
+      else blocks.push({ kind: genre, items: [contenu] });
       continue;
     }
 
@@ -270,7 +328,7 @@ export function parseMarkup(source: string): Block[] {
 // --- Rendu React ------------------------------------------------------------
 
 const CODE_CLASS =
-  "rounded bg-surface-container-high px-1.5 py-0.5 font-mono text-[0.9em] text-on-surface";
+  "rounded bg-surface-high px-1.5 py-0.5 font-mono text-[0.9em] text-on-surface";
 
 function renderInline(nodes: Inline[], keyPrefix: string): React.ReactNode[] {
   return nodes.map((node, index) => {
@@ -310,22 +368,55 @@ function renderInline(nodes: Inline[], keyPrefix: string): React.ReactNode[] {
   });
 }
 
-export function RichText({ children, className }: { children: string; className?: string }) {
+function ListeRendue({ noeud, cle, relatif = false }: { noeud: NoeudListe; cle: string; relatif?: boolean }) {
+  const Balise = noeud.ordonnee ? "ol" : "ul";
+  return (
+    <Balise
+      className={cn(
+        noeud.ordonnee ? "list-decimal" : "list-disc",
+        relatif
+          ? "pl-[1.2em] text-left"
+          : "space-y-1 pl-5 text-left marker:text-on-surface-variant",
+      )}
+    >
+      {noeud.items.map((item, i) => (
+        <li key={`${cle}-${i}`}>
+          {renderInline(item.contenu, `${cle}-${i}`)}
+          {item.enfants.map((enfant, j) => (
+            <ListeRendue key={j} noeud={enfant} cle={`${cle}-${i}-${j}`} relatif={relatif} />
+          ))}
+        </li>
+      ))}
+    </Balise>
+  );
+}
+
+export function RichText({
+  children,
+  className,
+  relatif = false,
+}: {
+  children: string;
+  className?: string;
+  /**
+   * Tout en multiples du corps, et rien en tailles fixes : sur une page manuscrite,
+   * le texte suit le zoom, et sa mise en page doit coïncider avec celle du PDF.
+   */
+  relatif?: boolean;
+}) {
   const blocks = React.useMemo(() => parseMarkup(children), [children]);
 
   return (
     // `space-y` plutôt qu'une marge par élément : l'espacement reste correct
     // quel que soit l'ordre des blocs.
-    <div className={cn("space-y-3 break-words leading-relaxed", className)}>
+    <div className={cn(relatif ? "space-y-[0.4em] break-words" : "space-y-3 break-words leading-relaxed", className)}>
       {blocks.map((block, index) => {
         const key = `b${index}`;
 
         if (block.kind === "heading") {
-          const sizes = [
-            "text-lg font-semibold",
-            "text-base font-semibold",
-            "text-sm font-semibold",
-          ];
+          const sizes = relatif
+            ? ["text-[1.35em] font-bold", "text-[1.15em] font-bold", "text-[1.05em] font-bold"]
+            : ["text-lg font-semibold", "text-base font-semibold", "text-sm font-semibold"];
           return (
             <p key={key} className={sizes[block.level - 1]}>
               {renderInline(block.children, key)}
@@ -333,24 +424,8 @@ export function RichText({ children, className }: { children: string; className?
           );
         }
 
-        if (block.kind === "bullets") {
-          return (
-            <ul key={key} className="list-disc space-y-1 pl-5 text-left marker:text-on-surface-variant">
-              {block.items.map((item, i) => (
-                <li key={`${key}-${i}`}>{renderInline(item, `${key}-${i}`)}</li>
-              ))}
-            </ul>
-          );
-        }
-
-        if (block.kind === "numbers") {
-          return (
-            <ol key={key} className="list-decimal space-y-1 pl-5 text-left marker:text-on-surface-variant">
-              {block.items.map((item, i) => (
-                <li key={`${key}-${i}`}>{renderInline(item, `${key}-${i}`)}</li>
-              ))}
-            </ol>
-          );
+        if (block.kind === "bullets" || block.kind === "numbers") {
+          return <ListeRendue key={key} noeud={arbreListe(block)} cle={key} relatif={relatif} />;
         }
 
         return (
@@ -401,6 +476,19 @@ function inlineToHtml(nodes: Inline[]): string {
     .join("");
 }
 
+function listeHtml(noeud: NoeudListe): string {
+  const balise = noeud.ordonnee ? "ol" : "ul";
+  const items = noeud.items
+    .map((item) => `<li>${inlineToHtml(item.contenu)}${item.enfants.map(listeHtml).join("")}</li>`)
+    .join("");
+  return `<${balise}>${items}</${balise}>`;
+}
+
+/** Une seule ligne, sans bloc autour : elle rejoint la ligne où est le curseur. */
+export function markupInlineHtml(ligne: string): string {
+  return inlineToHtml(parseInline(protect(ligne)));
+}
+
 /** Convertit le balisage stocké en HTML, pour le contenu initial de l'éditeur. */
 export function markupToHtml(source: string): string {
   const blocks = parseMarkup(source);
@@ -409,13 +497,12 @@ export function markupToHtml(source: string): string {
   return blocks
     .map((block) => {
       if (block.kind === "heading") {
-        return `<div><strong>${inlineToHtml(block.children)}</strong></div>`;
+        // Un vrai titre, et non du gras : le gras se relisait comme tel, et un
+        // titre rouvert dans l'éditeur perdait son rang à l'enregistrement.
+        return `<h${block.level}>${inlineToHtml(block.children)}</h${block.level}>`;
       }
-      if (block.kind === "bullets") {
-        return `<ul>${block.items.map((i) => `<li>${inlineToHtml(i)}</li>`).join("")}</ul>`;
-      }
-      if (block.kind === "numbers") {
-        return `<ol>${block.items.map((i) => `<li>${inlineToHtml(i)}</li>`).join("")}</ol>`;
+      if (block.kind === "bullets" || block.kind === "numbers") {
+        return listeHtml(arbreListe(block));
       }
       // Un <div> par ligne : c'est la structure que produit naturellement un
       // contenteditable quand on appuie sur Entrée.

@@ -698,6 +698,8 @@ function VueNote({ id, etat }: { id: string; etat: EtatHorsLigne }) {
           .map((b) => ({ id: b.id, kind: b.kind as BlockKind, content: b.content }))}
         noteModifiee={note.updatedAt}
         horsLigne
+        format={note.format}
+        retour="/offline"
       />
     </div>
   );

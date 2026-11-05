@@ -10,9 +10,18 @@
 
 // `lib/ink.ts` ne connaît que de la géométrie — points, cadres, polygones — et
 // n'importe rien d'ici : la dépendance ne va que dans ce sens.
-import { boundsOf, translateStroke, TOOLS, type Tool } from "@/lib/ink";
+import {
+  boundsOf,
+  transformerPoint,
+  translateStroke,
+  TOOLS,
+  type Bounds,
+  type Point,
+  type Tool,
+  type Transfo,
+} from "@/lib/ink";
 
-export const BLOCK_KINDS = ["text", "table", "drawing"] as const;
+export const BLOCK_KINDS = ["text", "table", "drawing", "image"] as const;
 export type BlockKind = (typeof BLOCK_KINDS)[number];
 
 export function isBlockKind(value: unknown): value is BlockKind {
@@ -34,7 +43,13 @@ export type TextStyle = (typeof TEXT_STYLES)[number];
 
 export type TextContent = { style: TextStyle; markup: string };
 
-export const MAX_TEXT_LENGTH = 20000;
+/*
+ * C'est une borne de **relecture** : au-delà, le texte était coupé sans rien
+ * dire à la réouverture. Vingt mille caractères, c'est sept pages : un chapitre
+ * collé depuis un cours les dépasse. Le collage répartit de toute façon les
+ * longs textes sur plusieurs blocs (`lib/collage.ts`).
+ */
+export const MAX_TEXT_LENGTH = 200_000;
 
 export function parseText(raw: string): TextContent {
   const data = safeParse(raw);
@@ -261,6 +276,228 @@ export function pageKind(page: NotePage): "document" | "image" | "blank" {
   return "blank";
 }
 
+/**
+ * Une image **posée sur** la page, à la place et à la taille qu'on veut.
+ *
+ * À ne pas confondre avec `ImagePage`, où l'image est la page. Là, c'est le
+ * schéma qu'on glisse dans un coin de ses notes, à côté de ce qu'on écrit, ou
+ * par-dessus un polycopié : il se déplace, s'agrandit et tourne, et l'on écrit
+ * dessus — il passe **sous** l'encre.
+ *
+ * Tout est en proportion de la largeur de la page, comme les traits, et repéré
+ * d'un bout à l'autre de la pile : une image posée suit donc le zoom, l'écran
+ * d'un autre appareil et les pages qu'on insère avant elle, exactement comme
+ * l'écriture voisine. Séparés, les deux finiraient par se décaler.
+ *
+ * `x` et `y` sont le coin haut-gauche **avant rotation** ; `angle` tourne autour
+ * du centre, ce qui garde le cadre stable quand on règle l'orientation.
+ */
+export type ImagePosee = {
+  id: string;
+  /** Nom du fichier stocké. La même clef que `BackdropPage`, cf. `deltaTouche`. */
+  file: string;
+  x: number;
+  y: number;
+  /** Largeur, en proportion de celle de la page. */
+  w: number;
+  /** Hauteur sur largeur : on ne déforme pas une image. */
+  ratio: number;
+  /** En radians. */
+  angle: number;
+};
+
+/**
+ * Du texte posé sur la page : une zone qu'on tape, qu'on colle, qu'on déplace.
+ *
+ * Comme une image posée, elle est en proportion de la largeur de page — **sa taille
+ * de caractères aussi** : elle suit le zoom et sort à la même taille sur le papier.
+ * Le contenu est le même balisage que partout, donc gras, couleurs, listes et
+ * symboles mathématiques n'ont rien à apprendre.
+ *
+ * `h` est mesuré à l'écran et gardé : le lasso, le toucher et le cadre en ont besoin,
+ * et aucun d'eux n'a de quoi mettre du texte en page.
+ */
+export type ZoneTexte = {
+  id: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Corps du texte, en proportion de la largeur de page. */
+  taille: number;
+  markup: string;
+  angle: number;
+};
+
+/** Environ le corps 12 d'une page A4. */
+export const TAILLE_TEXTE_DEFAUT = 0.024;
+export const TAILLE_TEXTE_MIN = 0.008;
+export const TAILLE_TEXTE_MAX = 0.2;
+export const MAX_ZONES_TEXTE = 300;
+
+/** Mise en page d'une zone : partagée par l'écran et le PDF, qui doivent coïncider. */
+export const MISE_EN_PAGE_TEXTE = {
+  interligne: 1.35,
+  /** Entre deux paragraphes, en multiples du corps. */
+  entreBlocs: 0.4,
+  /** Retrait d'une liste, par niveau, en multiples du corps. */
+  retrait: 1.2,
+  /** Corps des titres de rang 1, 2 et 3, en multiples du corps. */
+  titres: [1.35, 1.15, 1.05],
+} as const;
+
+/** Une zone a la même géométrie qu'une image de même format. */
+function formeDeZone(zone: ZoneTexte): ImagePosee {
+  return {
+    id: zone.id,
+    file: "",
+    x: zone.x,
+    y: zone.y,
+    w: zone.w,
+    ratio: zone.w > 0 ? zone.h / zone.w : 1,
+    angle: zone.angle,
+  };
+}
+
+export function centreTexte(zone: ZoneTexte): Point {
+  return centreImage(formeDeZone(zone));
+}
+
+export function cadreTexte(zone: ZoneTexte): Bounds {
+  return cadreImage(formeDeZone(zone));
+}
+
+export function pointSurTexte(point: Point, zone: ZoneTexte): boolean {
+  return pointSurImage(point, formeDeZone(zone));
+}
+
+/**
+ * Agrandir une zone agrandit son texte : c'est ce qu'on attend d'une sélection, et
+ * la mise en page ne change pas.
+ */
+export function transformerTexte(zone: ZoneTexte, t: Transfo): ZoneTexte {
+  const centre = transformerPoint(centreTexte(zone), t);
+  const taille = Math.min(TAILLE_TEXTE_MAX, Math.max(TAILLE_TEXTE_MIN, zone.taille * t.echelle));
+  const facteur = taille / zone.taille;
+  const w = zone.w * facteur;
+  const h = zone.h * facteur;
+  return {
+    ...zone,
+    x: arrondi(centre.x - w / 2),
+    y: arrondi(centre.y - h / 2),
+    w: arrondi(w),
+    h: arrondi(h),
+    taille: arrondi(taille),
+    angle: arrondi(normaliserAngle(zone.angle + t.angle)),
+  };
+}
+
+/** Le texte brut des zones d'une page, pour la recherche. */
+export function texteDesZones(zones: ZoneTexte[], enTexte: (markup: string) => string): string {
+  return zones.map((zone) => enTexte(zone.markup)).join(" ");
+}
+
+/**
+ * Les zones d'un contenu, sans analyser tout le contenu.
+ *
+ * `textes` est la dernière clef du document, et cette lecture a lieu à chaque
+ * enregistrement : on repart de la fin, et une page de vingt mégaoctets ne coûte que
+ * ce que pèsent ses zones.
+ */
+export function zonesDuContenu(raw: string): ZoneTexte[] {
+  const debut = raw.lastIndexOf('"textes":[');
+  if (debut === -1) return [];
+  try {
+    return lireZonesTexte(JSON.parse(raw.slice(debut + '"textes":'.length, raw.lastIndexOf("]") + 1)));
+  } catch {
+    return parseDrawing(raw).textes;
+  }
+}
+
+/** Plus de deux cents images sur une surface, ce n'est plus une note. */
+export const MAX_IMAGES_POSEES = 200;
+/** En dessous, les poignées se recouvrent et l'image ne se rattrape plus. */
+export const IMAGE_LARGEUR_MIN = 0.03;
+export const IMAGE_LARGEUR_MAX = 3;
+
+/** Identifiant d'une image posée — court : il vit dans un document de la base. */
+export function nouvelIdImage(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/** Les quatre coins d'une image, rotation comprise. */
+export function coinsImage(image: ImagePosee): Point[] {
+  const h = image.w * image.ratio;
+  const cx = image.x + image.w / 2;
+  const cy = image.y + h / 2;
+  const rotation: Transfo = { cx, cy, echelle: 1, angle: image.angle, dx: 0, dy: 0 };
+  return [
+    { x: image.x, y: image.y },
+    { x: image.x + image.w, y: image.y },
+    { x: image.x + image.w, y: image.y + h },
+    { x: image.x, y: image.y + h },
+  ].map((coin) => transformerPoint(coin, rotation));
+}
+
+/** Le centre d'une image : c'est lui qui décide de sa page, comme le milieu d'un trait. */
+export function centreImage(image: ImagePosee): Point {
+  return { x: image.x + image.w / 2, y: image.y + (image.w * image.ratio) / 2 };
+}
+
+/** Cadre d'une image, rotation comprise. */
+export function cadreImage(image: ImagePosee): Bounds {
+  const coins = coinsImage(image);
+  return {
+    minX: Math.min(...coins.map((c) => c.x)),
+    minY: Math.min(...coins.map((c) => c.y)),
+    maxX: Math.max(...coins.map((c) => c.x)),
+    maxY: Math.max(...coins.map((c) => c.y)),
+  };
+}
+
+/** Ce point tombe-t-il sur l'image ? On ramène le point dans le repère de l'image. */
+export function pointSurImage(point: Point, image: ImagePosee): boolean {
+  const centre = centreImage(image);
+  const redresse = transformerPoint(point, {
+    cx: centre.x,
+    cy: centre.y,
+    echelle: 1,
+    angle: -image.angle,
+    dx: 0,
+    dy: 0,
+  });
+  return (
+    redresse.x >= image.x &&
+    redresse.x <= image.x + image.w &&
+    redresse.y >= image.y &&
+    redresse.y <= image.y + image.w * image.ratio
+  );
+}
+
+/** Applique une transformation à une image posée, sans la déformer. */
+export function transformerImage(image: ImagePosee, t: Transfo): ImagePosee {
+  const centre = transformerPoint(centreImage(image), t);
+  const w = Math.min(IMAGE_LARGEUR_MAX, Math.max(IMAGE_LARGEUR_MIN, image.w * t.echelle));
+  return {
+    ...image,
+    x: arrondi(centre.x - w / 2),
+    y: arrondi(centre.y - (w * image.ratio) / 2),
+    w: arrondi(w),
+    angle: arrondi(normaliserAngle(image.angle + t.angle)),
+  };
+}
+
+function arrondi(value: number): number {
+  return Math.round(value * 10000) / 10000;
+}
+
+/** Ramène un angle entre -π et π : un tour complet ne doit rien changer au contenu. */
+function normaliserAngle(angle: number): number {
+  const tour = Math.PI * 2;
+  const reste = ((angle % tour) + tour) % tour;
+  return reste > Math.PI ? reste - tour : reste;
+}
+
 export type DrawingContent = {
   strokes: Stroke[];
   ratio: number;
@@ -280,6 +517,10 @@ export type DrawingContent = {
    * simple, dont la hauteur est alors `ratio` et le fond `paper`.
    */
   pages: NotePage[];
+  /** Les images posées sur la surface, de la plus basse à la plus haute. */
+  images: ImagePosee[];
+  /** Les zones de texte. **Toujours la dernière clef** : cf. `zonesDuContenu`. */
+  textes: ZoneTexte[];
 };
 
 /**
@@ -454,9 +695,16 @@ function insererPages(content: DrawingContent, rang: number, nouvelles: NotePage
     if (sur <= rang) return stroke;
     return { ...stroke, points: translateStroke(stroke.points, 0, decalage) };
   });
+  // Une image posée descend avec sa page, pour la même raison qu'un trait.
+  const images = (content.images ?? []).map((image) =>
+    pageAtY(bandes, centreImage(image).y) <= rang ? image : { ...image, y: arrondi(image.y + decalage) },
+  );
+  const textes = (content.textes ?? []).map((zone) =>
+    pageAtY(bandes, centreTexte(zone).y) <= rang ? zone : { ...zone, y: arrondi(zone.y + decalage) },
+  );
 
   const suivantes = [...pages.slice(0, rang + 1), ...nouvelles, ...pages.slice(rang + 1)];
-  return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes };
+  return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes, images, textes };
 }
 
 /**
@@ -489,8 +737,21 @@ export function removePage(content: DrawingContent, index: number): DrawingConte
     );
   }
 
+  const images: ImagePosee[] = [];
+  for (const image of content.images ?? []) {
+    const sur = pageAtY(bandes, centreImage(image).y);
+    if (sur === index) continue;
+    images.push(sur < index ? image : { ...image, y: arrondi(image.y - decalage) });
+  }
+  const textes: ZoneTexte[] = [];
+  for (const zone of content.textes ?? []) {
+    const sur = pageAtY(bandes, centreTexte(zone).y);
+    if (sur === index) continue;
+    textes.push(sur < index ? zone : { ...zone, y: arrondi(zone.y - decalage) });
+  }
+
   const suivantes = pages.filter((_, i) => i !== index);
-  return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes };
+  return { ...content, pages: suivantes, ratio: surfaceRatio(suivantes), strokes, images, textes };
 }
 
 /**
@@ -506,12 +767,18 @@ export function removePage(content: DrawingContent, index: number): DrawingConte
  * pas.
  */
 export function blockFiles(kind: string, content: string): string[] {
+  if (kind === "image") {
+    const { file } = parseImageBlock(content);
+    return file ? [file] : [];
+  }
   if (kind !== "drawing") return [];
   const noms = new Set<string>();
-  for (const page of parseDrawing(content).pages) {
+  const dessin = parseDrawing(content);
+  for (const page of dessin.pages) {
     if (isBackdropPage(page)) noms.add(page.file);
     else if (isImagePage(page)) noms.add(page.image);
   }
+  for (const image of dessin.images) noms.add(image.file);
   return [...noms];
 }
 
@@ -606,7 +873,149 @@ export function parseDrawing(raw: string): DrawingContent {
         points: stroke.points.slice(0, stroke.points.length - (stroke.points.length % 3)),
       }))
       .filter((stroke) => stroke.points.length >= 3),
+    /*
+     * Après les traits, et pas avant : l'enregistrement n'envoie que ce qui a
+     * changé entre le début et la fin du texte. Placée devant, cette clef neuve
+     * faisait de tout le document « ce qui a changé » au premier trait écrit dans
+     * une note d'avant — vingt mégaoctets pour un trait.
+     */
+    images: lireImagesPosees(data?.images),
+    textes: lireZonesTexte(data?.textes),
   };
+}
+
+function lireZonesTexte(brut: unknown): ZoneTexte[] {
+  if (!Array.isArray(brut)) return [];
+  const zones: ZoneTexte[] = [];
+  for (const entree of brut.slice(0, MAX_ZONES_TEXTE)) {
+    const z = entree as Partial<ZoneTexte> | null;
+    if (!z || typeof z.markup !== "string") continue;
+    if (![z.x, z.y, z.w].every((n) => typeof n === "number" && Number.isFinite(n))) continue;
+    zones.push({
+      id: typeof z.id === "string" && z.id ? z.id.slice(0, 32) : nouvelIdImage(),
+      x: z.x as number,
+      y: z.y as number,
+      w: Math.min(IMAGE_LARGEUR_MAX, Math.max(IMAGE_LARGEUR_MIN, z.w as number)),
+      h: typeof z.h === "number" && z.h > 0 ? z.h : TAILLE_TEXTE_DEFAUT * MISE_EN_PAGE_TEXTE.interligne,
+      taille:
+        typeof z.taille === "number" && Number.isFinite(z.taille)
+          ? Math.min(TAILLE_TEXTE_MAX, Math.max(TAILLE_TEXTE_MIN, z.taille))
+          : TAILLE_TEXTE_DEFAUT,
+      markup: z.markup.slice(0, MAX_TEXT_LENGTH),
+      angle: typeof z.angle === "number" && Number.isFinite(z.angle) ? z.angle : 0,
+    });
+  }
+  return zones;
+}
+
+/**
+ * Relit les images posées, en écartant ce qui ne s'afficherait pas.
+ *
+ * Une image sans fichier ou sans largeur n'est pas réparable : on la laisse de
+ * côté plutôt que de faire échouer la page qui la porte.
+ */
+function lireImagesPosees(brut: unknown): ImagePosee[] {
+  if (!Array.isArray(brut)) return [];
+  const images: ImagePosee[] = [];
+  for (const entree of brut.slice(0, MAX_IMAGES_POSEES)) {
+    const i = entree as Partial<ImagePosee> | null;
+    if (!i || typeof i.file !== "string" || i.file.length === 0) continue;
+    if (![i.x, i.y, i.w, i.ratio].every((n) => typeof n === "number" && Number.isFinite(n))) continue;
+    images.push({
+      id: typeof i.id === "string" && i.id ? i.id.slice(0, 32) : nouvelIdImage(),
+      file: i.file.slice(0, 128),
+      x: i.x as number,
+      y: i.y as number,
+      w: Math.min(IMAGE_LARGEUR_MAX, Math.max(IMAGE_LARGEUR_MIN, i.w as number)),
+      ratio: Math.min(MAX_RATIO, Math.max(0.05, i.ratio as number)),
+      angle: typeof i.angle === "number" && Number.isFinite(i.angle) ? i.angle : 0,
+    });
+  }
+  return images;
+}
+
+// --- Image dans le fil de la note --------------------------------------------
+
+/**
+ * Une image au milieu du texte, à la largeur qu'on veut.
+ *
+ * C'est l'image d'un document : elle prend sa place dans le fil, le texte
+ * reprend dessous. L'image **posée** (`ImagePosee`) est l'autre geste, celui du
+ * schéma qu'on glisse sur une page manuscrite pour écrire dessus.
+ *
+ * `largeur` est une proportion de la colonne plutôt que des pixels : la même
+ * note se relit sur un téléphone et un iPad, et l'image y garde sa place.
+ */
+export const IMAGE_ALIGNEMENTS = ["left", "center", "right"] as const;
+export type ImageAlignement = (typeof IMAGE_ALIGNEMENTS)[number];
+
+export type ImageBlockContent = {
+  file: string;
+  ratio: number;
+  largeur: number;
+  align: ImageAlignement;
+  legende: string;
+};
+
+export const IMAGE_BLOC_LARGEUR_MIN = 0.15;
+export const MAX_LEGENDE = 300;
+
+export function parseImageBlock(raw: string): ImageBlockContent {
+  const data = safeParse(raw);
+  const largeur = data?.largeur;
+  const ratio = data?.ratio;
+  return {
+    file: typeof data?.file === "string" ? data.file.slice(0, 128) : "",
+    ratio: typeof ratio === "number" && ratio > 0.05 && ratio <= MAX_RATIO ? ratio : 1,
+    largeur:
+      typeof largeur === "number" && Number.isFinite(largeur)
+        ? Math.min(1, Math.max(IMAGE_BLOC_LARGEUR_MIN, largeur))
+        : 1,
+    align: (IMAGE_ALIGNEMENTS as readonly unknown[]).includes(data?.align)
+      ? (data!.align as ImageAlignement)
+      : "center",
+    legende: typeof data?.legende === "string" ? data.legende.slice(0, MAX_LEGENDE) : "",
+  };
+}
+
+/**
+ * Une image du fil de la note, redite comme une page manuscrite.
+ *
+ * L'export PDF et la sauvegarde ne savent produire que des pages manuscrites :
+ * plutôt que d'y apprendre un genre de bloc de plus, l'image devient une page
+ * blanche qui la porte à sa largeur et à sa place. Rend `null` pour un bloc qui
+ * n'a pas (encore) d'image.
+ */
+export function imageEnDessin(raw: string): string | null {
+  const image = parseImageBlock(raw);
+  if (!image.file) return null;
+  const marge = 0.05;
+  const colonne = 1 - marge * 2;
+  const w = colonne * image.largeur;
+  const x =
+    image.align === "left" ? marge : image.align === "right" ? 1 - marge - w : (1 - w) / 2;
+  const ratio = Math.min(MAX_RATIO, w * image.ratio + marge * 2);
+  return JSON.stringify({
+    strokes: [],
+    ratio,
+    paper: "blank",
+    pages: [{ paper: "blank", ratio }],
+    images: [{ id: "bloc", file: image.file, x, y: marge, w, ratio: image.ratio, angle: 0 }],
+    textes: [],
+  } satisfies DrawingContent);
+}
+
+/** Les contenus d'une note qui font une page d'un PDF, dans l'ordre de la note. */
+export function contenusImprimables(blocs: { kind: string; content: string }[]): string[] {
+  const contenus: string[] = [];
+  for (const bloc of blocs) {
+    if (bloc.kind === "drawing") contenus.push(bloc.content);
+    else if (bloc.kind === "image") {
+      const page = imageEnDessin(bloc.content);
+      if (page) contenus.push(page);
+    }
+  }
+  return contenus;
 }
 
 // --- Commun -----------------------------------------------------------------
@@ -614,11 +1023,22 @@ export function parseDrawing(raw: string): DrawingContent {
 export function defaultContent(kind: BlockKind): string {
   if (kind === "text") return JSON.stringify({ style: "p", markup: "" } satisfies TextContent);
   if (kind === "table") return JSON.stringify(emptyTable());
+  if (kind === "image") {
+    return JSON.stringify({
+      file: "",
+      ratio: 1,
+      largeur: 1,
+      align: "center",
+      legende: "",
+    } satisfies ImageBlockContent);
+  }
   return JSON.stringify({
     strokes: [],
     ratio: DEFAULT_RATIO,
     paper: "blank",
     pages: [],
+    images: [],
+    textes: [],
   } satisfies DrawingContent);
 }
 
@@ -664,13 +1084,15 @@ function safeParse(raw: string): Record<string, unknown> | null {
  */
 export function noteSearchText(
   title: string,
-  blocks: { kind: string; content: string }[],
+  blocks: { kind: string; content: string; plain?: string }[],
   toPlainText: (markup: string) => string,
 ): string {
   const morceaux = [title];
   for (const bloc of blocks) {
     if (bloc.kind === "text") morceaux.push(toPlainText(parseText(bloc.content).markup));
     else if (bloc.kind === "table") morceaux.push(parseTable(bloc.content).rows.flat().join(" "));
+    else if (bloc.kind === "image") morceaux.push(parseImageBlock(bloc.content).legende);
+    else if (bloc.kind === "drawing") morceaux.push(bloc.plain ?? "");
   }
   return morceaux.join(" ");
 }
@@ -687,6 +1109,7 @@ export type NotePreview =
   | { kind: "pdf"; file: string; page: number; ratio: number }
   | { kind: "image"; file: string; ratio: number }
   | { kind: "ink"; ratio: number; strokes: { color: string; points: number[] }[] }
+  | { kind: "texte"; ratio: number; texte: string }
   | null;
 
 /*
@@ -700,6 +1123,10 @@ const PREVIEW_STROKES = 24;
 const PREVIEW_POINTS = 12;
 
 export function buildPreview(kind: string, content: string): NotePreview {
+  if (kind === "image") {
+    const image = parseImageBlock(content);
+    return image.file ? { kind: "image", file: image.file, ratio: image.ratio } : null;
+  }
   if (kind !== "drawing") return null;
   const page = parseDrawing(content);
 
@@ -723,7 +1150,17 @@ export function buildPreview(kind: string, content: string): NotePreview {
     if (illustree && isImagePage(illustree)) {
       return { kind: "image", file: illustree.image, ratio: illustree.ratio };
     }
-    return null;
+    // Une image posée sur une page par ailleurs vide : même règle.
+    const posee = page.images[0];
+    if (posee) return { kind: "image", file: posee.file, ratio: posee.ratio };
+    // Une page de texte tapé : les premiers mots, sans le balisage.
+    const zone = page.textes[0];
+    if (!zone) return null;
+    return {
+      kind: "texte",
+      ratio: page.ratio,
+      texte: zone.markup.replace(/[*_~`#]|\{c:[a-z]+\}|\{\/c\}/g, "").slice(0, 280),
+    };
   }
 
   return {
@@ -762,11 +1199,12 @@ export function buildPreview(kind: string, content: string): NotePreview {
 export async function notePreview(
   ids: string[],
   lire: (id: string) => Promise<string | null> | string | null,
+  genreDe: (id: string) => string = () => "drawing",
 ): Promise<{ apercu: NotePreview; source: string | null }> {
   for (const id of ids) {
     const contenu = await lire(id);
     if (contenu === null) continue;
-    const apercu = buildPreview("drawing", contenu);
+    const apercu = buildPreview(genreDe(id), contenu);
     if (apercu) return { apercu, source: id };
   }
   return { apercu: null, source: null };
@@ -781,6 +1219,9 @@ export function parsePreview(raw: string): NotePreview {
     }
     if (data?.kind === "image" && typeof data.file === "string") {
       return { kind: "image", file: data.file, ratio: ratioOf(data.ratio) };
+    }
+    if (data?.kind === "texte" && typeof data.texte === "string") {
+      return { kind: "texte", ratio: ratioOf(data.ratio), texte: data.texte };
     }
     if (data?.kind === "ink" && Array.isArray(data.strokes)) {
       return {

@@ -17,6 +17,17 @@ export async function register() {
   ]);
 
   /*
+   * Le journal à écriture anticipée : les lectures n'attendent plus les écritures,
+   * et une écriture ne recopie plus la page dans un journal puis la réécrit. Pour
+   * une app qui enregistre chaque seconde pendant qu'on écrit, c'est ce qui compte.
+   * Le réglage vit dans le fichier : il suffit de le poser une fois. La base est
+   * sur un disque local (cf. README) et `restore.sh` retire déjà les journaux.
+   */
+  await prisma.$queryRawUnsafe("PRAGMA journal_mode = WAL").catch((error) => {
+    console.error("[base] journal WAL impossible :", error);
+  });
+
+  /*
    * Sans `await` : Next attend la fin de `register` avant d'accepter la
    * moindre requête, et une base fournie mettrait le démarrage à l'arrêt. La
    * recherche reste juste pendant ce temps — elle lit aussi les cartes non
@@ -31,6 +42,12 @@ export async function register() {
       // servir : la recherche se rabat sur la lecture directe des cartes.
       console.error("[recherche] réindexation impossible :", error);
     });
+
+  // La lecture des documents reprend où elle en était, et rattrape ceux d'avant.
+  const { reprendreIndexation } = await import("@/lib/documents-index");
+  void reprendreIndexation().catch((error) => {
+    console.error("[documents] reprise impossible :", error);
+  });
 
   // La sauvegarde Google Drive : rien ne démarre si elle n'est pas configurée.
   const { demarrerPlanificateur } = await import("@/lib/google-drive/planificateur");

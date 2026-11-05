@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { paquetsDuCompte } from "@/lib/export-server";
 import type { Backup } from "@/lib/export";
 import { notePdf } from "@/lib/note-pdf";
-import { blockFiles, parseDrawing, UNTITLED } from "@/lib/notes";
+import { blockFiles, contenusImprimables, parseDrawing, parseImageBlock, UNTITLED } from "@/lib/notes";
 import { resolveUploadPath, contentTypeFor } from "@/lib/uploads";
 import { ouvrir } from "@/lib/google-drive/coffre";
 import { noteMarkdown } from "@/lib/google-drive/markdown";
@@ -153,11 +153,11 @@ async function inventaire(userId: string, connus: Map<string, Connu>) {
       mime: "application/pdf",
       produire: async () => {
         const dessins = await prisma.noteBlock.findMany({
-          where: { noteId: note.id, kind: "drawing" },
+          where: { noteId: note.id, kind: { in: ["drawing", "image"] } },
           orderBy: { position: "asc" },
-          select: { content: true },
+          select: { kind: true, content: true },
         });
-        return notePdf(note.title, dessins.map((d) => d.content), "flat");
+        return notePdf(note.title, contenusImprimables(dessins), "flat");
       },
     });
     const markdown = (md: string | null) => ({
@@ -195,9 +195,10 @@ async function inventaire(userId: string, connus: Map<string, Connu>) {
       });
       for (const b of blocs) for (const nom of blockFiles(b.kind, b.content)) fichiersVoulus.add(nom);
       const pages = blocs.some((b) => {
+        if (b.kind === "image") return Boolean(parseImageBlock(b.content).file);
         if (b.kind !== "drawing") return false;
         const d = parseDrawing(b.content);
-        return d.strokes.length > 0 || d.pages.length > 0;
+        return d.strokes.length > 0 || d.pages.length > 0 || d.images.length > 0 || d.textes.length > 0;
       });
       const md = noteMarkdown(note.title, blocs);
       if (pages) fichier(cle("pdf"), nomDeFichier(titre, ".pdf", "Note"), place, version, pdf());
@@ -213,6 +214,7 @@ async function inventaire(userId: string, connus: Map<string, Connu>) {
             title: true,
             folderId: true,
             mastered: true,
+            format: true,
             createdAt: true,
             updatedAt: true,
             blocks: { orderBy: { position: "asc" }, select: { kind: true, position: true, content: true } },
@@ -236,7 +238,7 @@ async function inventaire(userId: string, connus: Map<string, Connu>) {
     const nom = connu.key.slice("file:".length);
     if (fichiersVoulus.has(nom)) continue;
     const encore = await prisma.noteBlock.count({
-      where: { kind: "drawing", content: { contains: nom }, note: { ownerId: userId } },
+      where: { kind: { in: ["drawing", "image"] }, content: { contains: nom }, note: { ownerId: userId } },
     });
     if (encore > 0) fichiersVoulus.add(nom);
   }

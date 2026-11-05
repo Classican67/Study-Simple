@@ -3,6 +3,7 @@
 import { Heading1, Heading2, List, Pilcrow, Quote } from "lucide-react";
 
 import { RichEditor } from "@/components/rich-editor";
+import type { BlocColle } from "@/lib/collage";
 import { TEXT_STYLES, type TextContent, type TextStyle } from "@/lib/notes";
 import { cn } from "@/lib/utils";
 
@@ -34,11 +35,15 @@ export function TextBlock({
   onChange,
   onBlur,
   readOnly = false,
+  onPasteImage,
+  onPasteBlocs,
 }: {
   content: TextContent;
   onChange: (next: TextContent) => void;
   onBlur?: () => void;
   readOnly?: boolean;
+  onPasteImage?: (image: File) => void;
+  onPasteBlocs?: (blocs: BlocColle[]) => void;
 }) {
   const style = STYLES[content.style] ?? STYLES.p;
 
@@ -85,6 +90,8 @@ export function TextBlock({
             ariaLabel={entryLabel(content.style)}
             placeholder={placeholderOf(content.style)}
             className={style.className}
+            onPasteImage={onPasteImage}
+            onPasteBlocs={onPasteBlocs}
           />
         </div>
       </div>

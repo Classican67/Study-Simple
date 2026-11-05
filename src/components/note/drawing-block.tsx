@@ -1,13 +1,20 @@
 "use client";
 
 import * as React from "react";
-import { Loader2 } from "lucide-react";
+import { flushSync } from "react-dom";
+import { BookPlus, ClipboardCopy, Crop, Files, Loader2, PenLine, Scissors, Trash2 } from "lucide-react";
 
 import { ImageCropper } from "@/components/image-cropper";
 import { InkCanvas, type InkTool } from "@/components/note/ink-canvas";
 import { InkPalette, type InkSettings } from "@/components/note/ink-palette";
+import { CarteDepuisNote } from "@/components/note/carte-depuis-note";
+import { LoupeNote, type RechercheInitiale } from "@/components/note/loupe-note";
 import { COTE_MAX, lireFormatImage } from "@/components/note/photo-note";
+import { deposerFragment } from "@/components/note/rendu-fragment";
+import { EditeurZone } from "@/components/note/zones-texte";
 import { uploadPageImage } from "@/app/(app)/notes/actions";
+import { blocsDuPressePapiers, tableEnLignes } from "@/lib/collage";
+import { preparerImage } from "@/lib/image-client";
 import { MAX_UPLOAD_BYTES } from "@/lib/upload-path";
 import {
   DOCUMENT_ACCEPT,
@@ -16,25 +23,65 @@ import {
   estDocument,
   type EnvoiDocument,
 } from "@/lib/document-upload";
-import { INSTRUMENTS, TOOLS, type Ruler, type Shape, type Tool } from "@/lib/ink";
+import {
+  collerFragment,
+  extraireFragment,
+  retirerSelection,
+  type FragmentEncre,
+} from "@/lib/fragment-encre";
+import type { Surligne } from "@/lib/recherche-document";
+import { boundsOf, INSTRUMENTS, instrumentOf, TOOLS, type Bounds, type Point, type Ruler, type Shape, type Tool } from "@/lib/ink";
+import {
+  abonnerFragment,
+  fragmentDuCollage,
+  garderFragment,
+  lireFragment,
+  versionFragment,
+} from "@/lib/presse-papiers-encre";
 import { usePositionBarre } from "@/components/note/ink-dock";
 import { useStyletSeul } from "@/components/note/stylet-seul";
 import {
   MAX_DOCUMENT_PAGES,
+  MAX_IMAGES_POSEES,
   MAX_RATIO,
+  MAX_ZONES_TEXTE,
+  TAILLE_TEXTE_DEFAUT,
   insertDocumentPages,
   insertImagePage,
   insertPage,
+  nouvelIdImage,
   pageBands,
   pageKind,
   removePage,
   type BlankPage,
   type DrawingContent,
+  type ImagePosee,
   type Paper,
+  type ZoneTexte,
 } from "@/lib/notes";
+import { cn } from "@/lib/utils";
 
 /** Versions retenues pour Annuler : bien plus qu'on n'en remonte jamais. */
 const HISTORIQUE_MAX = 200;
+
+/*
+ * Une note peut porter plusieurs pages manuscrites, et le clavier n'en vise
+ * aucune : ⌘V doit coller dans celle qu'on vient de toucher. Hors de React, parce
+ * que ce n'est un état d'aucune d'elles — et qu'un rendu par toucher serait pour
+ * rien.
+ */
+const surfaces: symbol[] = [];
+let surfaceTouchee: symbol | null = null;
+
+function estLaSurfaceVisee(moi: symbol): boolean {
+  return (surfaceTouchee ?? surfaces[0]) === moi;
+}
+
+/** Le clavier appartient-il à un champ de saisie ? */
+function dansUnChamp(cible: EventTarget | null): boolean {
+  const element = cible as HTMLElement | null;
+  return Boolean(element?.closest?.("input, textarea, select, [contenteditable='true']"));
+}
 
 /**
  * Page manuscrite : le canevas, ses outils, et le plein écran.
@@ -52,6 +99,8 @@ export function DrawingBlock({
   readOnly = false,
   scrollId,
   onFullChange,
+  feuille,
+  rechercheInitiale,
 }: {
   content: DrawingContent;
   onChange: (next: DrawingContent) => void;
@@ -62,6 +111,13 @@ export function DrawingBlock({
   scrollId?: string;
   /** Prévient la page qu'on écrit — ou non — en plein écran. */
   onFullChange?: (full: boolean) => void;
+  /**
+   * La page **est** la note : elle s'ouvre en plein écran et n'en sort pas. Son
+   * en-tête — retour, titre, actions de la note — prend place au-dessus d'elle.
+   */
+  feuille?: { gauche: React.ReactNode; droite: React.ReactNode; sous: React.ReactNode };
+  /** Arrivée depuis la recherche : la loupe s'ouvre sur le mot, à la bonne page. */
+  rechercheInitiale?: RechercheInitiale;
 }) {
   /*
    * La page vit ici, et le parent n'en est prévenu qu'après un temps de repos.
@@ -125,7 +181,13 @@ export function DrawingBlock({
       const avant = actuel.current;
       // Allonger la page en plein écran n'est pas une action : l'annuler la
       // raccourcirait sous la main.
-      if (next.strokes !== avant.strokes || next.pages !== avant.pages || next.paper !== avant.paper) {
+      if (
+        next.strokes !== avant.strokes ||
+        next.pages !== avant.pages ||
+        next.paper !== avant.paper ||
+        next.images !== avant.images ||
+        next.textes !== avant.textes
+      ) {
         passe.current = [...passe.current, avant].slice(-HISTORIQUE_MAX);
         futur.current = [];
         direHistorique();
@@ -135,7 +197,7 @@ export function DrawingBlock({
     [appliquer, direHistorique],
   );
 
-  const [tool, setTool] = React.useState<InkTool>("pen");
+  const [tool, setOutil] = React.useState<InkTool>("pen");
   /*
    * Le stylo et le surligneur retiennent chacun leur couleur et leur épaisseur.
    *
@@ -193,7 +255,8 @@ export function DrawingBlock({
   // d'office, et gardé par l'appareil : cf. `useStyletSeul`.
   const [penOnly, setPenOnly] = useStyletSeul();
 
-  const [full, setFull] = React.useState(false);
+  const [full, setFull] = React.useState(Boolean(feuille));
+  const ouverteEnFeuille = Boolean(feuille);
   // Le rejet de la paume est invisible : le doigt cesse d'écrire sans rien dire.
   // On l'annonce, sinon on croit à une panne.
   const [penMode, setPenMode] = React.useState(false);
@@ -201,7 +264,23 @@ export function DrawingBlock({
   const [shape, setShape] = React.useState<Shape>("rect");
   // La sélection du lasso appartient au bloc : c'est lui qui propose de la
   // supprimer, et supprimer revient à réécrire la liste des traits.
+  const terminerTexte = React.useRef<(() => void) | null>(null);
   const [selection, setSelection] = React.useState<number[]>([]);
+  const [imagesChoisies, setImagesChoisies] = React.useState<string[]>([]);
+  const choisir = React.useCallback((rangs: number[], ids: string[] = []) => {
+    setSelection(rangs);
+    setImagesChoisies(ids);
+  }, []);
+  // Une sélection n'a de sens qu'avec le lasso : ses poignées disparaissent avec
+  // lui, et revenir au lasso ne doit pas ressortir un cadre oublié.
+  const setTool = React.useCallback(
+    (outil: InkTool) => {
+      if (outil !== "lasso") choisir([], []);
+      terminerTexte.current?.();
+      setOutil(outil);
+    },
+    [choisir],
+  );
   // La règle est posée ou rangée ; elle n'est pas un outil, on continue
   // d'écrire au stylo pendant qu'elle est là.
   const [ruler, setRuler] = React.useState<Ruler | null>(null);
@@ -224,8 +303,11 @@ export function DrawingBlock({
     futur.current = [...futur.current, actuel.current];
     direHistorique();
     // Les rangs retenus par le lasso désignent des traits d'une autre version.
-    setSelection([]);
-    appliquer(precedent);
+    choisir([], []);
+    // Une copie, et non l'objet retenu : versée et annulée dans le même instant,
+    // l'encre ramènerait le contenu au même objet, et le canevas, qui ne voit alors
+    // aucun changement, garderait le trait qu'on vient d'annuler.
+    appliquer({ ...precedent });
   }
 
   function redo() {
@@ -234,16 +316,72 @@ export function DrawingBlock({
     futur.current = futur.current.slice(0, -1);
     passe.current = [...passe.current, actuel.current];
     direHistorique();
-    setSelection([]);
-    appliquer(suivant);
+    choisir([], []);
+    appliquer({ ...suivant });
   }
 
   function deleteSelection() {
-    if (selection.length === 0) return;
-    const retires = new Set(selection);
+    if (selection.length === 0 && imagesChoisies.length === 0) return;
     const courant = actuel.current;
-    setSelection([]);
-    onChange({ ...courant, strokes: courant.strokes.filter((_, i) => !retires.has(i)) });
+    const suivant = retirerSelection(courant, selection, imagesChoisies);
+    choisir([], []);
+    onChange(suivant);
+  }
+
+  /**
+   * Ce qu'on a sous les yeux : c'est là qu'arrive ce qu'on pose.
+   *
+   * La partie de la surface qui est **à l'écran**, pas la surface. Elle dépasse
+   * souvent en bas — la note commence sous la barre et le titre — et une image
+   * posée au milieu de la surface arrivait à cheval sur le bord de l'écran, sa
+   * poignée hors de portée.
+   */
+  function zoneVisible(): { centre: Point; hauteur: number } {
+    const surface = document.querySelector<HTMLElement>(`[data-ink-scroll="${scrollId}"]`);
+    if (!surface || surface.scrollWidth === 0) return { centre: { x: 0.5, y: 0.35 }, hauteur: 0.5 };
+    const rect = surface.getBoundingClientRect();
+    const haut = Math.max(rect.top, 0);
+    const bas = Math.min(rect.bottom, window.innerHeight);
+    const unite = surface.scrollWidth;
+    return {
+      centre: {
+        x: (surface.scrollLeft + surface.clientWidth / 2) / unite,
+        y: (surface.scrollTop + (haut + bas) / 2 - rect.top) / unite,
+      },
+      hauteur: Math.max(0, bas - haut) / unite,
+    };
+  }
+
+  const centreVisible = () => zoneVisible().centre;
+
+  function copierSelection(): FragmentEncre | null {
+    const fragment = extraireFragment(actuel.current, selection, imagesChoisies);
+    if (!fragment) return null;
+    void deposerFragment(garderFragment(fragment));
+    return fragment;
+  }
+
+  function couperSelection() {
+    if (copierSelection()) deleteSelection();
+  }
+
+  /** Repose un fragment, et le laisse retenu : on veut presque toujours le placer. */
+  function coller(fragment: FragmentEncre, centre: Point = centreVisible()) {
+    const pose = collerFragment(actuel.current, fragment, centre);
+    onChange(pose.content);
+    setOutil("lasso");
+    choisir(pose.rangs, pose.ids);
+  }
+
+  function dupliquerSelection() {
+    const fragment = extraireFragment(actuel.current, selection, imagesChoisies);
+    if (!fragment) return;
+    const { cadre } = fragment;
+    // Décalé juste assez pour qu'on voie qu'il y en a deux.
+    coller(fragment, {
+      x: (cadre.minX + cadre.maxX) / 2 + 0.03,
+      y: (cadre.minY + cadre.maxY) / 2 + 0.03,
+    });
   }
 
   function clear() {
@@ -377,6 +515,458 @@ export function DrawingBlock({
   }
 
   /*
+   * Une image posée **sur** la page, et non devenue une page.
+   *
+   * Elle arrive au milieu de ce qu'on regarde, déjà retenue par le cadre : le
+   * geste suivant est toujours de la placer. Le serveur n'enregistre que le
+   * fichier, pour la même raison que `ajouterImage`.
+   */
+  const poseRef = React.useRef<HTMLInputElement>(null);
+  const [aRecadrerPose, setARecadrerPose] = React.useState<{
+    file: File;
+    /** L'image déjà posée dont on remplace le fichier, s'il y en a une. */
+    remplace: string | null;
+  } | null>(null);
+
+  async function poserImage(fichier: File, centre?: Point) {
+    if (!scrollId) return;
+    if (actuel.current.images.length >= MAX_IMAGES_POSEES) {
+      setErreurImage("Cette page porte déjà le nombre maximal d'images.");
+      return;
+    }
+    setEnvoiImage(true);
+    setErreurImage(null);
+    try {
+      const { file, ratio } = await preparerImage(fichier);
+      const data = new FormData();
+      data.set("photo", file);
+      const result = await uploadPageImage(scrollId, data);
+      if (!result.ok) {
+        setErreurImage(result.error);
+        return;
+      }
+      const zone = zoneVisible();
+      const lieu = centre ?? zone.centre;
+      // Toute l'image à l'écran, poignées comprises : la moitié de la largeur,
+      // moins si elle est trop haute pour ce qu'on voit de la page.
+      const w = Math.max(0.1, Math.min(0.5, (zone.hauteur * 0.6) / Math.max(ratio, 0.01)));
+      const image: ImagePosee = {
+        id: nouvelIdImage(),
+        file: result.image,
+        x: Math.max(0, Math.min(1 - w, lieu.x - w / 2)),
+        y: Math.max(0, lieu.y - (w * ratio) / 2),
+        w,
+        ratio,
+        angle: 0,
+      };
+      const courant = actuel.current;
+      const bas = image.y + w * ratio;
+      onChange({
+        ...courant,
+        images: [...courant.images, image],
+        // Une surface simple s'allonge pour la recevoir ; une pile, non.
+        ratio:
+          courant.pages.length === 0 && bas > courant.ratio - 0.05
+            ? Math.min(MAX_RATIO, bas + 0.1)
+            : courant.ratio,
+      });
+      setOutil("lasso");
+      choisir([], [image.id]);
+    } catch {
+      setErreurImage("L'image n'a pas pu être ajoutée. Vérifie ta connexion.");
+    } finally {
+      setEnvoiImage(false);
+    }
+  }
+
+  /** Remplace le fichier d'une image posée par sa version recadrée, à la même place. */
+  async function remplacerImage(id: string, recadree: File) {
+    if (!scrollId) return;
+    setEnvoiImage(true);
+    setErreurImage(null);
+    try {
+      const { file, ratio } = await preparerImage(recadree);
+      const data = new FormData();
+      data.set("photo", file);
+      const result = await uploadPageImage(scrollId, data);
+      if (!result.ok) {
+        setErreurImage(result.error);
+        return;
+      }
+      const courant = actuel.current;
+      onChange({
+        ...courant,
+        images: courant.images.map((im) =>
+          im.id === id
+            ? {
+                ...im,
+                file: result.image,
+                ratio,
+                // Le centre ne bouge pas : l'image recadrée reste où on l'a mise.
+                y: im.y + (im.w * im.ratio - im.w * ratio) / 2,
+              }
+            : im,
+        ),
+      });
+    } catch {
+      setErreurImage("L'image recadrée n'a pas pu être enregistrée.");
+    } finally {
+      setEnvoiImage(false);
+    }
+  }
+
+  async function ouvrirRecadrage() {
+    const image = actuel.current.images.find((im) => im.id === imagesChoisies[0]);
+    if (!image) return;
+    try {
+      const reponse = await fetch(`/api/uploads/${image.file}`);
+      if (!reponse.ok) throw new Error("image absente");
+      const blob = await reponse.blob();
+      setARecadrerPose({
+        file: new File([blob], image.file, { type: blob.type }),
+        remplace: image.id,
+      });
+    } catch {
+      setErreurImage("Cette image n'a pas pu être relue.");
+    }
+  }
+
+  /*
+   * La loupe : seulement là où il y a quelque chose à lire.
+   *
+   * Une page qui ne porte que de l'encre n'a rien à proposer : l'écriture à la
+   * main ne se lit pas, et un bouton qui ne trouve jamais rien est pire qu'absent.
+   */
+  const recherchable =
+    Boolean(noteId && scrollId) &&
+    (content.images.length > 0 || content.pages.some((p) => pageKind(p) !== "blank"));
+  const initialeApplicable = rechercheInitiale
+    ? content.pages.some((p) => "file" in p && p.file === rechercheInitiale.file) ||
+      content.pages.some((p) => "image" in p && p.image === rechercheInitiale.file) ||
+      content.images.some((im) => im.file === rechercheInitiale.file)
+    : false;
+  const [loupe, setLoupe] = React.useState(initialeApplicable);
+
+  /*
+   * La révision par caches.
+   *
+   * Ce qu'on surligne, c'est ce qu'il faut retenir. Le cacher fait de n'importe
+   * quel polycopié annoté une page d'auto-interrogation, sans rien préparer. Rien
+   * n'est enregistré : c'est une façon de regarder la page.
+   */
+  const rangsSurlignes = React.useMemo(
+    () =>
+      content.strokes
+        .map((stroke, rang) => ({ rang, stroke }))
+        .filter(({ stroke }) => instrumentOf(stroke.tool).dessous)
+        .map(({ rang, stroke }) => ({ rang, cadre: boundsOf(stroke.points) }))
+        .sort((a, b) => (a.cadre?.minY ?? 0) - (b.cadre?.minY ?? 0)),
+    [content.strokes],
+  );
+  const [reveles, setReveles] = React.useState<Set<number> | null>(null);
+  const basculerMasque = React.useCallback((rang: number) => {
+    setReveles((avant) => {
+      if (!avant) return avant;
+      const suivant = new Set(avant);
+      if (!suivant.delete(rang)) suivant.add(rang);
+      return suivant;
+    });
+  }, []);
+  const masquesCanvas = React.useMemo(
+    () => (reveles ? { reveles, onToucher: basculerMasque } : null),
+    [reveles, basculerMasque],
+  );
+  function revelerSuivant() {
+    const prochain = rangsSurlignes.find(({ rang }) => !reveles?.has(rang));
+    if (!prochain) return;
+    basculerMasque(prochain.rang);
+    const surface = document.querySelector<HTMLElement>(`[data-ink-scroll="${scrollId}"]`);
+    if (surface && prochain.cadre) {
+      surface.scrollTop = prochain.cadre.minY * surface.scrollWidth - surface.clientHeight / 3;
+    }
+  }
+  const [surlignes, setSurlignes] = React.useState<{ tous: Surligne[]; actif: Surligne[] }>({
+    tous: [],
+    actif: [],
+  });
+
+  /*
+   * Faire une carte de ce qu'on a entouré.
+   *
+   * La zone est prise telle qu'on la voit — le polycopié, la photo, l'écriture —,
+   * pas seulement les traits retenus : c'est le schéma annoté qu'on veut retrouver
+   * en révision.
+   */
+  const [zoneCarte, setZoneCarte] = React.useState<{ cadre: Bounds } | null>(null);
+  function ouvrirCarte() {
+    const fragment = extraireFragment(actuel.current, selection, imagesChoisies);
+    if (fragment) setZoneCarte({ cadre: fragment.cadre });
+  }
+
+  /*
+   * Les zones de texte.
+   *
+   * La zone n'entre dans le contenu qu'une fois écrite : toucher la page par mégarde
+   * ne doit laisser ni zone vide ni entrée d'historique.
+   */
+  const [zoneEditee, setZoneEditee] = React.useState<{ zone: ZoneTexte; neuve: boolean } | null>(null);
+  const [tailleTexte, setTailleTexte] = React.useState(TAILLE_TEXTE_DEFAUT);
+
+  function ouvrirZone(point: Point, zone: ZoneTexte | null) {
+    if (!zone && actuel.current.textes.length >= MAX_ZONES_TEXTE) {
+      setErreurImage("Cette page porte déjà le nombre maximal de zones de texte.");
+      return;
+    }
+    const nouvelle: ZoneTexte = {
+      id: nouvelIdImage(),
+      x: Math.max(0, Math.min(0.92, point.x)),
+      y: Math.max(0, point.y - tailleTexte * 0.7),
+      w: Math.max(0.2, Math.min(0.55, 1 - point.x - 0.02)),
+      h: tailleTexte * 1.35,
+      taille: tailleTexte,
+      markup: "",
+      angle: 0,
+    };
+    // Synchrone : iPadOS n'ouvre le clavier que pour un focus donné pendant le geste.
+    flushSync(() => setZoneEditee({ zone: zone ?? nouvelle, neuve: !zone }));
+  }
+
+  function finirZone(markup: string, h: number) {
+    const edition = zoneEditee;
+    setZoneEditee(null);
+    if (!edition) return;
+    const { zone, neuve } = edition;
+    const courant = actuel.current;
+    if (!markup) {
+      if (!neuve) onChange({ ...courant, textes: courant.textes.filter((z) => z.id !== zone.id) });
+      return;
+    }
+    if (!neuve && zone.markup === markup && courant.textes.some((z) => z.id === zone.id && z.w === zone.w)) return;
+    const posee = { ...zone, markup, h: h > 0 ? Math.round(h * 10000) / 10000 : zone.h };
+    onChange({
+      ...courant,
+      textes: neuve
+        ? [...courant.textes, posee]
+        : courant.textes.map((z) => (z.id === zone.id ? posee : z)),
+    });
+  }
+
+  const zoneChoisie = content.textes.find((z) => z.id === imagesChoisies[0]);
+  const modifierZoneChoisie = zoneChoisie
+    ? () => {
+        choisir([], []);
+        setOutil("texte");
+        ouvrirZone({ x: zoneChoisie.x, y: zoneChoisie.y }, zoneChoisie);
+      }
+    : undefined;
+
+  /** Corrige une hauteur lue à l'écran : ce n'est pas une action, elle n'a pas d'historique. */
+  const mesurerZone = React.useCallback(
+    (id: string, h: number) => {
+      const courant = actuel.current;
+      if (!courant.textes.some((z) => z.id === id)) return;
+      appliquer({ ...courant, textes: courant.textes.map((z) => (z.id === id ? { ...z, h } : z)) });
+    },
+    [appliquer],
+  );
+
+  /**
+   * Du texte collé sur la feuille : une zone, au milieu de ce qu'on regarde, retenue
+   * pour qu'on la place tout de suite. Un tableau y devient des lignes.
+   */
+  function collerTexte(markups: string[]) {
+    const markup = markups.join("\n\n");
+    if (!markup.trim() || actuel.current.textes.length >= MAX_ZONES_TEXTE) return;
+    const { centre } = zoneVisible();
+    const w = 0.8;
+    const zone: ZoneTexte = {
+      id: nouvelIdImage(),
+      x: Math.max(0.02, Math.min(1 - w - 0.02, centre.x - w / 2)),
+      y: Math.max(0.02, centre.y - 0.1),
+      w,
+      h: 0.2,
+      taille: tailleTexte,
+      markup,
+      angle: 0,
+    };
+    const courant = actuel.current;
+    onChange({ ...courant, textes: [...courant.textes, zone] });
+    setOutil("lasso");
+    choisir([], [zone.id]);
+  }
+
+  /** Ce qui attend dans le presse-papiers de l'app, pour allumer « Coller ». */
+  React.useSyncExternalStore(abonnerFragment, versionFragment, () => 0);
+  const fragmentGarde = readOnly ? null : lireFragmentSurClient();
+
+  /*
+   * Le clavier et le collage visent la dernière surface touchée.
+   *
+   * Les gestionnaires sont repassés par une référence : ils lisent la sélection
+   * courante, et réinstaller les écouteurs à chaque trait ne servirait à rien.
+   */
+  const moi = React.useRef(Symbol("surface"));
+  const encre = React.useRef<{ verser: () => void } | null>(null);
+  const actions = React.useRef({
+    copierSelection,
+    couperSelection,
+    dupliquerSelection,
+    deleteSelection,
+    undo,
+    redo,
+    coller,
+    poserImage,
+    choisir,
+    collerTexte,
+    ouvrirLoupe: () => {},
+    aSelection: selection.length > 0 || imagesChoisies.length > 0,
+  });
+  React.useEffect(() => {
+    actions.current = {
+      copierSelection,
+      couperSelection,
+      dupliquerSelection,
+      deleteSelection,
+      undo,
+      redo,
+      coller,
+      poserImage,
+      choisir,
+      collerTexte,
+      ouvrirLoupe: () => {
+        if (recherchable) setLoupe(true);
+      },
+      aSelection: selection.length > 0 || imagesChoisies.length > 0,
+    };
+  });
+
+  React.useEffect(() => {
+    if (readOnly) return;
+    const moiMeme = moi.current;
+    surfaces.push(moiMeme);
+
+    const clavier = (event: KeyboardEvent) => {
+      if (dansUnChamp(event.target) || !estLaSurfaceVisee(moiMeme)) return;
+      encre.current?.verser();
+      const a = actions.current;
+      const commande = event.metaKey || event.ctrlKey;
+      const touche = event.key.toLowerCase();
+
+      if (commande && touche === "z") {
+        event.preventDefault();
+        if (event.shiftKey) a.redo();
+        else a.undo();
+        return;
+      }
+      if (commande && touche === "y") {
+        event.preventDefault();
+        a.redo();
+        return;
+      }
+      if (commande && touche === "f") {
+        event.preventDefault();
+        a.ouvrirLoupe();
+        return;
+      }
+      if (!a.aSelection) return;
+      // Copier ne prend la main que si l'on n'a pas sélectionné de texte ailleurs.
+      if (commande && touche === "c" && !window.getSelection()?.toString()) {
+        event.preventDefault();
+        a.copierSelection();
+      } else if (commande && touche === "x") {
+        event.preventDefault();
+        a.couperSelection();
+      } else if (commande && touche === "d") {
+        event.preventDefault();
+        a.dupliquerSelection();
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        event.preventDefault();
+        a.deleteSelection();
+      } else if (event.key === "Escape") {
+        // À la capture, avant le plein écran : on ne referme qu'une chose à la fois.
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        a.choisir([], []);
+      }
+    };
+
+    const coller = (event: ClipboardEvent) => {
+      if (event.defaultPrevented || dansUnChamp(event.target) || !estLaSurfaceVisee(moiMeme)) return;
+      const donnees = event.clipboardData;
+      if (!donnees) return;
+      const a = actions.current;
+
+      const fragment = fragmentDuCollage(donnees.getData("text/html"));
+      if (fragment) {
+        event.preventDefault();
+        a.coller(fragment);
+        return;
+      }
+      const image = Array.from(donnees.files).find((f) => f.type.startsWith("image/"));
+      if (image) {
+        event.preventDefault();
+        void a.poserImage(image);
+        return;
+      }
+      // Une feuille n'a pas d'autre endroit pour du texte : il devient une zone.
+      if (ouverteEnFeuille) {
+        const blocs = blocsDuPressePapiers(donnees.getData("text/html"), donnees.getData("text/plain"));
+        if (blocs.length > 0) {
+          event.preventDefault();
+          a.collerTexte(blocs.map((b) => (b.kind === "text" ? b.markup : tableEnLignes(b.rows))));
+          return;
+        }
+      }
+      // Rien d'autre à coller — dépôt refusé par le navigateur, le plus souvent :
+      // ce que l'app a gardé reste valable. Du texte, lui, revient à la note.
+      if (donnees.types.length === 0) {
+        const garde = lireFragment();
+        if (garde) {
+          event.preventDefault();
+          a.coller(garde);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", clavier, true);
+    window.addEventListener("paste", coller);
+    return () => {
+      window.removeEventListener("keydown", clavier, true);
+      window.removeEventListener("paste", coller);
+      const rang = surfaces.indexOf(moiMeme);
+      if (rang >= 0) surfaces.splice(rang, 1);
+      if (surfaceTouchee === moiMeme) surfaceTouchee = null;
+    };
+  }, [readOnly, ouverteEnFeuille]);
+
+  /** Une image ou un document lâché sur la page atterrit là où on l'a lâché. */
+  function deposer(event: React.DragEvent<HTMLDivElement>) {
+    if (readOnly || !scrollId) return;
+    const file = Array.from(event.dataTransfer.files)[0];
+    if (!file) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (estDocument(file)) {
+      void ajouterDocument(file);
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      setErreurImage("Seules les images et les documents peuvent être déposés ici.");
+      return;
+    }
+    const surface = document.querySelector<HTMLElement>(`[data-ink-scroll="${scrollId}"]`);
+    const rect = surface?.getBoundingClientRect();
+    const centre =
+      surface && rect && surface.scrollWidth > 0
+        ? {
+            x: (event.clientX - rect.left + surface.scrollLeft) / surface.scrollWidth,
+            y: (event.clientY - rect.top + surface.scrollTop) / surface.scrollWidth,
+          }
+        : undefined;
+    void poserImage(file, centre);
+  }
+
+  /*
    * Un document — PDF ou Word —, glissé comme des pages après la page courante.
    *
    * Le bouton « Document » du bas de la note en faisait une page manuscrite à
@@ -506,11 +1096,12 @@ export function DrawingBlock({
     return () => observer.disconnect();
   }, [full, readOnly]);
 
-  // Échap ferme le plein écran, comme partout ailleurs dans l'app.
+  // Échap ferme le plein écran, comme partout ailleurs dans l'app. Une feuille,
+  // elle, n'a pas d'autre état où revenir : on en sort par son bouton de retour.
   React.useEffect(() => {
     if (!full) return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFull(false);
+      if (event.key === "Escape" && !ouverteEnFeuille) setFull(false);
     };
     window.addEventListener("keydown", onKey);
     // La page derrière ne doit pas défiler sous la feuille.
@@ -520,7 +1111,7 @@ export function DrawingBlock({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = previous;
     };
-  }, [full]);
+  }, [full, ouverteEnFeuille]);
 
   /*
    * Ce que la barre laisse en bas de l'écran, publié pour le repère de page.
@@ -567,6 +1158,14 @@ export function DrawingBlock({
     onFullChange?.(full);
   }, [full, onFullChange]);
 
+  const viser = (event?: React.PointerEvent) => {
+    surfaceTouchee = moi.current;
+    // Une commande touchée juste après un trait : il doit être dans le contenu avant
+    // qu'elle ne le lise. Sur la feuille elle-même, l'encre attend sa pause.
+    const cible = event?.target as HTMLElement | undefined;
+    if (!cible?.closest?.('[data-testid="drawing-canvas"]')) encre.current?.verser();
+  };
+
   const palette = (
     <InkPalette
       tool={tool}
@@ -580,6 +1179,31 @@ export function DrawingBlock({
       penOnly={penOnly}
       penDetected={penMode}
       selection={selection.length}
+      selectionImages={imagesChoisies.length}
+      onPaste={fragmentGarde ? () => coller(fragmentGarde) : undefined}
+      onMasques={
+        rangsSurlignes.length > 0 ? () => setReveles((avant) => (avant ? null : new Set())) : undefined
+      }
+      masques={
+        reveles
+          ? {
+              reveles: rangsSurlignes.filter(({ rang }) => reveles.has(rang)).length,
+              total: rangsSurlignes.length,
+              onSuivant: revelerSuivant,
+              onTout: () =>
+                setReveles((avant) =>
+                  avant && avant.size === rangsSurlignes.length
+                    ? new Set()
+                    : new Set(rangsSurlignes.map(({ rang }) => rang)),
+                ),
+            }
+          : null
+      }
+      onSearch={recherchable ? () => setLoupe((ouverte) => !ouverte) : undefined}
+      bandeau={feuille ? { gauche: feuille.gauche, droite: feuille.droite } : undefined}
+      tailleTexte={tailleTexte}
+      onTailleTexte={readOnly ? undefined : setTailleTexte}
+      searchOpen={loupe}
       zoom={zoom}
       full={full}
       paperEditable={!fondImpose}
@@ -588,6 +1212,7 @@ export function DrawingBlock({
       canUndo={historique.annuler}
       canRedo={historique.retablir}
       onAddImage={readOnly || !scrollId ? undefined : () => imageRef.current?.click()}
+      onPlaceImage={readOnly || !scrollId ? undefined : () => poseRef.current?.click()}
       addingImage={envoiImage}
       ruler={ruler}
       onTool={setTool}
@@ -609,7 +1234,7 @@ export function DrawingBlock({
         setZoom(1);
         setViewKey((k) => k + 1);
       }}
-      onToggleFull={() => setFull((f) => !f)}
+      onToggleFull={feuille ? undefined : () => setFull((f) => !f)}
       onToggleRuler={() =>
         setRuler((current) => (current ? null : { y: (content.ratio || 0.75) / 2, angle: 0 }))
       }
@@ -643,7 +1268,53 @@ export function DrawingBlock({
       }
       shape={shape}
       selection={selection}
-      onSelect={setSelection}
+      imagesChoisies={imagesChoisies}
+      onSelect={choisir}
+      surlignes={surlignes.tous}
+      surligneActif={surlignes.actif}
+      masques={masquesCanvas}
+      poigneeRef={encre}
+      zoneEditee={zoneEditee?.zone.id ?? null}
+      onTexte={readOnly ? undefined : ouvrirZone}
+      onFinTexte={() => terminerTexte.current?.()}
+      onMesureTexte={readOnly ? undefined : mesurerZone}
+      editeur={
+        zoneEditee
+          ? (largeurPage) => (
+              <EditeurZone
+                key={zoneEditee.zone.id}
+                zone={zoneEditee.zone}
+                pageW={largeurPage}
+                terminerRef={terminerTexte}
+                onFin={finirZone}
+                onLargeur={(w) =>
+                  setZoneEditee((avant) => (avant ? { ...avant, zone: { ...avant.zone, w } } : avant))
+                }
+              />
+            )
+          : undefined
+      }
+      barreSelection={
+        <BarreSelection
+          onCouper={couperSelection}
+          onCopier={() => copierSelection()}
+          onDupliquer={dupliquerSelection}
+          onCarte={scrollId ? ouvrirCarte : undefined}
+          onModifier={
+            selection.length === 0 && imagesChoisies.length === 1
+              ? modifierZoneChoisie
+              : undefined
+          }
+          onRecadrer={
+            selection.length === 0 &&
+            imagesChoisies.length === 1 &&
+            content.images.some((im) => im.id === imagesChoisies[0])
+              ? ouvrirRecadrage
+              : undefined
+          }
+          onSupprimer={deleteSelection}
+        />
+      }
       ruler={ruler}
       onRuler={setRuler}
       // En ligne, la page se montre dans une fenêtre de hauteur raisonnable et
@@ -656,6 +1327,23 @@ export function DrawingBlock({
       className={full ? "rounded-none border-0" : "rounded-xl border border-outline-variant"}
     />
   );
+
+  const loupeOuverte =
+    loupe && noteId && scrollId ? (
+      <LoupeNote
+        noteId={noteId}
+        scrollId={scrollId}
+        content={content}
+        initiale={initialeApplicable ? rechercheInitiale : undefined}
+        // Sous l'en-tête de la feuille, ou sous la barre de l'app.
+        className={feuille ? "top-32 md:top-[4.75rem]" : full ? "top-3" : "top-20"}
+        onSurlignes={setSurlignes}
+        onFermer={() => {
+          setLoupe(false);
+          setSurlignes({ tous: [], actif: [] });
+        }}
+      />
+    ) : null;
 
   const alerteImage = erreurImage ? (
     <p role="alert" className="px-2 m3-body-small text-error">
@@ -712,6 +1400,47 @@ export function DrawingBlock({
           setARecadrer(file);
         }}
       />
+      {zoneCarte && scrollId ? (
+        <CarteDepuisNote
+          scrollId={scrollId}
+          content={content}
+          cadre={zoneCarte.cadre}
+          onClose={() => setZoneCarte(null)}
+        />
+      ) : null}
+      <input
+        ref={poseRef}
+        type="file"
+        accept="image/*"
+        data-pose-image=""
+        className="sr-only"
+        tabIndex={-1}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = "";
+          if (!file) return;
+          if (file.size > MAX_UPLOAD_BYTES * 6) {
+            setErreurImage("Image beaucoup trop lourde.");
+            return;
+          }
+          setARecadrerPose({ file, remplace: null });
+        }}
+      />
+      {aRecadrerPose ? (
+        <ImageCropper
+          key={`${aRecadrerPose.file.name}-${aRecadrerPose.file.size}-${aRecadrerPose.file.lastModified}`}
+          file={aRecadrerPose.file}
+          maxSide={COTE_MAX}
+          type="image/jpeg"
+          onCancel={() => setARecadrerPose(null)}
+          onConfirm={(recadree) => {
+            const { remplace } = aRecadrerPose;
+            setARecadrerPose(null);
+            if (remplace) void remplacerImage(remplace, recadree);
+            else void poserImage(recadree);
+          }}
+        />
+      ) : null}
       {aRecadrer ? (
         <ImageCropper
           key={`${aRecadrer.name}-${aRecadrer.size}-${aRecadrer.lastModified}`}
@@ -734,18 +1463,29 @@ export function DrawingBlock({
         {/* Le bloc garde sa place dans le document pendant l'édition plein
             écran : sans lui, la note se replierait derrière la feuille et le
             défilement sauterait à la fermeture. */}
-        <div
-          aria-hidden
-          className="grid place-items-center rounded-xl border border-dashed border-outline-variant py-10 m3-body-medium text-on-surface-variant"
-          style={{ aspectRatio: `1 / ${Math.min(content.ratio, 1)}` }}
-        >
-          Page ouverte en plein écran
-        </div>
+        {feuille ? null : (
+          <div
+            aria-hidden
+            className="grid place-items-center rounded-xl border border-dashed border-outline-variant py-10 m3-body-medium text-on-surface-variant"
+            style={{ aspectRatio: `1 / ${Math.min(content.ratio, 1)}` }}
+          >
+            Page ouverte en plein écran
+          </div>
+        )}
 
         {/* z-50, pas z-40 : la barre de navigation du téléphone est aussi en
             z-40 et vient après la note dans le document — à égalité elle
             passait devant, et cachait la moitié de la palette. */}
-        <div ref={surfaceRef} className="ink-surface fixed inset-0 z-50 flex flex-col bg-surface">
+        <div
+          ref={surfaceRef}
+          onPointerDownCapture={viser}
+          onDragOver={(event) => event.preventDefault()}
+          onDrop={deposer}
+          className="ink-surface fixed inset-0 z-50 flex flex-col bg-surface"
+        >
+          {feuille ? palette : null}
+          {feuille?.sous}
+          {loupeOuverte}
           {/* Pleine largeur, sans marge : la feuille doit occuper l'écran, pas
               flotter au milieu. Le défilement sert à descendre dans la page,
               qui s'allonge à mesure qu'on écrit. */}
@@ -758,7 +1498,7 @@ export function DrawingBlock({
               colonne, et la feuille occupe donc tout l'écran — c'est ce qui
               fait la différence entre « une page avec une barre en dessous » et
               « une page, avec les outils posés dessus ». */}
-          {palette}
+          {feuille ? null : palette}
           {selecteurImage}
         </div>
       </>
@@ -766,12 +1506,81 @@ export function DrawingBlock({
   }
 
   return (
-    <div className="space-y-2">
+    <div
+      className="space-y-2"
+      onPointerDownCapture={viser}
+      onDragOver={(event) => event.preventDefault()}
+      onDrop={deposer}
+    >
       {readOnly ? null : <div ref={paletteRef}>{palette}</div>}
+      {loupeOuverte}
       {alerteImage}
       {suiviDocument}
       {canvas}
       {selecteurImage}
+    </div>
+  );
+}
+
+/** Le presse-papiers de l'app n'existe que sur l'appareil. */
+function lireFragmentSurClient(): FragmentEncre | null {
+  return typeof window === "undefined" ? null : lireFragment();
+}
+
+/**
+ * Les actions de ce que le lasso a retenu, posées sous son cadre.
+ *
+ * Là où est la main : aller les chercher dans la palette, en bas de l'écran,
+ * obligerait à quitter des yeux ce qu'on vient de sélectionner.
+ */
+function BarreSelection({
+  onCouper,
+  onCopier,
+  onDupliquer,
+  onCarte,
+  onModifier,
+  onRecadrer,
+  onSupprimer,
+}: {
+  onCouper: () => void;
+  onCopier: () => void;
+  onDupliquer: () => void;
+  onCarte?: () => void;
+  onModifier?: () => void;
+  onRecadrer?: () => void;
+  onSupprimer: () => void;
+}) {
+  const actions = [
+    { label: "Couper la sélection", icon: Scissors, onClick: onCouper },
+    { label: "Copier la sélection", icon: ClipboardCopy, onClick: onCopier },
+    { label: "Dupliquer la sélection", icon: Files, onClick: onDupliquer },
+    ...(onModifier ? [{ label: "Modifier le texte", icon: PenLine, onClick: onModifier }] : []),
+    ...(onCarte ? [{ label: "Créer une carte", icon: BookPlus, onClick: onCarte }] : []),
+    ...(onRecadrer ? [{ label: "Recadrer l'image", icon: Crop, onClick: onRecadrer }] : []),
+    { label: "Supprimer ce qui est sélectionné", icon: Trash2, onClick: onSupprimer, danger: true },
+  ];
+  return (
+    <div
+      role="toolbar"
+      aria-label="Actions de la sélection"
+      data-testid="barre-selection"
+      className="flex items-center gap-0.5 rounded-full bg-surface-highest p-0.5 text-on-surface elevation-2"
+    >
+      {actions.map(({ label, icon: Icon, onClick, danger }) => (
+        <button
+          key={label}
+          type="button"
+          onClick={onClick}
+          aria-label={label}
+          title={label}
+          className={cn(
+            "state-layer grid size-11 shrink-0 place-items-center rounded-full",
+            danger ? "text-error" : "text-on-surface-variant",
+          )}
+        >
+          <Icon className="size-5" />
+        </button>
+      ))}
     </div>
   );
 }

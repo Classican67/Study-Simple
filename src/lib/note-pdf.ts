@@ -2,10 +2,12 @@ import "server-only";
 
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { PDFDocument, rgb } from "pdf-lib";
+import { degrees, PDFDocument, rgb, type PDFImage, type PDFPage } from "pdf-lib";
 
 import { boundsOf, translateStroke } from "@/lib/ink";
 import {
+  centreImage,
+  centreTexte,
   isBackdropPage,
   isImagePage,
   pageAtY,
@@ -14,9 +16,11 @@ import {
   parseDrawing,
   UNTITLED,
   type BlankPage,
+  type ImagePosee,
   type PageBand,
   type Paper,
   type Stroke,
+  type ZoneTexte,
 } from "@/lib/notes";
 import {
   PAPER_FOND_RGB,
@@ -32,10 +36,45 @@ import {
   strokeWidth,
   type PageSize,
 } from "@/lib/pdf-export";
+import { policesDuDocument, poserTexte } from "@/lib/pdf-texte";
 import { UPLOAD_DIR } from "@/lib/uploads";
 import { isValidUploadName } from "@/lib/upload-path";
 
 export type ModePdf = "flat" | "annot";
+
+/**
+ * Pose une image sur une feuille, à sa place et à son angle.
+ *
+ * `drawImage` tourne autour du coin bas-gauche, l'écran autour du centre, et les
+ * deux axes verticaux sont opposés : on calcule donc où mettre ce coin pour que
+ * le **centre** tombe au même endroit qu'à l'écran. Tourner sans cette
+ * correction déplace l'image d'autant plus qu'elle est grande.
+ */
+async function poserImage(
+  feuille: PDFPage,
+  image: ImagePosee,
+  charger: (file: string) => Promise<PDFImage | null>,
+) {
+  const embarquee = await charger(image.file);
+  if (!embarquee) return;
+  const unite = feuille.getWidth();
+  const hauteurFeuille = feuille.getHeight();
+  const l = image.w * unite;
+  const h = l * image.ratio;
+  const centre = centreImage(image);
+  const cx = centre.x * unite;
+  const cy = hauteurFeuille - centre.y * unite;
+  const angle = -image.angle;
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  feuille.drawImage(embarquee, {
+    x: cx + (-l / 2) * cos - (-h / 2) * sin,
+    y: cy + (-l / 2) * sin + (-h / 2) * cos,
+    width: l,
+    height: h,
+    rotate: degrees((angle * 180) / Math.PI),
+  });
+}
 
 /**
  * Le PDF d'une note : ses pages manuscrites, avec leur fond et leur encre.
@@ -69,11 +108,21 @@ export async function notePdf(
     paper: Paper;
     ratio: number;
     strokes: Stroke[];
+    /** Images posées sur cette feuille, ramenées dans son repère. */
+    images: ImagePosee[];
+    textes: ZoneTexte[];
   }[] = [];
   for (const bloc of blocs) {
     const bandes = pageBands(bloc.pages);
     if (bandes.length === 0) {
-      feuilles.push({ band: null, paper: bloc.paper, ratio: bloc.ratio, strokes: bloc.strokes });
+      feuilles.push({
+        band: null,
+        paper: bloc.paper,
+        ratio: bloc.ratio,
+        strokes: bloc.strokes,
+        images: bloc.images,
+        textes: bloc.textes,
+      });
       continue;
     }
 
@@ -89,6 +138,18 @@ export async function notePdf(
         points: translateStroke(stroke.points, 0, -bandes[index].top),
       });
     }
+    // Une image posée revient à sa page par son centre, comme un trait par son
+    // milieu : les deux règles donnent la même réponse à l'écran et sur le papier.
+    const imagesParPage: ImagePosee[][] = bandes.map(() => []);
+    for (const image of bloc.images) {
+      const index = pageAtY(bandes, centreImage(image).y);
+      imagesParPage[index].push({ ...image, y: image.y - bandes[index].top });
+    }
+    const textesParPage: ZoneTexte[][] = bandes.map(() => []);
+    for (const zone of bloc.textes) {
+      const index = pageAtY(bandes, centreTexte(zone).y);
+      textesParPage[index].push({ ...zone, y: zone.y - bandes[index].top });
+    }
     bandes.forEach((band, index) =>
       feuilles.push({
         band,
@@ -97,6 +158,8 @@ export async function notePdf(
         paper: pageKind(band) === "blank" ? (band as BlankPage).paper : "blank",
         ratio: band.ratio,
         strokes: parPage[index],
+        images: imagesParPage[index],
+        textes: textesParPage[index],
       }),
     );
   }
@@ -119,6 +182,28 @@ export async function notePdf(
     const doc = await PDFDocument.load(octets);
     sources.set(file, doc);
     return doc;
+  };
+
+  const polices = policesDuDocument(sortie);
+
+  // Une même image peut être posée vingt fois : le fichier n'entre qu'une fois
+  // dans le PDF. `null` retient un échec, pour ne pas le relire à chaque pose.
+  const images = new Map<string, PDFImage | null>();
+  const chargerImage = async (file: string): Promise<PDFImage | null> => {
+    if (images.has(file)) return images.get(file) ?? null;
+    let embarquee: PDFImage | null = null;
+    try {
+      if (!isValidUploadName(file)) throw new Error("nom de fichier invalide");
+      const octets = await readFile(path.join(UPLOAD_DIR, file));
+      const jpeg = octets[0] === 0xff && octets[1] === 0xd8;
+      embarquee = jpeg
+        ? await sortie.embedJpg(new Uint8Array(octets))
+        : await sortie.embedPng(new Uint8Array(octets));
+    } catch (error) {
+      console.error("[pdf] image posée illisible :", error);
+    }
+    images.set(file, embarquee);
+    return embarquee;
   };
 
   for (const page of feuilles) {
@@ -183,6 +268,7 @@ export async function notePdf(
     }
 
     const taille: PageSize = { width: cible.getWidth(), height: cible.getHeight() };
+    const posees = page.images;
 
     /*
      * Le papier, avant l'encre.
@@ -221,6 +307,12 @@ export async function notePdf(
     for (const [x, y] of repere.dots) {
       cible.drawCircle({ x, y, size: repere.thickness, color: grisPapier, borderWidth: 0 });
     }
+
+    // Les images posées, sous l'encre : à l'écran aussi, on écrit dessus.
+    for (const image of posees) await poserImage(cible, image, chargerImage);
+
+    // Le texte aussi : à l'écran, l'encre passe par-dessus.
+    for (const zone of page.textes) await poserTexte(cible, zone, polices);
 
     // Les surligneurs d'abord, comme à l'écran : ils passent sous l'encre.
     const ordonnes = [...page.strokes].sort(

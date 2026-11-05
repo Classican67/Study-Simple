@@ -2,7 +2,8 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { parsePreview, UNTITLED, type NotePreview } from "@/lib/notes";
-import { searchTerms } from "@/lib/search";
+import { notesParDocuments, pagesTrouvees } from "@/lib/documents-index";
+import { excerpt, normalizeForSearch, searchTerms } from "@/lib/search";
 import { folderPaths, type FolderNode } from "@/lib/folder-tree";
 
 /**
@@ -92,11 +93,19 @@ export async function getNotesView(
   // trouver parce qu'il est un dossier plus bas serait déroutant.
   const partout = filters.everywhere ?? cherche;
 
+  // Une note se trouve aussi par ce que disent ses documents.
+  const parDocuments = terms.length > 0 ? await notesParDocuments(userId, terms) : [];
+
   const where = {
     ownerId: userId,
     ...(partout ? {} : { folderId }),
     ...(terms.length > 0
-      ? { AND: terms.map((mot) => ({ searchText: { contains: mot } })) }
+      ? {
+          OR: [
+            { AND: terms.map((mot) => ({ searchText: { contains: mot } })) },
+            { id: { in: parDocuments } },
+          ],
+        }
       : {}),
     ...(filters.has ? { blocks: { some: { kind: filters.has } } } : {}),
   };
@@ -237,6 +246,10 @@ export type NoteSearchResult = {
   title: string;
   folder: string | null;
   excerpt: string;
+  /** Les pages de ses documents où la notion apparaît, les premières d'abord. */
+  pages: { file: string; page: number; extrait: string; ocr: boolean }[];
+  /** Combien de pages en tout, pour dire qu'il y en a d'autres. */
+  totalPages: number;
 };
 
 /**
@@ -251,10 +264,26 @@ export async function searchNotes(userId: string, query: string): Promise<NoteSe
   const terms = searchTerms(query);
   if (terms.length === 0) return [];
 
+  /*
+   * Deux sources : ce qu'on a écrit dans la note, et ce que disent ses documents.
+   * Chercher une notion doit trouver le polycopié où elle est expliquée, pas
+   * seulement la page où l'on a recopié son nom.
+   */
+  const trouvees = await pagesTrouvees(userId, terms);
+  const parNote = new Map<string, typeof trouvees>();
+  for (const page of trouvees) {
+    for (const { noteId } of page.document.notes) {
+      parNote.set(noteId, [...(parNote.get(noteId) ?? []), page]);
+    }
+  }
+
   const notes = await prisma.note.findMany({
     where: {
       ownerId: userId,
-      AND: terms.map((mot) => ({ searchText: { contains: mot } })),
+      OR: [
+        { AND: terms.map((mot) => ({ searchText: { contains: mot } })) },
+        { id: { in: [...parNote.keys()] } },
+      ],
     },
     select: {
       id: true,
@@ -263,15 +292,35 @@ export async function searchNotes(userId: string, query: string): Promise<NoteSe
       folder: { select: { name: true } },
     },
     orderBy: { updatedAt: "desc" },
-    take: 40,
+    take: 60,
   });
 
-  return notes.map((note) => ({
-    noteId: note.id,
-    title: note.title.trim() || UNTITLED,
-    folder: note.folder?.name ?? null,
-    excerpt: extrait(note.searchText, terms[0]),
-  }));
+  const rang = (note: { title: string; searchText: string }) => {
+    const titre = normalizeForSearch(note.title);
+    if (terms.every((mot) => titre.includes(mot))) return 0;
+    if (terms.every((mot) => note.searchText.includes(mot))) return 1;
+    return 2;
+  };
+
+  return [...notes]
+    .sort((a, b) => rang(a) - rang(b))
+    .slice(0, 40)
+    .map((note) => {
+      const pages = parNote.get(note.id) ?? [];
+      return {
+        noteId: note.id,
+        title: note.title.trim() || UNTITLED,
+        folder: note.folder?.name ?? null,
+        excerpt: terms.every((mot) => note.searchText.includes(mot)) ? extrait(note.searchText, terms[0]) : "",
+        pages: pages.slice(0, 3).map((p) => ({
+          file: p.file,
+          page: p.page,
+          extrait: excerpt(p.texte.replace(/\s+/g, " "), terms),
+          ocr: p.ocr,
+        })),
+        totalPages: pages.length,
+      };
+    });
 }
 
 /** Quelques mots autour de la première occurrence, pour situer la note. */

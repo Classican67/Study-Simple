@@ -85,6 +85,46 @@ describe("file de reprise des enregistrements", () => {
     assert.equal(appels, 1);
   });
 
+  it("quitter une note n'empêche pas son dernier enregistrement de partir", async () => {
+    const { journal, contenu } = journalDEssai();
+    const recus: string[] = [];
+    const sauvegarde = creerSauvegarde({
+      journal,
+      gigue: () => 1,
+      envoyer: async (brouillon) => {
+        recus.push(brouillon.content);
+        return { sort: "ok" };
+      },
+    });
+
+    // L'ordre réel au démontage : la vidange du bloc, puis l'arrêt de la file, pendant
+    // que l'écriture du journal est encore en cours.
+    const envoi = sauvegarde.enregistrer({ ...BLOC, content: "dernier trait" });
+    sauvegarde.arreter();
+    await envoi;
+    await new Promise((fin) => setTimeout(fin, 0));
+
+    assert.deepEqual(recus, ["dernier trait"]);
+    assert.equal(contenu.size, 0, "et le journal est vidé une fois confirmé");
+  });
+
+  it("arrêter coupe les relances : un échec ne repart plus tout seul", async () => {
+    const { journal } = journalDEssai();
+    let appels = 0;
+    const sauvegarde = creerSauvegarde({
+      journal,
+      gigue: () => 1,
+      envoyer: async () => {
+        appels++;
+        return { sort: "reseau" };
+      },
+    });
+    sauvegarde.arreter();
+    await sauvegarde.enregistrer({ ...BLOC, content: "x" });
+    await new Promise((fin) => setTimeout(fin, 30));
+    assert.equal(appels, 1);
+  });
+
   it("garde le brouillon tant que le serveur n'a pas confirmé", async () => {
     const { journal, contenu } = journalDEssai();
     const temps = minuteurDEssai();

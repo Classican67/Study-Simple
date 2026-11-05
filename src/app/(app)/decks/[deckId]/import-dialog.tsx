@@ -241,7 +241,7 @@ export function ImportDialog({ deckId }: { deckId: string }) {
 
             {/* Le libellé fait partie de la cible : on lui donne la hauteur
                 tactile, pour que toute la ligne réponde au doigt. */}
-            <label className="-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-2 text-sm text-on-surface transition-colors hover:bg-surface-container-high">
+            <label className="-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-xl px-2 text-sm text-on-surface transition-colors hover:bg-surface-high">
               <input
                 type="checkbox"
                 name="skipDuplicates"
@@ -279,7 +279,7 @@ function Preview({ result }: { result: ReturnType<typeof parseImport> }) {
   const { cards, skipped } = result;
 
   return (
-    <div className="rounded-xl border border-outline-variant bg-surface-container-high p-3">
+    <div className="rounded-xl border border-outline-variant bg-surface-high p-3">
       <div className="mb-2 flex flex-wrap items-center gap-2">
         <Badge tone={cards.length > 0 ? "success" : "danger"}>
           {cards.length} carte{cards.length > 1 ? "s" : ""} reconnue{cards.length > 1 ? "s" : ""}

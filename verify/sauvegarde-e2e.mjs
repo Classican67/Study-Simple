@@ -118,7 +118,14 @@ await geste(ligne(0.36));
 await page.waitForTimeout(2500);
 
 check((await traits()) === 5, "deux traits de plus à l'écran", `${await traits()}`);
-const texteEnPanne = (await pastille().textContent()) ?? "";
+// La file retente toutes les quelques secondes, et la pastille repasse par
+// « Enregistrement… » à chaque essai : c'est son état au repos qu'on veut lire.
+let texteEnPanne = "";
+for (let essai = 0; essai < 60; essai++) {
+  texteEnPanne = (await pastille().textContent()) ?? "";
+  if (!/Enregistrement/.test(texteEnPanne)) break;
+  await page.waitForTimeout(100);
+}
 check(
   /Hors ligne|Reprise|Non enregistré/.test(texteEnPanne),
   "la pastille nomme la panne au lieu de rester sur « Enregistrement… »",

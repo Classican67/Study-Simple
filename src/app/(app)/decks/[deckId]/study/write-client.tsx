@@ -260,7 +260,7 @@ export function WriteClient({
 
             {verdict === "wrong" ? (
               <div className="mt-5 space-y-4">
-                <div className="rounded-xl border border-outline-variant bg-surface-container-high p-4">
+                <div className="rounded-xl border border-outline-variant bg-surface-high p-4">
                   <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-error">
                     <X className="size-3.5" />
                     La réponse attendue

@@ -31,7 +31,7 @@ const section = (t) => console.log(`\n── ${t} ──`);
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({
-  viewport: { width: 1194, height: 900 },
+  viewport: { width: 1434, height: 900 },
   deviceScaleFactor: 2,
   hasTouch: true,
 });

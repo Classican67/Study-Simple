@@ -22,9 +22,9 @@ import {
 } from "@/lib/notes";
 
 describe("isBlockKind", () => {
-  it("n'accepte que les trois types connus", () => {
-    for (const bon of ["text", "table", "drawing"]) assert.equal(isBlockKind(bon), true);
-    for (const mauvais of ["", "Text", "image", null, 1, {}]) {
+  it("n'accepte que les quatre types connus", () => {
+    for (const bon of ["text", "table", "drawing", "image"]) assert.equal(isBlockKind(bon), true);
+    for (const mauvais of ["", "Text", "video", null, 1, {}]) {
       assert.equal(isBlockKind(mauvais), false, String(mauvais));
     }
   });

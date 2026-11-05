@@ -125,8 +125,8 @@ describe("un trait a la même forme à l'écran et sur le papier", () => {
       const rapportA =
         aire(inkOutline(places(flat, ECHELLE), flat, tool, 2.5, ECHELLE)) /
         aire(inkOutline(places(flat, 1), flat, tool, 2.5, 1));
-      // Deux pour cent : `getStroke` rogne trois unités absolues au bout du
-      // tracé, ce qui est la seule chose en lui qui ne suive pas l'échelle.
+      // Le calcul se fait dans un seul repère et le résultat est mis à l'échelle : la
+      // tolérance ne couvre plus que les arrondis.
       assert.ok(
         Math.abs(rapportL - ECHELLE) < 0.02,
         `longueur : rapport ${rapportL.toFixed(3)} pour ${ECHELLE}`,

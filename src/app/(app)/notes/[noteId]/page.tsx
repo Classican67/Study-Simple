@@ -26,6 +26,7 @@ async function load(noteId: string, userId: string) {
       title: true,
       folderId: true,
       mastered: true,
+      format: true,
       // Départage un brouillon local d'un enregistrement venu d'ailleurs, sans
       // rien ajouter au schéma : `touch()` la met à jour à chaque écriture
       // réussie. Cf. `useSauvegarde`.
@@ -49,6 +50,7 @@ export async function generateMetadata(
 
 export default async function NotePage(props: PageProps<"/notes/[noteId]">) {
   const { noteId } = await props.params;
+  const params = await props.searchParams;
   const user = await requireUser();
 
   const note = await load(noteId, user.id);
@@ -72,50 +74,72 @@ export default async function NotePage(props: PageProps<"/notes/[noteId]">) {
       content: block.content,
     }));
 
+  // Arrivée depuis la recherche : la loupe s'ouvre sur le mot, à la bonne page.
+  const recherche =
+    typeof params.cherche === "string" && typeof params.doc === "string"
+      ? { texte: params.cherche, file: params.doc, page: Number(params.page) || 1 }
+      : undefined;
+
+  const actions = (
+    <>
+      <BoutonHorsLigne
+        genre="note"
+        id={note.id}
+        folderId={note.folderId}
+        nom={note.title.trim() || UNTITLED}
+        className="mr-1"
+      />
+      <MasteredToggle noteId={note.id} mastered={note.mastered} />
+
+      <MoveNote noteId={note.id} folderId={note.folderId} folders={folderPaths(tree)} />
+
+      <ConfirmDialog
+        trigger={
+          <Button
+            variant="text"
+            size="icon"
+            aria-label="Supprimer la note"
+            className="hover:text-error"
+          >
+            <Trash2 />
+          </Button>
+        }
+        title="Supprimer cette note ?"
+        description="La note et tous ses blocs seront définitivement effacés."
+        confirmLabel="Supprimer"
+        action={async () => {
+          "use server";
+          await deleteNote(noteId);
+          // La page qu'on vient de supprimer ne peut plus s'afficher : on
+          // renvoie au dossier qui la contenait plutôt qu'à la racine.
+          redirect(retour);
+        }}
+      />
+    </>
+  );
+
+  // Une feuille prend tout l'écran : l'en-tête de la note vit dans la sienne.
+  if (note.format === "feuille") {
+    return (
+      <NoteEditor
+        noteId={note.id}
+        initialTitle={note.title}
+        initialBlocks={blocks}
+        noteModifiee={note.updatedAt.getTime()}
+        format="feuille"
+        retour={retour}
+        actions={actions}
+        recherche={recherche}
+      />
+    );
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
         <NotesTrail trail={trail.map(({ id, name }) => ({ id, name }))} inNote />
 
-        <div className="flex flex-wrap items-center justify-end gap-0.5">
-          <BoutonHorsLigne
-            genre="note"
-            id={note.id}
-            folderId={note.folderId}
-            nom={note.title.trim() || UNTITLED}
-            className="mr-1"
-          />
-          <MasteredToggle noteId={note.id} mastered={note.mastered} />
-
-          <MoveNote
-            noteId={note.id}
-            folderId={note.folderId}
-            folders={folderPaths(tree)}
-          />
-
-          <ConfirmDialog
-            trigger={
-              <Button
-                variant="text"
-                size="icon"
-                aria-label="Supprimer la note"
-                className="hover:text-error"
-              >
-                <Trash2 />
-              </Button>
-            }
-            title="Supprimer cette note ?"
-            description="La note et tous ses blocs seront définitivement effacés."
-            confirmLabel="Supprimer"
-            action={async () => {
-              "use server";
-              await deleteNote(noteId);
-              // La page qu'on vient de supprimer ne peut plus s'afficher : on
-              // renvoie au dossier qui la contenait plutôt qu'à la racine.
-              redirect(retour);
-            }}
-          />
-        </div>
+        <div className="flex flex-wrap items-center justify-end gap-0.5">{actions}</div>
       </div>
 
       <NoteEditor
@@ -123,6 +147,7 @@ export default async function NotePage(props: PageProps<"/notes/[noteId]">) {
         initialTitle={note.title}
         initialBlocks={blocks}
         noteModifiee={note.updatedAt.getTime()}
+        recherche={recherche}
       />
     </div>
   );

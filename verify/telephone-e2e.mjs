@@ -127,7 +127,7 @@ await page.waitForURL(/\/notes\/[a-z0-9]+/);
 await page.getByLabel("Titre de la note").fill(`Photo téléphone ${Date.now()}`);
 await page.getByLabel("Titre de la note").blur();
 await retirerPageVierge(page);
-await page.locator('input[type="file"][accept="image/*"]:not([data-page-image])').setInputFiles(PHOTO);
+await page.locator('input[type="file"][accept="image/*"]:not([data-page-image]):not([data-pose-image]):not([data-bloc-image])').setInputFiles(PHOTO);
 await page.waitForTimeout(900);
 await page.getByRole("button", { name: "Utiliser" }).click();
 await page.waitForSelector("[data-ink-scroll] img");

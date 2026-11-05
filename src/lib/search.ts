@@ -12,11 +12,11 @@
 /**
  * Où l'on cherche.
  *
- * Les cartes et les notes ne se cherchent pas de la même façon — on cherche un
- * terme à réviser, ou un cours à relire — et mêler les deux listes obligerait
- * à trier du regard. On choisit donc.
+ * Partout par défaut : on cherche une notion, pas un genre de contenu, et elle peut
+ * être sur une carte, dans ses notes ou au fond d'un polycopié. Restreindre reste à
+ * un geste, quand on sait ce qu'on veut.
  */
-export const SEARCH_SCOPES = ["cards", "notes"] as const;
+export const SEARCH_SCOPES = ["all", "cards", "notes"] as const;
 export type SearchScope = (typeof SEARCH_SCOPES)[number];
 
 export function isSearchScope(value: unknown): value is SearchScope {

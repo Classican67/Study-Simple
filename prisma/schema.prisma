@@ -267,12 +267,17 @@ model Note {
   // « Je maîtrise cette note » : l'appréciation de la personne, jamais un
   // calcul. Rien ne la pose ni ne la retire à sa place.
   mastered   Boolean  @default(false)
+  // « feuille » : une seule surface, ouverte en plein écran — toutes les notes
+  // créées depuis. « blocs » : la suite de blocs d'avant, gardée telle quelle
+  // pour ne rien perdre de ce qui existait.
+  format     String   @default("blocs")
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   owner  User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   folder Folder?     @relation(fields: [folderId], references: [id], onDelete: SetNull)
   blocks NoteBlock[]
+  documents NoteDocument[]
 
   // La liste des notes est triée par date de modification : c'est la note
   // qu'on vient de quitter qu'on rouvre le plus souvent.
@@ -293,10 +298,71 @@ model NoteBlock {
   // pour la base : SQLite comme Postgres le stockent sans extension, et le
   // schéma de chaque bloc reste décrit et validé côté application.
   content  String @default("")
+  // Le texte des zones d'une page manuscrite, pour la recherche. Tenu à part : une
+  // page dense pèse des dizaines de mégaoctets, et ne se relit pas à chaque trait.
+  plain    String @default("")
 
   note Note @relation(fields: [noteId], references: [id], onDelete: Cascade)
 
   @@index([noteId, position])
+}
+
+// ---------------------------------------------------------------------------
+// Texte des documents
+// ---------------------------------------------------------------------------
+
+// Un fichier importé — PDF ou image — et l'état de sa lecture.
+//
+// Par **fichier** et non par note : dupliquer une note ou coller une image
+// reprend le même fichier, et le relire serait du travail pour rien.
+model DocumentIndex {
+  file      String   @id
+  // "attente" | "lecture" | "fini" | "echec"
+  statut    String   @default("attente")
+  // Pages connues, et pages déjà lues : une lecture interrompue reprend là.
+  pages     Int      @default(0)
+  lues      Int      @default(0)
+  erreur    String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contenu DocumentPage[]
+  notes   NoteDocument[]
+
+  @@index([statut])
+}
+
+// Ce qu'on a lu sur une page.
+model DocumentPage {
+  file       String
+  page       Int
+  // Le texte tel qu'il est, pour montrer un extrait.
+  texte      String @default("")
+  // Sa forme comparable — sans accent, sans majuscule —, comme `Note.searchText`.
+  searchText String @default("")
+  // Les mots et leur place : `[[texte, x, y, l, h], …]`, en proportion de la page.
+  // C'est ce qui permet à la loupe de surligner au bon endroit.
+  mots       String @default("[]")
+  // Lue par l'OCR plutôt que dans la couche de texte du PDF.
+  ocr        Boolean @default(false)
+
+  document DocumentIndex @relation(fields: [file], references: [file], onDelete: Cascade)
+
+  @@id([file, page])
+}
+
+// Quelle note se sert de quel fichier. Tiré des blocs à chaque changement : sans
+// cela, savoir à quelles notes appartient une page trouvée demanderait de relire
+// le contenu de tous les blocs.
+model NoteDocument {
+  noteId String
+  file   String
+
+  note     Note          @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  document DocumentIndex @relation(fields: [file], references: [file], onDelete: Cascade)
+
+  @@id([noteId, file])
+  @@index([file])
 }
 
 // ---------------------------------------------------------------------------

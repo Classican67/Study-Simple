@@ -77,6 +77,8 @@
   --color-success-container: var(--m3-success-container);
   --color-on-success-container: var(--m3-on-success-container);
 
+  --color-bandeau: var(--m3-bandeau);
+  --color-on-bandeau: var(--m3-on-bandeau);
   --color-surface: var(--m3-surface);
   --color-on-surface: var(--m3-on-surface);
   --color-on-surface-variant: var(--m3-on-surface-variant);
@@ -169,6 +171,10 @@
 
      Le reflet est fort en clair et faible en sombre : une tranche brillante
      sur fond noir ferait un liseré blanc, ce que ne fait aucun verre. */
+  /* Le bandeau d'une feuille : un bleu encre, la couleur d'un cahier, qui reste à
+     distance du violet des commandes. */
+  --m3-bandeau: oklch(42% 0.085 258);
+  --m3-on-bandeau: oklch(98% 0.005 258);
   --verre-reflet: rgb(255 255 255 / 0.8);
   --verre-bord: rgb(255 255 255 / 0.55);
   --verre-creux-ombre: rgb(0 0 0 / 0.07);
@@ -178,6 +184,8 @@
 .dark {
   color-scheme: dark;
 
+  --m3-bandeau: oklch(27% 0.05 258);
+  --m3-on-bandeau: oklch(95% 0.01 258);
   --verre-reflet: rgb(255 255 255 / 0.13);
   --verre-bord: rgb(255 255 255 / 0.1);
   --verre-creux-ombre: rgb(0 0 0 / 0.3);
@@ -274,7 +282,7 @@
 }
 @media (width >= 48rem) {
   :root {
-    --ink-chrome: calc(4rem + env(safe-area-inset-top) + env(safe-area-inset-bottom) + 1.5rem);
+    --ink-chrome: calc(env(safe-area-inset-top) + env(safe-area-inset-bottom) + 1.5rem);
   }
 }
 
@@ -581,6 +589,14 @@
   .dark .text-c-emerald { color: oklch(82% 0.14 160); }
   .dark .text-c-blue { color: oklch(82% 0.11 250); }
   .dark .text-c-violet { color: oklch(82% 0.13 292); }
+
+  /* Sur du papier, le thème n'y fait rien : du rose pâle sur un polycopié blanc ne
+     se lit pas. Mêmes teintes que sur fond clair. */
+  .dark .ink-clair .text-c-rose { color: oklch(48% 0.20 15); }
+  .dark .ink-clair .text-c-amber { color: oklch(46% 0.13 70); }
+  .dark .ink-clair .text-c-emerald { color: oklch(45% 0.14 160); }
+  .dark .ink-clair .text-c-blue { color: oklch(46% 0.16 250); }
+  .dark .ink-clair .text-c-violet { color: oklch(48% 0.20 292); }
 }
 
 /* Respecte les réglages d'accessibilité : pas d'animation pour qui a demandé

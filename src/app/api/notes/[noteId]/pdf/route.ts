@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { UNTITLED } from "@/lib/notes";
+import { contenusImprimables, UNTITLED } from "@/lib/notes";
 import { notePdf } from "@/lib/note-pdf";
 
 /**
@@ -34,9 +34,9 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
     select: {
       title: true,
       blocks: {
-        where: { kind: "drawing" },
+        where: { kind: { in: ["drawing", "image"] } },
         orderBy: { position: "asc" },
-        select: { content: true },
+        select: { kind: true, content: true },
       },
     },
   });
@@ -44,7 +44,7 @@ export async function GET(request: Request, context: RouteContext<"/api/notes/[n
 
   const octets = await notePdf(
     note.title,
-    note.blocks.map((b) => b.content),
+    contenusImprimables(note.blocks),
     mode,
   );
   if (!octets) {

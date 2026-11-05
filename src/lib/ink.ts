@@ -86,6 +86,50 @@ export function translateStroke(flat: number[], dx: number, dy: number): number[
   return moved;
 }
 
+/**
+ * Une transformation de la sélection : déplacer, agrandir, tourner.
+ *
+ * Tout passe par la même formule, autour d'un centre fixe, plutôt que par trois
+ * fonctions : poignées et déplacement agissent sur le même cadre, et les traits
+ * comme les images posées doivent en sortir exactement au même endroit — deux
+ * calculs séparés finiraient par faire glisser l'écriture hors de son schéma.
+ */
+export type Transfo = {
+  /** Centre de l'agrandissement et de la rotation. */
+  cx: number;
+  cy: number;
+  /** Facteur d'agrandissement. */
+  echelle: number;
+  /** Rotation, en radians. */
+  angle: number;
+  dx: number;
+  dy: number;
+};
+
+export const TRANSFO_NEUTRE: Transfo = { cx: 0, cy: 0, echelle: 1, angle: 0, dx: 0, dy: 0 };
+
+export function transformerPoint(point: Point, t: Transfo): Point {
+  const cos = Math.cos(t.angle);
+  const sin = Math.sin(t.angle);
+  const x = (point.x - t.cx) * t.echelle;
+  const y = (point.y - t.cy) * t.echelle;
+  return {
+    x: t.cx + x * cos - y * sin + t.dx,
+    y: t.cy + x * sin + y * cos + t.dy,
+  };
+}
+
+/** Transforme les points d'un trait. La pression ne change pas. */
+export function transformerTrait(flat: number[], t: Transfo): number[] {
+  const sortie = [...flat];
+  for (let i = 0; i + 1 < sortie.length; i += 3) {
+    const p = transformerPoint({ x: sortie[i], y: sortie[i + 1] }, t);
+    sortie[i] = round(p.x);
+    sortie[i + 1] = round(p.y);
+  }
+  return sortie;
+}
+
 export const SHAPES = ["line", "rect", "ellipse"] as const;
 export type Shape = (typeof SHAPES)[number];
 

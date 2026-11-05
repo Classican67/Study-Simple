@@ -1,6 +1,6 @@
 "use client";
 
-import { resolveInk } from "@/lib/ink-color";
+import { inkCss, resolveInk } from "@/lib/ink-color";
 import * as React from "react";
 
 import {
@@ -13,30 +13,45 @@ import {
   snapRulerAngle,
   snapShape,
   snapStrokeToRuler,
+  pointInPolygon,
   strokeInLasso,
-  translateStroke,
   unionBounds,
   type Bounds,
   type Point,
   type Ruler,
   type Shape,
+  type Transfo,
 } from "@/lib/ink";
-import { LisseurDeTrait, LISSAGE, type PointStylet } from "@/lib/ink-smooth";
-import { inkOutlines } from "@/lib/ink-stroke";
+import { cachedPaths, contourSvg, pathsOf } from "@/lib/ink-paths";
+import { datesDuLot, LisseurDeTrait, LISSAGE, pressionDuPoint, type PointStylet } from "@/lib/ink-smooth";
+import { cadreCommun, transformerTraitEntier } from "@/lib/fragment-encre";
 import {
   DEFAULT_RATIO,
+  IMAGE_LARGEUR_MIN,
   MAX_RATIO,
+  centreImage,
+  centreTexte,
   isBackdropPage,
   isImagePage,
   pageAtY,
   pageBands,
   paperClass,
   paperStepPx,
+  pointSurImage,
+  pointSurTexte,
+  transformerImage,
+  transformerTexte,
   type DrawingContent,
+  type ImagePosee,
   type Stroke,
   type Tool,
+  type ZoneTexte,
 } from "@/lib/notes";
 import { signalerStylet } from "@/lib/palm";
+import { lirePosition, retenirPosition } from "@/lib/position-lecture";
+import type { Surligne } from "@/lib/recherche-document";
+import { CadreSelection } from "@/components/note/cadre-selection";
+import { ZoneRendue } from "@/components/note/zones-texte";
 import { PdfPage } from "@/components/note/pdf-page";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +103,7 @@ import { cn } from "@/lib/utils";
  * vrai défilement, qui emmène le document de fond avec l'encre.
  */
 
-export type InkTool = Tool | "eraser" | "lasso" | "shape";
+export type InkTool = Tool | "eraser" | "lasso" | "shape" | "texte";
 
 /** Largeur de la règle, en proportion de la page. */
 const RULER_THICKNESS = 0.055;
@@ -130,6 +145,14 @@ const MAX_SCALE = 6;
  */
 const GOMME_RAYON = 0.018;
 
+/**
+ * Pause de la main après laquelle l'encre fraîche rejoint la page.
+ *
+ * Plus long que l'intervalle entre deux lettres, plus court que le temps qu'il
+ * faut pour lever les yeux et aller toucher une commande.
+ */
+const ENCRE_PAUSE_MS = 280;
+
 /** Le point tombe-t-il sur la règle ? */
 function nearRuler(point: number[], ruler: Ruler): boolean {
   const dx = Math.cos(ruler.angle);
@@ -160,70 +183,6 @@ function rank(stroke: Stroke): number {
 
 function strokeAlpha(stroke: Stroke): number {
   return instrumentOf(stroke.tool).alpha;
-}
-
-/**
- * Contour d'un trait, dans le repère de mille unités.
- *
- * Ne dépendant ni du zoom ni de la taille de l'écran, il est calculé une fois
- * et gardé en cache — c'est ce qui rend le redessin quasiment gratuit.
- */
-function outlinesOf(stroke: Stroke): number[][][] {
-  const points: number[][] = [];
-  for (let i = 0; i + 2 < stroke.points.length; i += 3) {
-    points.push([stroke.points[i] * REF, stroke.points[i + 1] * REF, stroke.points[i + 2] ?? 0.5]);
-  }
-  // Le calcul vit dans `lib/ink-stroke.ts`, avec celui de l'export : c'est la
-  // seule façon de garantir qu'un trait sorte du PDF tel qu'on l'a vu. Ici
-  // l'échelle vaut 1 — on est déjà dans le repère de mille unités.
-  return inkOutlines(points, stroke.points, stroke.tool, stroke.size, 1);
-}
-
-/** Chemin fermé d'un contour. Des courbes, pour ne pas voir les facettes. */
-function pathOf(outline: number[][]): Path2D | null {
-  if (outline.length < 3) return null;
-  const path = new Path2D();
-  path.moveTo(outline[0][0], outline[0][1]);
-  for (let i = 1; i < outline.length; i++) {
-    const [x0, y0] = outline[i - 1];
-    const [x1, y1] = outline[i];
-    path.quadraticCurveTo(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
-  }
-  path.closePath();
-  return path;
-}
-
-/**
- * Les chemins d'un trait — un par mèche.
- *
- * Ils sont remplis **séparément**, et c'est tout l'intérêt : réunis dans un
- * seul chemin, les recouvrements ne compteraient qu'une fois et l'on
- * retrouverait un aplat uni. Ce sont eux qui font la densité d'un crayon.
- */
-function pathsOf(stroke: Stroke): Path2D[] {
-  const chemins: Path2D[] = [];
-  for (const contour of outlinesOf(stroke)) {
-    const path = pathOf(contour);
-    if (path) chemins.push(path);
-  }
-  return chemins;
-}
-
-/**
- * Contours gardés en cache, par trait.
- *
- * C'est ce qui rend le redessin gratuit : repeindre une tuile ne recalcule
- * aucune géométrie, elle ne fait que rejouer des chemins déjà construits.
- * `WeakMap` — le cache s'efface avec les traits, sans avoir à le vider.
- */
-const chemins = new WeakMap<Stroke, Path2D[]>();
-
-function cachedPaths(stroke: Stroke): Path2D[] {
-  const connu = chemins.get(stroke);
-  if (connu) return connu;
-  const liste = pathsOf(stroke);
-  chemins.set(stroke, liste);
-  return liste;
 }
 
 /** Cadres englobants gardés en cache, pour écarter vite ce qui est hors champ. */
@@ -279,7 +238,18 @@ export function InkCanvas({
   onView,
   onPage,
   selection = [],
+  imagesChoisies = [],
   onSelect,
+  barreSelection,
+  surlignes,
+  surligneActif = [],
+  masques,
+  poigneeRef,
+  zoneEditee = null,
+  onTexte,
+  onFinTexte,
+  onMesureTexte,
+  editeur,
   ruler = null,
   onRuler,
   eraseHighlightsOnly = false,
@@ -333,7 +303,29 @@ export function InkCanvas({
    * pour l'annulation.
    */
   selection?: number[];
-  onSelect?: (indices: number[]) => void;
+  /** Images retenues par le lasso, ou touchées, par leur identifiant. */
+  imagesChoisies?: string[];
+  onSelect?: (indices: number[], images?: string[]) => void;
+  /** Les actions de la sélection, posées sous son cadre. */
+  barreSelection?: React.ReactNode;
+  /** Ce que la loupe a trouvé, et l'occurrence qu'on regarde. */
+  surlignes?: Surligne[];
+  surligneActif?: Surligne[];
+  /**
+   * Révision : chaque surlignage devient un cache opaque, qu'on touche pour voir
+   * ce qu'il couvre. Rien n'est écrit tant que le mode est actif.
+   */
+  masques?: { reveles: Set<number>; onToucher: (rang: number) => void } | null;
+  /** Permet de verser l'encre fraîche avant une action venue d'ailleurs. */
+  poigneeRef?: React.RefObject<{ verser: () => void } | null>;
+  /** La zone en cours d'écriture : elle n'est pas rendue, l'éditeur est à sa place. */
+  zoneEditee?: string | null;
+  /** L'outil Texte a touché la page, sur une zone ou à côté. */
+  onTexte?: (point: Point, zone: ZoneTexte | null) => void;
+  onFinTexte?: () => void;
+  onMesureTexte?: (id: string, h: number) => void;
+  /** L'éditeur de texte, dans le repère de la page. */
+  editeur?: (pageW: number) => React.ReactNode;
   /**
    * Règle posée sur la page, ou absente.
    *
@@ -444,6 +436,21 @@ export function InkCanvas({
    * cherche à éviter. Cf. `lib/ink-smooth.ts` pour le filtre lui-même.
    */
   const lisseur = React.useRef<LisseurDeTrait | null>(null);
+  /** Heure du lot précédent, pour dater ceux qui n'ont pas la leur. */
+  const heureDuLot = React.useRef(0);
+
+  /*
+   * L'encre fraîche : posée, mais pas encore versée dans la page.
+   *
+   * Écrire, c'est lever et reposer la pointe dix fois par seconde. Repeindre les
+   * tuiles et prévenir React à chaque lever se payait sur le **poser suivant** : le
+   * fil principal était pris, et le début de la lettre arrivait en retard ou
+   * n'arrivait pas — un tracé qui ne semble pas continu, sans qu'un seul trait soit
+   * perdu dans le code. Les traits restent donc sur la couche vive tant que la main
+   * écrit, et ne rejoignent les tuiles et l'enregistrement qu'à la première pause.
+   */
+  const fraiches = React.useRef<{ trait: Stroke; encre: string }[]>([]);
+  const minuteurEncre = React.useRef(0);
 
   /*
    * Les points **prédits**, qui ne sont jamais enregistrés.
@@ -495,7 +502,26 @@ export function InkCanvas({
   const auteur = React.useRef<number | null>(null);
   const lasso = React.useRef<Point[] | null>(null);
   const rulerDrag = React.useRef<"move" | "rotate" | null>(null);
-  const moving = React.useRef<{ x: number; y: number } | null>(null);
+  /*
+   * Le geste du cadre en cours, et l'état d'avant lui.
+   *
+   * On repart toujours de cet état : appliquer chaque image du geste au résultat
+   * de la précédente accumulerait les arrondis, et une image agrandie puis
+   * ramenée à sa taille n'y reviendrait pas.
+   */
+  const geste = React.useRef<{
+    traits: Map<number, Stroke>;
+    images: Map<string, ImagePosee>;
+    textes: Map<string, ZoneTexte>;
+  } | null>(null);
+  const [transfo, setTransfo] = React.useState<Transfo | null>(null);
+  const [imagesVives, setImagesVives] = React.useState<ImagePosee[] | null>(null);
+  const [textesVifs, setTextesVifs] = React.useState<ZoneTexte[] | null>(null);
+  // Le toucher de l'outil Texte, à la pointe ou à la souris.
+  const toucherTexte = React.useRef<{ x: number; y: number; id: number } | null>(null);
+  // Un doigt qui se pose quand le lasso est actif : un toucher, s'il ne bouge pas.
+  const toucherImage = React.useRef<{ x: number; y: number; quand: number; id: number } | null>(null);
+  const toucherMasque = React.useRef<{ x: number; y: number; quand: number; id: number } | null>(null);
   const touches = React.useRef(new Map<number, { x: number; y: number }>());
   const gesture = React.useRef<{ distance: number; x: number; y: number; scale: number } | null>(null);
   /*
@@ -840,10 +866,21 @@ export function InkCanvas({
     context.clearRect(0, 0, w, h);
 
     const trait = drawing.current;
-    if (!trait || trait.points.length < 3) return;
+    const enAttente = fraiches.current;
+    if (enAttente.length === 0 && (!trait || trait.points.length < 3)) return;
 
     context.save();
     placerFenetre(context, 1 / REF);
+    for (const { trait: posee, encre } of enAttente) {
+      const parties = cachedPaths(posee);
+      context.globalAlpha = alphaParPasse(strokeAlpha(posee), parties.length);
+      context.fillStyle = encre;
+      for (const path of parties) context.fill(path);
+    }
+    if (!trait || trait.points.length < 3) {
+      context.restore();
+      return;
+    }
     // Le trait peint va jusqu'où la main *sera*, pas jusqu'où elle était : les
     // points prédits comblent le retard du lissage. Ils ne sont pas dans
     // `drawing.current`, donc ils ne seront jamais enregistrés.
@@ -1001,24 +1038,8 @@ export function InkCanvas({
       context.restore();
     }
 
-    const retenus = selection.map((i) => strokes.current[i]?.points).filter(Boolean);
-    const cadre = unionBounds(retenus as number[][]);
-    if (cadre) {
-      const marge = 0.012;
-      context.save();
-      context.setLineDash([5 / largeur, 4 / largeur]);
-      context.lineWidth = trait;
-      context.strokeStyle = primaire;
-      context.strokeRect(
-        cadre.minX - marge,
-        cadre.minY - marge,
-        cadre.maxX - cadre.minX + marge * 2,
-        cadre.maxY - cadre.minY + marge * 2,
-      );
-      context.restore();
-    }
     context.restore();
-  }, [cadrer, placerFenetre, ruler, selection]);
+  }, [cadrer, placerFenetre, ruler]);
 
   /*
    * Une seule demande de dessin par image.
@@ -1106,6 +1127,8 @@ export function InkCanvas({
     const scroller = scrollRef.current;
     if (!scroller) return;
     const refuser = (event: TouchEvent) => {
+      // Sauf dans une zone de texte : on y sélectionne, et Scribble y a sa place.
+      if ((event.target as HTMLElement | null)?.closest?.("[data-editeur-texte]")) return;
       if (event.cancelable) event.preventDefault();
     };
     scroller.addEventListener("touchmove", refuser, { passive: false });
@@ -1115,7 +1138,7 @@ export function InkCanvas({
   // Le contenu peut venir de l'extérieur : chargement, annulation, duplication.
   // Pendant un tracé, on ne se laisse pas écraser — la main est sur la page.
   React.useEffect(() => {
-    if (drawing.current) return;
+    if (drawing.current || fraiches.current.length > 0) return;
     // Notre propre écho : le parent nous rend la liste que nous venons de lui
     // donner. Rien n'a changé à l'écran, il n'y a rien à repeindre — et
     // repeindre ici doublait le travail de chaque lettre écrite.
@@ -1126,6 +1149,22 @@ export function InkCanvas({
     salir(null);
     peindreRepere();
   }, [content, onStrokeCount, salir, peindreRepere]);
+
+  /*
+   * On retrouve la page où l'on s'était arrêté.
+   *
+   * Un polycopié de quarante pages se rouvre sur la vingt-septième : celle qu'on
+   * lisait, pas la couverture. Mémorisé en proportion de la largeur, pour valoir
+   * d'un appareil à l'autre, et seulement après la pose de la largeur : avant, la
+   * page n'a pas encore sa hauteur et le défilement serait perdu.
+   */
+  const repris = React.useRef(false);
+  React.useEffect(() => {
+    if (repris.current || !scrollId || pageW === 0 || !scrollRef.current) return;
+    repris.current = true;
+    const position = lirePosition(scrollId);
+    if (position > 0) scrollRef.current.scrollTop = position * pageW;
+  }, [pageW, scrollId]);
 
   // Largeur, hauteur de fenêtre, zoom, papier : tout le pavage est à refaire.
   React.useEffect(() => {
@@ -1173,6 +1212,136 @@ export function InkCanvas({
     setCount(strokes.current.length);
     onStrokeCount?.(strokes.current.length);
   }, [onStrokeCount]);
+
+  /**
+   * Verse l'encre fraîche dans la page, et l'enregistre.
+   *
+   * Lu par une minuterie et par le démontage : il passe par des références, qui
+   * disent ce que le rendu sait maintenant, pas ce qu'il savait au dernier trait.
+   */
+  const commitActuel = React.useRef(commit);
+  React.useLayoutEffect(() => {
+    commitActuel.current = commit;
+  });
+  const verser = React.useCallback(
+    (ratio?: number) => {
+      window.clearTimeout(minuteurEncre.current);
+      const enAttente = fraiches.current;
+      if (enAttente.length === 0) return;
+      fraiches.current = [];
+      let zone: Bounds | null = null;
+      for (const { trait } of enAttente) {
+        const b = cachedBounds(trait);
+        if (!b) continue;
+        zone = zone
+          ? {
+              minX: Math.min(zone.minX, b.minX),
+              minY: Math.min(zone.minY, b.minY),
+              maxX: Math.max(zone.maxX, b.maxX),
+              maxY: Math.max(zone.maxY, b.maxY),
+            }
+          : b;
+      }
+      // Les tuiles d'abord, la couche vive ensuite : l'encre passe de l'une à
+      // l'autre dans la même image, sans clignoter.
+      salir(zone);
+      demander("vive");
+      commitActuel.current(typeof ratio === "number" ? ratio : vue.current.ratio);
+    },
+    [salir, demander],
+  );
+
+  // Ce qui attend ne doit pas se perdre quand l'onglet part.
+  React.useEffect(() => {
+    if (poigneeRef) poigneeRef.current = { verser: () => verser() };
+    const vider = () => {
+      if (document.visibilityState === "hidden") verser();
+    };
+    document.addEventListener("visibilitychange", vider);
+    window.addEventListener("pagehide", vider);
+    return () => {
+      document.removeEventListener("visibilitychange", vider);
+      window.removeEventListener("pagehide", vider);
+      if (poigneeRef) poigneeRef.current = null;
+      verser();
+    };
+  }, [poigneeRef, verser]);
+
+  /* ------------------------------------------------------------------ *
+   * Le geste du cadre de sélection.
+   * ------------------------------------------------------------------ */
+
+  const debutTransfo = React.useCallback(() => {
+    const traits = new Map<number, Stroke>();
+    for (const i of selection) {
+      const trait = strokes.current[i];
+      if (trait) traits.set(i, trait);
+    }
+    const choisies = new Set(imagesChoisies);
+    const images = new Map(content.images.filter((im) => choisies.has(im.id)).map((im) => [im.id, im]));
+    const textes = new Map(content.textes.filter((z) => choisies.has(z.id)).map((z) => [z.id, z]));
+    geste.current = { traits, images, textes };
+  }, [selection, imagesChoisies, content.images, content.textes]);
+
+  /** Applique la transformation à l'état de départ, pas à la dernière image. */
+  const appliquerTransfo = React.useCallback(
+    (t: Transfo) => {
+      const g = geste.current;
+      if (!g) return null;
+      strokes.current = strokes.current.map((stroke, i) => {
+        const avant = g.traits.get(i);
+        return avant ? transformerTraitEntier(avant, t) : stroke;
+      });
+      const images = content.images.map((im) => {
+        const avant = g.images.get(im.id);
+        return avant ? transformerImage(avant, t) : im;
+      });
+      const textes = content.textes.map((zone) => {
+        const avant = g.textes.get(zone.id);
+        return avant ? transformerTexte(avant, t) : zone;
+      });
+      // Le déplacement traverse la page : on repeint les tuiles montées, ce qui
+      // ne coûte que de rejouer des chemins déjà en cache.
+      salir(null);
+      return { images, textes };
+    },
+    [content.images, content.textes, salir],
+  );
+
+  const suivreTransfo = React.useCallback(
+    (t: Transfo) => {
+      const poses = appliquerTransfo(t);
+      if (!poses) return;
+      setImagesVives(poses.images);
+      setTextesVifs(poses.textes);
+      setTransfo(t);
+    },
+    [appliquerTransfo],
+  );
+
+  const finTransfo = React.useCallback(
+    (t: Transfo) => {
+      const poses = appliquerTransfo(t);
+      geste.current = null;
+      setTransfo(null);
+      setImagesVives(null);
+      setTextesVifs(null);
+      if (!poses) return;
+      const { images, textes } = poses;
+      const neutre = t.dx === 0 && t.dy === 0 && t.echelle === 1 && t.angle === 0;
+      if (neutre) return;
+      compter();
+      // Une surface simple s'allonge pour garder ce qu'on y descend ; une pile
+      // a la hauteur de ses pages.
+      const cadre = cadreCommun(strokes.current, images, textes);
+      const ratio =
+        bands.length === 0 && cadre && cadre.maxY > vue.current.ratio - 0.05
+          ? Math.min(MAX_RATIO, cadre.maxY + 0.1)
+          : vue.current.ratio;
+      onChange({ ...content, ratio, strokes: strokes.current, images, textes });
+    },
+    [appliquerTransfo, bands.length, compter, content, onChange],
+  );
 
   /* ------------------------------------------------------------------ *
    * Défilement, zoom, lancée.
@@ -1259,7 +1428,7 @@ export function InkCanvas({
    * ------------------------------------------------------------------ */
 
   function accepts(event: React.PointerEvent): boolean {
-    if (readOnly) return false;
+    if (readOnly || masques) return false;
     if (event.pointerType === "pen") return true;
     // Le doigt ne dessine plus dès qu'un stylet a servi — ou dès que le verrou
     // est posé, pour pouvoir appuyer la main avant même d'approcher le stylet.
@@ -1269,7 +1438,23 @@ export function InkCanvas({
 
   /** Le doigt sert-il à déplacer la page plutôt qu'à écrire ? */
   function doigtDeplace(): boolean {
-    return readOnly || penSeen.current || penOnly;
+    return readOnly || Boolean(masques) || penSeen.current || penOnly;
+  }
+
+  /** Le cache touché : le surlignage dont le trait passe sous ce point. */
+  function masqueEn(point: Point): number {
+    let trouve = -1;
+    strokes.current.forEach((stroke, rang) => {
+      if (!instrumentOf(stroke.tool).dessous) return;
+      const portee = strokeWeight(stroke) / REF / 2 + 0.006;
+      for (let i = 0; i + 1 < stroke.points.length; i += 3) {
+        if (Math.hypot(stroke.points[i] - point.x, stroke.points[i + 1] - point.y) <= portee) {
+          trouve = rang;
+          return;
+        }
+      }
+    });
+    return trouve;
   }
 
   /**
@@ -1297,15 +1482,20 @@ export function InkCanvas({
    * Arrondir avant de filtrer reviendrait à filtrer du bruit qu'on a soi-même
    * ajouté ; et sans l'horodatage, un filtre en temps réel n'a pas de temps.
    */
-  function brutOf(event: PointerEvent | React.PointerEvent): PointStylet | null {
+  function brutOf(
+    event: PointerEvent | React.PointerEvent,
+    /** L'événement du lot : c'est lui qui dit si c'est un stylet, et comment il appuie. */
+    principal: PointerEvent | React.PointerEvent = event,
+    temps: number = event.timeStamp,
+  ): PointStylet | null {
     const rect = pageRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0) return null;
-    const pression = event.pointerType === "pen" && event.pressure > 0 ? event.pressure : 0.5;
+    const pression = pressionDuPoint(event, principal);
     return {
       x: (event.clientX - rect.left) / rect.width,
       y: (event.clientY - rect.top) / rect.width,
       pression,
-      temps: event.timeStamp,
+      temps,
     };
   }
 
@@ -1353,6 +1543,15 @@ export function InkCanvas({
      */
     event.preventDefault();
     stopper();
+    // Toucher la page à côté d'une zone en cours d'écriture la referme : sur iPad, un
+    // canevas qui refuse le comportement par défaut ne retire pas le focus.
+    if (zoneEditee) {
+      onFinTexte?.();
+      return;
+    }
+    if (masques) {
+      toucherMasque.current = { x: event.clientX, y: event.clientY, quand: event.timeStamp, id: event.pointerId };
+    }
 
     if (event.pointerType === "touch") {
       // Un doigt posé pendant que le stylet écrit, c'est la paume : on l'ignore.
@@ -1379,10 +1578,18 @@ export function InkCanvas({
         };
         const { x, y, distance } = pinch();
         gesture.current = { distance, x, y, scale: vue.current.scale };
+        verser();
         return;
       }
       if (doigtDeplace()) {
         fling.current = { vx: 0, vy: 0, t: event.timeStamp, raf: 0 };
+        // Le doigt ne trace pas de lasso quand le verrou est posé — mais il doit
+        // pouvoir toucher une image pour la saisir : c'est le geste naturel, et
+        // le verrou est posé d'office.
+        toucherImage.current =
+          (tool === "lasso" || tool === "texte") && !readOnly
+            ? { x: event.clientX, y: event.clientY, quand: event.timeStamp, id: event.pointerId }
+            : null;
         return;
       }
     }
@@ -1423,8 +1630,17 @@ export function InkCanvas({
     }
     const point = pointOf(event);
 
+    // Un trait suit un trait sans rien verser ; le reste travaille sur la page.
+    window.clearTimeout(minuteurEncre.current);
+    if (tool === "eraser" || tool === "lasso") verser();
+
     if (tool === "eraser") {
       eraseAt(point);
+      return;
+    }
+
+    if (tool === "texte") {
+      toucherTexte.current = { x: event.clientX, y: event.clientY, id: event.pointerId };
       return;
     }
 
@@ -1446,23 +1662,9 @@ export function InkCanvas({
     }
 
     if (tool === "lasso") {
-      // Repartir d'une sélection existante : si l'on repose le doigt dedans,
-      // c'est pour la déplacer, pas pour en tracer une autre.
-      const retenus = selection.map((i) => strokes.current[i]?.points).filter(Boolean);
-      const cadre = unionBounds(retenus as number[][]);
-      const marge = 0.012;
-      if (
-        cadre &&
-        point[0] >= cadre.minX - marge &&
-        point[0] <= cadre.maxX + marge &&
-        point[1] >= cadre.minY - marge &&
-        point[1] <= cadre.maxY + marge
-      ) {
-        moving.current = { x: point[0], y: point[1] };
-        return;
-      }
-
-      onSelect?.([]);
+      // Le cadre de la sélection, posé par-dessus, reçoit les gestes qui
+      // tombent dedans : arriver ici, c'est avoir posé le doigt à côté.
+      onSelect?.([], []);
       lasso.current = [{ x: point[0], y: point[1] }];
       demander("repere");
       return;
@@ -1476,6 +1678,7 @@ export function InkCanvas({
       // Un trait neuf, un lisseur neuf : le filtre part de la pointe posée, et
       // non de la fin du trait précédent.
       const depart = brutOf(event);
+      heureDuLot.current = event.timeStamp;
       lisseur.current = new LisseurDeTrait();
       drawing.current = {
         color,
@@ -1563,21 +1766,6 @@ export function InkCanvas({
       if (event.buttons === 0) return;
       const point = pointOf(event);
 
-      if (moving.current) {
-        const dx = point[0] - moving.current.x;
-        const dy = point[1] - moving.current.y;
-        const bouge = new Set(selection);
-        strokes.current = strokes.current.map((stroke, i) =>
-          bouge.has(i) ? { ...stroke, points: translateStroke(stroke.points, dx, dy) } : stroke,
-        );
-        moving.current = { x: point[0], y: point[1] };
-        // Le déplacement traverse la page : on repeint les tuiles montées, ce
-        // qui ne coûte que de rejouer des chemins déjà en cache.
-        salir(null);
-        demander("repere");
-        return;
-      }
-
       if (lasso.current) {
         lasso.current.push({ x: point[0], y: point[1] });
         demander("repere");
@@ -1598,12 +1786,19 @@ export function InkCanvas({
         ? event.nativeEvent.getCoalescedEvents()
         : [];
     const filtre = lisseur.current;
-    for (const e of bruts.length > 0 ? bruts : [event.nativeEvent]) {
+    const lot = bruts.length > 0 ? bruts : [event.nativeEvent];
+    const dates = datesDuLot(
+      lot.map((e) => e.timeStamp),
+      heureDuLot.current,
+      event.timeStamp,
+    );
+    heureDuLot.current = event.timeStamp;
+    for (const [rang, e] of lot.entries()) {
       if (!filtre) {
         drawing.current.points.push(...pointOf(e));
         continue;
       }
-      const brut = brutOf(e);
+      const brut = brutOf(e, event.nativeEvent, dates[rang]);
       if (!brut) continue;
       // Le filtre voit **tous** les points — c'est de là qu'il tire sa
       // précision — mais il ne rend que ceux qui avancent assez pour valoir
@@ -1616,12 +1811,39 @@ export function InkCanvas({
   }
 
   function onPointerUp(event?: React.PointerEvent<HTMLCanvasElement>) {
+    const pose = toucherMasque.current;
+    toucherMasque.current = null;
+    if (
+      masques &&
+      event &&
+      pose?.id === event.pointerId &&
+      event.timeStamp - pose.quand < 400 &&
+      Math.hypot(event.clientX - pose.x, event.clientY - pose.y) < 10
+    ) {
+      const [x, y] = pointOf(event);
+      const rang = masqueEn({ x, y });
+      if (rang >= 0) masques.onToucher(rang);
+    }
+
     // Un doigt ne survole pas : levé, il n'a plus d'anneau à montrer.
     if (event?.pointerType === "touch" && survol.current) {
       survol.current = null;
       demander("repere");
     }
     if (event?.pointerType === "touch") {
+      const pose = toucherImage.current;
+      toucherImage.current = null;
+      if (
+        pose &&
+        pose.id === event.pointerId &&
+        touches.current.size === 1 &&
+        event.timeStamp - pose.quand < 400 &&
+        Math.hypot(event.clientX - pose.x, event.clientY - pose.y) < 10
+      ) {
+        const [x, y] = pointOf(event);
+        if (tool === "texte") toucherPourTexte({ x, y });
+        else choisirImageEn({ x, y });
+      }
       touches.current.delete(event.pointerId);
       if (touches.current.size < 2) gesture.current = null;
       if (touches.current.size === 0) {
@@ -1630,6 +1852,7 @@ export function InkCanvas({
         // Un quart de seconde, sans glisser : au-delà, on a posé les doigts pour
         // pincer ou défiler et on s'est ravisé — ce n'est pas une commande.
         if (toucher && !toucher.bouge && event.timeStamp - toucher.debut < 250) {
+          verser();
           onFingerTap?.(toucher.doigts);
           return;
         }
@@ -1645,31 +1868,51 @@ export function InkCanvas({
     if (event && auteur.current !== null && event.pointerId !== auteur.current) return;
     auteur.current = null;
 
+    const touche = toucherTexte.current;
+    toucherTexte.current = null;
+    if (touche && event && Math.hypot(event.clientX - touche.x, event.clientY - touche.y) < 12) {
+      const [x, y] = pointOf(event);
+      toucherPourTexte({ x, y });
+      return;
+    }
+
     if (rulerDrag.current) {
       rulerDrag.current = null;
       return;
     }
 
-    // Fin d'un déplacement de sélection : on enregistre la nouvelle position.
-    if (moving.current) {
-      moving.current = null;
-      compter();
-      commit();
-      return;
-    }
-
-    // Fin d'un tracé de lasso : on retient ce qu'il entoure.
+    // Fin d'un tracé de lasso : on retient ce qu'il entoure — traits et images.
     if (lasso.current) {
       const polygone = lasso.current;
       lasso.current = null;
+      demander("repere");
+
+      /*
+       * Un lasso qui n'a presque pas bougé est un toucher : il désigne l'image
+       * qui se trouve là. C'est ce qui permet de la saisir sans avoir à
+       * l'entourer, et le cadre prend ensuite le relais.
+       */
+      const xs = polygone.map((p) => p.x);
+      const ys = polygone.map((p) => p.y);
+      const etendue = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+      if (etendue < 0.008) {
+        choisirImageEn(polygone[0]);
+        return;
+      }
+
       onSelect?.(
         polygone.length >= 3
           ? strokes.current
               .map((stroke, i) => (strokeInLasso(stroke.points, polygone) ? i : -1))
               .filter((i) => i >= 0)
           : [],
+        polygone.length >= 3
+          ? [
+              ...content.images.filter((im) => pointInPolygon(centreImage(im), polygone)).map((im) => im.id),
+              ...content.textes.filter((z) => pointInPolygon(centreTexte(z), polygone)).map((z) => z.id),
+            ]
+          : [],
       );
-      demander("repere");
       return;
     }
 
@@ -1693,6 +1936,20 @@ export function InkCanvas({
     poserTrait(trait);
   }
 
+  /** Retient l'image la plus haute sous ce point, s'il y en a une. */
+  function choisirImageEn(point: Point) {
+    // Le texte d'abord : il est au-dessus des images.
+    const zone = [...content.textes].reverse().find((z) => pointSurTexte(point, z));
+    const touchee = zone ?? [...content.images].reverse().find((im) => pointSurImage(point, im));
+    onSelect?.([], touchee ? [touchee.id] : []);
+  }
+
+  function toucherPourTexte(point: Point) {
+    const zone = [...content.textes].reverse().find((z) => pointSurTexte(point, z));
+    verser();
+    onTexte?.(point, zone ?? null);
+  }
+
   /** Range un trait terminé sur la page, et enregistre. */
   function poserTrait(trait: Stroke) {
     // Une prédiction n'est pas de l'encre : elle s'arrête avec le geste.
@@ -1700,7 +1957,7 @@ export function InkCanvas({
     // Un simple appui ne laisse rien : une pointe posée par mégarde ne doit pas
     // marquer la page.
     if (trait.points.length < 6) {
-      viderVive();
+      demander("vive");
       return;
     }
 
@@ -1718,10 +1975,6 @@ export function InkCanvas({
 
     strokes.current = [...strokes.current, final];
     compter();
-    // Seules les tuiles que le trait traverse sont repeintes, puis la couche
-    // vive est effacée : l'encre passe d'une couche à l'autre sans clignoter.
-    salir(cachedBounds(final));
-    viderVive();
 
     /*
      * La page s'allonge quand on approche du bas, comme un cahier qu'on
@@ -1735,7 +1988,21 @@ export function InkCanvas({
       growable && bands.length === 0 && bas > vue.current.ratio - 0.12
         ? Math.min(MAX_RATIO, bas + 0.45)
         : vue.current.ratio;
-    commit(nouveauRatio);
+
+    fraiches.current.push({ trait: final, encre: encreVive.current });
+    window.clearTimeout(minuteurEncre.current);
+    /*
+     * Tout de suite quand la page doit changer de hauteur, ou pour ce qui passe
+     * **sous** l'encre : sur la couche vive, un surligneur recouvrirait l'écriture
+     * jusqu'à la pause. Et au-delà de soixante traits sans pause : la couche vive
+     * les repeint tous à chaque image.
+     */
+    if (nouveauRatio !== vue.current.ratio || instrumentOf(final.tool).dessous || fraiches.current.length >= 60) {
+      verser(nouveauRatio);
+      return;
+    }
+    demander("vive");
+    minuteurEncre.current = window.setTimeout(verser, ENCRE_PAUSE_MS);
   }
 
   /**
@@ -1748,6 +2015,19 @@ export function InkCanvas({
    */
   function onPointerInterrompu(event?: React.PointerEvent<HTMLCanvasElement>) {
     if (event?.pointerType === "touch") {
+      const pose = toucherImage.current;
+      toucherImage.current = null;
+      if (
+        pose &&
+        pose.id === event.pointerId &&
+        touches.current.size === 1 &&
+        event.timeStamp - pose.quand < 400 &&
+        Math.hypot(event.clientX - pose.x, event.clientY - pose.y) < 10
+      ) {
+        const [x, y] = pointOf(event);
+        if (tool === "texte") toucherPourTexte({ x, y });
+        else choisirImageEn({ x, y });
+      }
       touches.current.delete(event.pointerId);
       if (touches.current.size < 2) gesture.current = null;
       // Un contact que le système reprend n'est pas un toucher volontaire.
@@ -1915,6 +2195,32 @@ export function InkCanvas({
     WebkitTapHighlightColor: "transparent",
   };
 
+  const imagesAffichees = imagesVives ?? content.images;
+  const textesAffiches = textesVifs ?? content.textes;
+
+  /*
+   * Le cadre, tiré du **contenu** et non du geste : pendant le geste c'est lui
+   * qui suit la transformation, à partir de ce cadre de départ.
+   */
+  const choisies = imagesChoisies.length > 0 ? new Set(imagesChoisies) : null;
+  const imagesRetenues = choisies ? content.images.filter((im) => choisies.has(im.id)) : [];
+  const textesRetenus = choisies ? content.textes.filter((z) => choisies.has(z.id)) : [];
+  const cadreChoisi =
+    !readOnly &&
+    tool === "lasso" &&
+    (selection.length > 0 || imagesRetenues.length > 0 || textesRetenus.length > 0)
+      ? cadreCommun(
+          selection.map((i) => content.strokes[i]).filter((s): s is Stroke => Boolean(s)),
+          imagesRetenues,
+          textesRetenus,
+        )
+      : null;
+  // On ne réduit pas une image jusqu'à ne plus pouvoir la rattraper.
+  const echelleMin = imagesRetenues.reduce(
+    (plancher, im) => Math.max(plancher, IMAGE_LARGEUR_MIN / im.w),
+    0.1,
+  );
+
   return (
     <div
       ref={scrollRef}
@@ -1922,8 +2228,11 @@ export function InkCanvas({
       onScroll={() => {
         demander("tuiles");
         demander("repere");
-        if (drawing.current) demander("vive");
+        if (drawing.current || fraiches.current.length > 0) demander("vive");
         majFenetre();
+        if (scrollId && repris.current && scrollRef.current && vue.current.pageW > 0) {
+          retenirPosition(scrollId, scrollRef.current.scrollTop / vue.current.pageW);
+        }
       }}
       className={cn("ink-surface scroll-slim relative overflow-auto overscroll-contain", className)}
       // Publiée ici, relue par les deux couches collantes.
@@ -1941,7 +2250,7 @@ export function InkCanvas({
           // suit pas le thème de l'app. Sans elle, le stylo écrivait en blanc
           // sur un polycopié blanc dès qu'on passait en thème sombre.
           bands.length > 0
-            ? "ink-clair bg-surface-container-high"
+            ? "ink-clair bg-surface-high"
             : cn("papier", paperClass(paper)),
         )}
         style={
@@ -2042,6 +2351,47 @@ export function InkCanvas({
           );
         })}
 
+        {/* Les images posées, **sous** l'encre : on écrit dessus. Elles sont en
+            HTML plutôt que sur les tuiles : le navigateur les décode et les met
+            à l'échelle lui-même, ce qui les garde nettes à tous les zooms sans
+            repeindre quoi que ce soit — et les déplacer ne coûte qu'un style. */}
+        {imagesAffichees.length > 0 ? (
+          <div aria-hidden data-images-posees="" className="pointer-events-none absolute inset-0">
+            {imagesAffichees.map((image) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={image.id}
+                data-image-posee={image.id}
+                data-angle={image.angle || undefined}
+                src={`/api/uploads/${image.file}`}
+                alt=""
+                draggable={false}
+                loading="lazy"
+                decoding="async"
+                className="absolute max-w-none"
+                style={{
+                  left: `${image.x * pageW}px`,
+                  top: `${image.y * pageW}px`,
+                  width: `${image.w * pageW}px`,
+                  height: `${image.w * image.ratio * pageW}px`,
+                  transform: image.angle ? `rotate(${image.angle}rad)` : undefined,
+                }}
+              />
+            ))}
+          </div>
+        ) : null}
+
+        {/* Le texte, sous l'encre lui aussi. */}
+        {textesAffiches.length > 0 ? (
+          <div data-zones-texte="" className="pointer-events-none absolute inset-0">
+            {textesAffiches.map((zone) =>
+              zone.id === zoneEditee ? null : (
+                <ZoneRendue key={zone.id} zone={zone} pageW={pageW} onMesure={textesVifs ? undefined : onMesureTexte} />
+              ),
+            )}
+          </div>
+        ) : null}
+
         {/* Les tuiles d'encre, posées dans la page. Elles sont créées à la main
             plutôt que rendues par React : leur nombre change à chaque
             défilement, et un rendu React par tuile coûterait plus que la
@@ -2058,10 +2408,63 @@ export function InkCanvas({
           className="pointer-events-none absolute inset-0 text-on-surface"
         />
 
+        {/* Ce que la loupe a trouvé. Au-dessus de l'encre, mais en multiplication :
+            le mot reste lisible sous son surlignage, sur un scan comme sur un PDF. */}
+        {surlignes && surlignes.length > 0 ? (
+          <div aria-hidden data-surlignes="" className="pointer-events-none absolute inset-0 mix-blend-multiply">
+            {surlignes.map((rect, i) => {
+              const actif = surligneActif.includes(rect);
+              return (
+                <span
+                  key={i}
+                  data-surligne={actif ? "actif" : ""}
+                  className={cn("absolute rounded-[2px]", actif ? "bg-primary/55" : "bg-primary/25")}
+                  style={{
+                    left: `${rect.x * pageW}px`,
+                    top: `${rect.y * pageW}px`,
+                    width: `${rect.l * pageW}px`,
+                    height: `${rect.h * pageW}px`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        ) : null}
+
+        {/* Les caches de révision : le contour même du surlignage, opaque, au-dessus
+            de tout ce qui est écrit. Un cache révélé laisse revoir le surlignage
+            d'origine. En SVG : il suit le zoom sans qu'on repeigne rien. */}
+        {masques ? (
+          <svg
+            aria-hidden
+            data-masques=""
+            viewBox={`0 0 ${REF} ${ratio * REF}`}
+            preserveAspectRatio="none"
+            className="pointer-events-none absolute inset-0 h-full w-full"
+          >
+            {content.strokes.map((stroke, rang) =>
+              instrumentOf(stroke.tool).dessous ? (
+                <path
+                  key={rang}
+                  data-masque={masques.reveles.has(rang) ? "revele" : "cache"}
+                  d={contourSvg(stroke)}
+                  fill={inkCss(stroke.color)}
+                  stroke={inkCss(stroke.color)}
+                  strokeWidth={6}
+                  strokeLinejoin="round"
+                  className="transition-opacity duration-200"
+                  opacity={masques.reveles.has(rang) ? 0 : 1}
+                />
+              ) : null,
+            )}
+          </svg>
+        ) : null}
+
         {/* Le trait en cours, seul sur sa couche. */}
         <canvas
           ref={liveRef}
           aria-hidden
+          data-ink-couche=""
           className="pointer-events-none block text-on-surface"
           style={{ ...fenetreStyle, marginBottom: "calc(-1 * var(--ink-fenetre))" }}
         />
@@ -2070,6 +2473,7 @@ export function InkCanvas({
             gestes. C'est la couche du dessus : c'est donc elle qui écoute. */}
         <canvas
           ref={decorRef}
+          data-ink-couche=""
           data-testid="drawing-canvas"
           data-pen-mode={penMode ? "true" : "false"}
           data-zoom={scale.toFixed(2)}
@@ -2093,6 +2497,26 @@ export function InkCanvas({
           )}
           style={{ ...fenetreStyle, marginBottom: "calc(-1 * var(--ink-fenetre))" }}
         />
+
+        {editeur ? <div className="pointer-events-none absolute inset-0 z-20">{editeur(pageW)}</div> : null}
+
+        {/* Le cadre de la sélection : au-dessus de la couche qui écoute, pour
+            que ce qui tombe dedans soit pour lui. Il vit dans la page et glisse
+            donc avec elle, sans qu'on ait rien à repeindre. */}
+        {cadreChoisi ? (
+          <div className="pointer-events-none absolute inset-0 z-10">
+            <CadreSelection
+              cadre={cadreChoisi}
+              transfo={transfo}
+              pageW={pageW}
+              echelleMin={echelleMin}
+              onDebut={debutTransfo}
+              onTransfo={suivreTransfo}
+              onFin={finTransfo}
+              barre={barreSelection}
+            />
+          </div>
+        ) : null}
       </div>
     </div>
   );

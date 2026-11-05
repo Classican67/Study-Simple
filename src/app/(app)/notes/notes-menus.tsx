@@ -314,7 +314,7 @@ export function FolderMenu({
       trigger={
         <MoreButton
           label={`Options du dossier « ${folder.name} »`}
-          className="absolute right-1 top-1/2 z-10 -translate-y-1/2"
+          className="absolute right-1 top-1 z-10"
         />
       }
     >

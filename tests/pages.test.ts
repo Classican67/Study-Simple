@@ -56,6 +56,7 @@ const contenu = (pages: NotePage[], strokes: Stroke[] = []): DrawingContent => (
   ratio: surfaceRatio(pages),
   paper: "blank",
   pages,
+  images: [], textes: [],
 });
 
 const doc = (n: number, ratio = 1.4): NotePage[] =>
@@ -512,7 +513,7 @@ describe("blockFiles", () => {
   });
 
   it("ne relève rien d'un bloc sans fond", () => {
-    assert.deepEqual(blockFiles("drawing", JSON.stringify({ pages: [], strokes: [] })), []);
+    assert.deepEqual(blockFiles("drawing", JSON.stringify({ pages: [], images: [], textes: [], strokes: [] })), []);
   });
 
   it("ni d'un bloc qui n'est pas une page manuscrite", () => {
@@ -552,7 +553,7 @@ describe("insertDocumentPages", () => {
   });
 
   it("fait d'une page manuscrite simple une pile, sans déplacer ce qui y est écrit", () => {
-    const simple: DrawingContent = { strokes: [trait(0.3)], ratio: 0.9, paper: "ruled", pages: [] };
+    const simple: DrawingContent = { strokes: [trait(0.3)], ratio: 0.9, paper: "ruled", pages: [], images: [], textes: [] };
     const suivant = insertDocumentPages(simple, 0, PDF, [1.4]);
     assert.deepEqual(suivant.pages.map(pageKind), ["blank", "document"]);
     assert.deepEqual(suivant.strokes, simple.strokes);
@@ -589,7 +590,7 @@ describe("insertImagePage", () => {
   });
 
   it("fait d'une page manuscrite simple une pile, sans déplacer ce qui y est écrit", () => {
-    const simple: DrawingContent = { strokes: [trait(0.3)], ratio: 0.9, paper: "grid", pages: [] };
+    const simple: DrawingContent = { strokes: [trait(0.3)], ratio: 0.9, paper: "grid", pages: [], images: [], textes: [] };
     const suivant = insertImagePage(simple, 0, PHOTO, 1.2);
     assert.deepEqual(suivant.pages, [{ paper: "grid", ratio: 0.9 }, { image: PHOTO, ratio: 1.2 }]);
     assert.deepEqual(suivant.strokes, simple.strokes);
@@ -597,7 +598,7 @@ describe("insertImagePage", () => {
   });
 
   it("se relit telle qu'elle a été écrite, et désigne son fichier", () => {
-    const suivant = insertImagePage({ strokes: [], ratio: 0.75, paper: "ruled", pages: [] }, 0, PHOTO, 0.6);
+    const suivant = insertImagePage({ strokes: [], ratio: 0.75, paper: "ruled", pages: [], images: [], textes: [] }, 0, PHOTO, 0.6);
     assert.deepEqual(parseDrawing(JSON.stringify(suivant)).pages.map(pageKind), ["blank", "image"]);
     assert.deepEqual(blockFiles("drawing", JSON.stringify(suivant)), [PHOTO]);
   });
@@ -613,7 +614,7 @@ describe("insertImagePage", () => {
 });
 
 describe("notePreview", () => {
-  const vierge = JSON.stringify({ strokes: [], ratio: 0.75, paper: "blank", pages: [] });
+  const vierge = JSON.stringify({ strokes: [], ratio: 0.75, paper: "blank", pages: [], images: [], textes: [] });
   const polycopie = JSON.stringify(contenu(doc(2, 1.4)));
   const ecrite = JSON.stringify(contenu([], [trait(0.3)]));
   const note = (pages: Record<string, string>) => {
@@ -663,7 +664,7 @@ describe("notePreview", () => {
 describe("aperçu d'une page vierge qui porte une image plus bas", () => {
   it("montre la photo glissée après la page vierge d'une note neuve", () => {
     const pile = insertImagePage(
-      { strokes: [], ratio: 0.75, paper: "blank", pages: [] },
+      { strokes: [], ratio: 0.75, paper: "blank", pages: [], images: [], textes: [] },
       0,
       "2b99d23b-1b21-481f-8748-23a00e9e9eb7.jpg",
       0.6,
@@ -673,7 +674,7 @@ describe("aperçu d'une page vierge qui porte une image plus bas", () => {
 
   it("garde l'écriture dès qu'il y a un trait, même avant une photo", () => {
     const pile = insertImagePage(
-      { strokes: [trait(0.3)], ratio: 0.75, paper: "blank", pages: [] },
+      { strokes: [trait(0.3)], ratio: 0.75, paper: "blank", pages: [], images: [], textes: [] },
       0,
       "2b99d23b-1b21-481f-8748-23a00e9e9eb7.jpg",
       0.6,

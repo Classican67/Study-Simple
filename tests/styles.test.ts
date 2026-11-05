@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -57,5 +57,38 @@ describe("globals.css", () => {
     // Sinon le navigateur en dessine une seconde, à côté de la nôtre, sans en
     // suivre ni la couleur ni la taille de cible.
     assert.match(couches.get("base") ?? "", /::-webkit-search-cancel-button/);
+  });
+});
+
+/*
+ * Une classe de couleur qui ne correspond à aucun rôle du thème ne produit
+ * **rien** : pas d'erreur, pas d'avertissement, un fond transparent. C'est ainsi
+ * que `bg-surface-container-high` a vécu dans treize endroits — la barre de
+ * l'éditeur, les dialogues, la gouttière entre deux pages — sans jamais exister :
+ * le rôle s'appelle `surface-high`. La capture d'une barre illisible en sombre l'a
+ * montré ; aucune mesure ne pouvait le dire, puisque l'élément existe et mesure
+ * ce qu'il doit.
+ */
+describe("classes de couleur", () => {
+  const theme = readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8");
+  const roles = new Set([...theme.matchAll(/--color-([a-z0-9-]+):/g)].map((m) => m[1]));
+  const familles = /^(surface|on-|primary|secondary|tertiary|error|outline|inverse|success)/;
+
+  const fichiers = (dossier: string): string[] =>
+    readdirSync(dossier, { withFileTypes: true }).flatMap((entree) => {
+      const chemin = path.join(dossier, entree.name);
+      if (entree.isDirectory()) return fichiers(chemin);
+      return /\.tsx?$/.test(entree.name) ? [chemin] : [];
+    });
+
+  it("ne désignent que des rôles déclarés dans le thème", () => {
+    const inconnues = new Set<string>();
+    for (const fichier of fichiers(path.join(process.cwd(), "src"))) {
+      const code = readFileSync(fichier, "utf8");
+      for (const m of code.matchAll(/(?<![\w-])(?:bg|text|border|ring|divide|fill|stroke|from|to|via)-([a-z][a-z-]*[a-z])(?![\w-])/g)) {
+        if (familles.test(m[1]) && !roles.has(m[1])) inconnues.add(`${m[0]} (${path.basename(fichier)})`);
+      }
+    }
+    assert.deepEqual([...inconnues], []);
   });
 });

@@ -7,7 +7,7 @@ export default function NotFound() {
   return (
     <main className="grid min-h-dvh place-items-center px-6 text-center">
       <div>
-        <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-surface-container-high text-on-surface-variant">
+        <div className="mx-auto mb-5 grid size-14 place-items-center rounded-2xl bg-surface-high text-on-surface-variant">
           <FileQuestion className="size-6" />
         </div>
         <h1 className="m3-title-large">Page introuvable</h1>

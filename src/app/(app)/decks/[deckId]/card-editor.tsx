@@ -301,7 +301,7 @@ function CardRow({
             // retrouver d'où vient la carte.
             <Link
               href={`/decks/${card.copiedFrom.deckId}#card-${card.copiedFrom.cardId}`}
-              className="flex min-h-9 items-center gap-1.5 rounded-full bg-surface-container-high px-3 m3-label-small text-on-surface-variant transition-colors hover:text-primary"
+              className="flex min-h-9 items-center gap-1.5 rounded-full bg-surface-high px-3 m3-label-small text-on-surface-variant transition-colors hover:text-primary"
               title={`Voir l'originale dans « ${card.copiedFrom.deckTitle} »`}
             >
               <Link2 className="size-3.5 shrink-0" />
@@ -338,7 +338,7 @@ function CardRow({
               tabIndex={-1}
               // `touch-none` empêche le navigateur de faire défiler la page
               // pendant qu'on glisse la carte au doigt.
-              className="grid size-11 cursor-grab touch-none place-items-center rounded-xl text-on-surface-variant transition-colors hover:bg-surface-container-high hover:text-on-surface active:cursor-grabbing"
+              className="grid size-11 cursor-grab touch-none place-items-center rounded-xl text-on-surface-variant transition-colors hover:bg-surface-high hover:text-on-surface active:cursor-grabbing"
             >
               <GripVertical className="size-4" />
             </button>

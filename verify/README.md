@@ -23,6 +23,15 @@ session valide. Un jeton périmé fait rediriger vers `/login` : les scripts
 mesurent alors l'écran de connexion en annonçant que tout va bien. Devant un
 résultat étonnamment propre, relancer `./bootstrap.sh`.
 
+## Les deux serveurs
+
+Depuis les feuilles, une note neuve n'a plus de blocs. La plupart des scénarios
+exercent l'éditeur à blocs, toujours utilisé par les notes d'avant : les lancer sur
+un serveur démarré avec `NOTES_FORMAT_DEFAUT=blocs`. `feuille-e2e`,
+`recherche-documents-e2e`, `images-posees-e2e`, `etude-e2e`, `texte-e2e` et
+`latence-e2e` veulent le serveur ordinaire. Le bac à sable doit aussi être migré, **serveur arrêté** :
+`DATABASE_URL="file:$PWD/verify/verif.db" npx prisma migrate deploy`.
+
 ## Les contrôles
 
 Le serveur doit tourner sur le port 3100, **sur une copie de la base et un

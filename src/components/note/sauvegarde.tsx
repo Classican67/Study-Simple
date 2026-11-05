@@ -540,7 +540,7 @@ function PanneauSauvegarde({ noteId, outils }: { noteId: string; outils: OutilsS
               className="flex items-center justify-between gap-3 m3-body-small text-on-surface-variant"
             >
               <span className="truncate">
-                {brouillon.kind === "drawing" ? "Page manuscrite" : brouillon.kind === "table" ? "Tableau" : "Texte"}
+                {brouillon.kind === "drawing" ? "Page manuscrite" : brouillon.kind === "table" ? "Tableau" : brouillon.kind === "image" ? "Image" : "Texte"}
                 {" · "}
                 {new Date(brouillon.seq).toLocaleTimeString("fr-CA", {
                   hour: "2-digit",

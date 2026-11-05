@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { LogOut, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/logo";
-import { InlineNavigation, isImmersive } from "@/components/navigation-bar";
-import { SearchDialog } from "@/components/search-dialog";
+import { isImmersive } from "@/components/navigation-bar";
+import { OUVRIR_RECHERCHE, SearchDialog } from "@/components/search-dialog";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { logout } from "@/app/(auth)/login/actions";
 import { oublierLeContenu } from "@/lib/hors-ligne/client";
@@ -19,12 +19,14 @@ import { oublierLeContenu } from "@/lib/hors-ligne/client";
  * pixel rendu à la carte se lit de plus loin. Le retour reste assuré par le
  * lien en tête de l'écran de révision.
  */
-export function AppBar({ userName, isAdmin }: { userName: string; isAdmin: boolean }) {
+export function AppBar({ userName }: { userName: string }) {
   const pathname = usePathname();
   if (isImmersive(pathname)) return null;
+  void userName;
 
   return (
-    <header className="pt-safe sticky top-0 z-40 bg-surface/85 backdrop-blur-xl">
+    // Sur téléphone seulement : au-delà, c'est la colonne latérale qui porte tout.
+    <header className="pt-safe sticky top-0 z-40 bg-surface/85 backdrop-blur-xl md:hidden">
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-3 px-4 sm:px-6">
         {/* Marque plate et monochrome : dans une barre Material 3, où tout est
             plat, le badge en dégradé ferait pièce rapportée. `min-h-12` donne
@@ -38,38 +40,49 @@ export function AppBar({ userName, isAdmin }: { userName: string; isAdmin: boole
           <span className="m3-title-medium">Fiches</span>
         </Link>
 
-        {/* Séparation nette entre la marque et la navigation : sans elle, le
-            logo paraît appartenir au premier onglet. */}
-        <div className="ml-3 hidden h-6 w-px bg-outline-variant md:block" />
-
-        <div className="hidden md:block">
-          <InlineNavigation isAdmin={isAdmin} />
-        </div>
-
         <div className="ml-auto flex items-center gap-1">
-          {/* Le nom encombre inutilement une barre de 390 px de large. */}
-          <span className="mr-1 hidden m3-label-large text-on-surface-variant lg:inline">
-            {userName}
-          </span>
-
           <SearchDialog />
-          <ThemeToggle />
-
-          {/* Ce qui était gardé hors ligne part avec la session ; les réponses
-              pas encore envoyées, elles, attendent la prochaine connexion. */}
-          <form action={logout} onSubmit={() => void oublierLeContenu()}>
-            <Button
-              variant="toolbar-icon"
-              size="icon"
-              type="submit"
-              title="Se déconnecter"
-              aria-label="Se déconnecter"
-            >
-              <LogOut />
-            </Button>
-          </form>
+          <CommandesCompte />
         </div>
       </div>
     </header>
+  );
+}
+
+/** Le thème et la déconnexion : les mêmes dans la barre et dans la colonne. */
+export function CommandesCompte() {
+  return (
+    <>
+      <ThemeToggle />
+      {/* Ce qui était gardé hors ligne part avec la session ; les réponses pas
+          encore envoyées, elles, attendent la prochaine connexion. */}
+      <form action={logout} onSubmit={() => void oublierLeContenu()}>
+        <Button
+          variant="toolbar-icon"
+          size="icon"
+          type="submit"
+          title="Se déconnecter"
+          aria-label="Se déconnecter"
+        >
+          <LogOut />
+        </Button>
+      </form>
+    </>
+  );
+}
+
+/** Ouvre la recherche depuis la colonne : le dialogue, lui, reste unique. */
+export function BoutonRecherche() {
+  return (
+    <button
+      type="button"
+      aria-label="Rechercher"
+      title="Rechercher (Ctrl+K)"
+      onClick={() => window.dispatchEvent(new Event(OUVRIR_RECHERCHE))}
+      className="state-layer flex h-11 w-full items-center justify-center gap-3 rounded-2xl bg-surface-high px-3 m3-label-large text-on-surface-variant lg:justify-start"
+    >
+      <Search className="size-5 shrink-0" />
+      <span className="hidden lg:inline">Rechercher</span>
+    </button>
   );
 }
